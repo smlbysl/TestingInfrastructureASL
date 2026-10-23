@@ -2,7 +2,7 @@ from ctypes import c_uint16, c_uint32, LittleEndianStructure, c_char
 from typing import Optional
 
 from generic.basemessage import BaseFooter, BaseMessageStructure, LengthType, CounterType, AsciiType, ChecksumType
-from generic.signature import SignatureClass
+from generic.signature import Signature
 from generic.enumerations import Direction, ProtocolType
 
 
@@ -48,7 +48,7 @@ class AsciiChar(AsciiType):
 
 
 signaturefields = ["destinationId", "messageId"]
-projectsignature = SignatureClass(*signaturefields)
+projectsignature = Signature(*signaturefields)
 
 
 class ProjectBase1(BaseMessageStructure, LittleEndianStructure):
@@ -63,24 +63,25 @@ class ProjectBase1(BaseMessageStructure, LittleEndianStructure):
         ("checksum",        CRC16),
     ]
 
-    #Communicatin Fields
+    #Communicatin Fields (varsayılan channel)
     _COMMPROTOCOL_: Optional[ProtocolType] = ProtocolType.RS422
     _COMMINTERFACE_ = 0
 
-    #Message Data
+    #Message Data (varsayılanlar)
     _DIRECTION_ = Direction.RX
     _PERIOD_ = None
 
-    def __init__(self, sourceid, destionationid, messageid):
+    def __init__(self, sourceid, destionationid, messageid, **kw):
+        # kw: channel, direction, rx_period, tx_period, rx_tolerance
         setattr(self, "sourceId", sourceid)
         setattr(self, "destinationId", destionationid)
         setattr(self, "messageId", messageid)
 
-        super().__init__()
+        super().__init__(**kw)
 
 
 signaturefields2 = ["destinationId", "sourceId"]
-projectsignature2 = SignatureClass(*signaturefields2)
+projectsignature2 = Signature(*signaturefields2)
 
 
 class ProjectBase2(BaseMessageStructure, LittleEndianStructure):
@@ -95,20 +96,20 @@ class ProjectBase2(BaseMessageStructure, LittleEndianStructure):
         ("checksum",        CRC16),
     ]
 
-    #Communicatin Fields
+    #Communicatin Fields (varsayılan channel)
     _COMMPROTOCOL_: Optional[ProtocolType] = ProtocolType.RS422
     _COMMINTERFACE_ = 0
 
-    #Message Data
+    #Message Data (varsayılanlar)
     _DIRECTION_ = Direction.RX
     _PERIOD_ = None
 
-    def __init__(self, sourceid, destionationid, messageid):
+    def __init__(self, sourceid, destionationid, messageid, **kw):
         setattr(self, "sourceId", sourceid)
         setattr(self, "destinationId", destionationid)
         setattr(self, "messageId", messageid)
 
-        super().__init__()
+        super().__init__(**kw)
 
 
 class bambaşka(ProjectBase2):
@@ -128,22 +129,3 @@ class comut(ProjectBase1):
     _fields_ = [
         ("comut",       c_uint32*2),
     ]
-
-
-if __name__ == "__main__":
-    src, dest = 0x0001, 0x0002
-
-    request_swversion = request(src, dest, 0x10)
-    request2_temp     = request(src, dest, 0x11)
-    comut2            = comut(src, dest, 0x20)
-
-    message1 = ProjectBase1(0xAABB, 0xCCDD, 0xDDEE)
-
-    for m in (request_swversion, request2_temp, comut2, message1):
-        print(f"{type(m).__name__:12} sig=0x{m.signature_id:X} "
-              f"len={m.messageLength.val} crc=0x{m.checksum.val:04X} "
-              f"bytes={bytes(m).hex()}")
-
-    raw = bytes(comut2)
-    found = ProjectBase1.Lookup(raw)
-    print("Lookup ->", found.__name__ if found else None)
