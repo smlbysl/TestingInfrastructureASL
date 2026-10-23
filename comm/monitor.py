@@ -37,9 +37,10 @@ class Monitor:
         """Bayat olan periyodik RX mesajlarını döndürür."""
         reports = []
         for project in self.projects:
-            for msg in project.registry().periodic_rx:
-                if not msg.rx_state.is_fresh():
-                    reports.append(StaleReport(msg, msg.rx_state.age()))
+            for reg in project.families():
+                for msg in reg.periodic_rx:
+                    if not msg.rx_state.is_fresh():
+                        reports.append(StaleReport(msg, msg.rx_state.age()))
         return reports
 
     # ---------------------------------------------------------------- arka plan

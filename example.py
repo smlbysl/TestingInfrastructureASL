@@ -7,7 +7,8 @@ import time
 from comm import Dispatcher, LoopbackTransport, Monitor, Scheduler
 from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
-from project.projectbase import ProjectBase1, comut, request
+from project.messages import bambaşka, comut, request
+from project.project import Family1, ProjectBase
 
 RS422_0 = Channel(ProtocolType.RS422, 0)
 ETH_1 = Channel(ProtocolType.ETHERNET, 1)
@@ -15,32 +16,42 @@ ETH_1 = Channel(ProtocolType.ETHERNET, 1)
 SRC, DEST = 0x0001, 0x0002
 
 
+def show_registries() -> None:
+    for reg in ProjectBase.families():
+        fields = "+".join(reg.signature.fields) if reg.signature else "-"
+        print(f"  [{fields}]")
+        print("    all        :", [type(m).__name__ for m in reg.all])
+        print("    dispatch   :", {f"{ch}/0x{sid:X}": type(m).__name__ for (ch, sid), m in reg.dispatch.items()})
+        print("    periodic_tx:", [type(m).__name__ for m in reg.periodic_tx])
+        print("    periodic_rx:", [type(m).__name__ for m in reg.periodic_rx])
+
+
 def main() -> None:
     # --- Mesaj nesneleri (ICD'den) -------------------------------------------
-    # TX, 20 ms periyotlu: Scheduler gönderir
+    # Aile 1: TX, 20 ms periyotlu -> Scheduler gönderir
     sw_version_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx_period=0.02)
-    # RX, 50 ms'de bir gelmesi beklenen: Monitor izler, Dispatcher yazar
+    # Aile 1: RX, 50 ms'de bir gelmesi beklenen -> Monitor izler, Dispatcher yazar
     status = comut(DEST, SRC, 0x20, direction=Direction.RX, rx_period=0.05)
     # Aynı mesaj tanımı, farklı channel'dan gelen ikinci nesne
     status_eth = comut(DEST, SRC, 0x20, channel=ETH_1, direction=Direction.RX)
-    # Çift yönlü, varsayılan channel (RS422:0)
-    heartbeat = ProjectBase1(SRC, DEST, 0x30, direction=Direction.BOTH,
-                             rx_period=0.1, tx_period=0.1)
+    # Aile 1: çift yönlü, varsayılan channel (RS422:0)
+    heartbeat = Family1(SRC, DEST, 0x30, direction=Direction.BOTH, rx_period=0.1, tx_period=0.1)
+    # Aile 2: farklı signature (destinationId + sourceId), Ethernet'ten gelir
+    diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.RX)
 
     # --- Katmanlar --------------------------------------------------------------
     transport = LoopbackTransport()
-    dispatcher = Dispatcher(ProjectBase1,
+    dispatcher = Dispatcher(ProjectBase,
                             on_unknown=lambda ch, raw: print(f"  [unknown] {ch} {raw.hex()}"),
                             on_invalid=lambda m, raw: print(f"  [invalid] {type(m).__name__}"))
     transport.set_receiver(dispatcher.on_raw)
-    scheduler = Scheduler(transport, ProjectBase1)
-    monitor = Monitor(ProjectBase1)
+    scheduler = Scheduler(transport, ProjectBase)
+    monitor = Monitor(ProjectBase)
 
-    reg = ProjectBase1.registry()
-    print("all        :", [type(m).__name__ for m in reg.all])
-    print("dispatch   :", {f"{ch}/0x{sid:X}": type(m).__name__ for (ch, sid), m in reg.dispatch.items()})
-    print("periodic_tx:", [type(m).__name__ for m in reg.periodic_tx])
-    print("periodic_rx:", [type(m).__name__ for m in reg.periodic_rx])
+    print("Registry (aile başına)")
+    show_registries()
+    print("  RS422:0 aileleri:", [reg.signature.fields for reg in ProjectBase.families(RS422_0)])
+    print("  ETH:1   aileleri:", [reg.signature.fields for reg in ProjectBase.families(ETH_1)])
 
     # --- TX: Scheduler ----------------------------------------------------------
     print("\nTX")
@@ -59,6 +70,11 @@ def main() -> None:
     remote.comut[0] = 0xCAFE
     transport.inject(RS422_0, remote.pack())
     print(f"  status.comut[0] = 0x{status.comut[0]:X}  (eth nesnesi: 0x{status_eth.comut[0]:X})")
+
+    remote_diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.TX)
+    remote_diag.request[0] = 0xBEEF
+    transport.inject(ETH_1, remote_diag.pack())
+    print(f"  diag.request[0] = 0x{diag.request[0]:X}  (aile 2, ETH:1)")
 
     bad = bytearray(remote.pack())
     bad[comut.checksum.offset] ^= 0xFF                                     # bozuk CRC

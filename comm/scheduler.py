@@ -24,10 +24,11 @@ class Scheduler:
         now = time.monotonic() if now is None else now
         sent = 0
         for project in self.projects:
-            for msg in project.registry().periodic_tx:
-                if msg.tx_state.is_due(now):
-                    self.transport.send(msg.channel, msg.pack())
-                    sent += 1
+            for reg in project.families():
+                for msg in reg.periodic_tx:
+                    if msg.tx_state.is_due(now):
+                        self.transport.send(msg.channel, msg.pack())
+                        sent += 1
         return sent
 
     @staticmethod

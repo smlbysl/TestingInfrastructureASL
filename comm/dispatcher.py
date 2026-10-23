@@ -1,6 +1,7 @@
 """Dispatcher: gelen ham paketi ilgili mesaj nesnesine yazar.
 
 Akış: Transport -> Dispatcher.on_raw(channel, raw) -> ProjectX.lookup(channel, raw) -> obj.decode(raw)
+ProjectX.lookup sadece o channel'dan RX alan ailelerin registry'lerine bakar.
 - Hiçbir projede eşleşmeyen paket `unknown`a,
 - eşleşip validate'ten (boy / length / checksum) geçemeyen paket `invalid`e düşer.
 """
