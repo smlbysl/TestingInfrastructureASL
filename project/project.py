@@ -7,8 +7,10 @@ ProjectBase (proje)  : endian, header, varsayılan channel/yön/periyot
 from ctypes import LittleEndianStructure, c_uint32
 
 from generic.basemessage import BaseMessageStructure
+from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
 from generic.signature import Signature
+from generic.timing import Timing
 from project.types import CRC16, Counter8, Length16
 
 
@@ -23,16 +25,13 @@ class ProjectBase(BaseMessageStructure, LittleEndianStructure):
         ("checksum",        CRC16),
     ]
 
-    # Varsayılan channel
-    _COMMPROTOCOL_ = ProtocolType.RS422
-    _COMMINTERFACE_ = 0
-
-    # Varsayılan yön / periyot
-    _DIRECTION_ = Direction.RX
-    _PERIOD_ = None
+    # Varsayılanlar (nesne başına channel= / direction= / rx= / tx= ile ezilir)
+    _channel = Channel(ProtocolType.RS422, 0)
+    _direction = Direction.RX
+    _timing = Timing()                  # event
 
     def __init__(self, sourceid, destinationid, messageid, **kw):
-        # kw: channel, direction, rx_period, tx_period, rx_tolerance
+        # kw: channel, direction, rx, tx
         self.sourceId = sourceid
         self.destinationId = destinationid
         self.messageId = messageid

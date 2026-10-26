@@ -7,6 +7,7 @@ import time
 from comm import Dispatcher, LoopbackTransport, Monitor, Scheduler
 from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
+from generic.timing import Timing
 from project.messages import bambaşka, comut, request
 from project.project import Family1, ProjectBase
 
@@ -29,15 +30,23 @@ def show_registries() -> None:
 def main() -> None:
     # --- Mesaj nesneleri (ICD'den) -------------------------------------------
     # Aile 1: TX, 20 ms periyotlu -> Scheduler gönderir
-    sw_version_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx_period=0.02)
+    sw_version_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))
     # Aile 1: RX, 50 ms'de bir gelmesi beklenen -> Monitor izler, Dispatcher yazar
-    status = comut(DEST, SRC, 0x20, direction=Direction.RX, rx_period=0.05)
-    # Aynı mesaj tanımı, farklı channel'dan gelen ikinci nesne
+    status = comut(DEST, SRC, 0x20, direction=Direction.RX, rx=Timing(0.05, tolerance=1.5))
+    # Aynı mesaj tanımı, farklı channel'dan gelen ikinci nesne (event)
     status_eth = comut(DEST, SRC, 0x20, channel=ETH_1, direction=Direction.RX)
     # Aile 1: çift yönlü, varsayılan channel (RS422:0)
-    heartbeat = Family1(SRC, DEST, 0x30, direction=Direction.BOTH, rx_period=0.1, tx_period=0.1)
+    heartbeat = Family1(SRC, DEST, 0x30, direction=Direction.BOTH, rx=Timing(0.1), tx=Timing(0.1))
     # Aile 2: farklı signature (destinationId + sourceId), Ethernet'ten gelir
     diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.RX)
+
+    # --- Kullanıcı callout'ları ---------------------------------------------------
+    @status.on_receive
+    def print_status(msg):
+        print(f"  [on_receive] {type(msg).__name__}.comut[0] = 0x{msg.comut[0]:X}")
+
+    # Gönderimden önce payload'ı değiştirir; checksum bu değişikliği kapsar
+    sw_version_req.on_send(lambda msg: msg.request.__setitem__(0, msg.tx_state.count))
 
     # --- Katmanlar --------------------------------------------------------------
     transport = LoopbackTransport()
@@ -60,7 +69,10 @@ def main() -> None:
     scheduler.stop()
     print(f"  gönderilen paket: {len(transport.sent)}, "
           f"sw_version_req sayaç: {sw_version_req.messageCounter.val}, "
+          f"request[0] (on_send): {sw_version_req.request[0]}, "
           f"heartbeat sayaç: {heartbeat.messageCounter.val}")
+    print(f"  son paket geçerli mi (checksum on_send değişikliğini kapsıyor): "
+          f"{sw_version_req.validate(bytes(sw_version_req))}")
 
     # --- RX: karşı tarafı taklit et --------------------------------------------
     print("\nRX")

@@ -1,7 +1,7 @@
 """Monitor: periyodik RX mesajlarının zamanında gelip gelmediğini izler.
 
 Kimse mesajı okumasa da geciken/hiç gelmeyen mesajı yakalamak için ayrı çalışır.
-Tazelik kuralı her nesnenin RxState'inde (period * tolerance).
+Tazelik kuralı her nesnenin RxState'inde (timing.period * timing.tolerance).
 """
 import threading
 from dataclasses import dataclass
@@ -18,9 +18,9 @@ class StaleReport:
     def __str__(self) -> str:
         name = type(self.message).__name__
         if self.age is None:
-            return f"{name} @ {self.message.channel}: hiç gelmedi"
-        expected = self.message.rx_state.period
-        return f"{name} @ {self.message.channel}: {self.age:.3f} sn'dir gelmiyor (periyot {expected} sn)"
+            return f"{name} @ {self.message._channel}: hiç gelmedi"
+        expected = self.message._rx.timing.period
+        return f"{name} @ {self.message._channel}: {self.age:.3f} sn'dir gelmiyor (periyot {expected} sn)"
 
 
 class Monitor:
@@ -39,8 +39,8 @@ class Monitor:
         for project in self.projects:
             for reg in project.families():
                 for msg in reg.periodic_rx:
-                    if not msg.rx_state.is_fresh():
-                        reports.append(StaleReport(msg, msg.rx_state.age()))
+                    if not msg._rx.is_fresh():
+                        reports.append(StaleReport(msg, msg._rx.age()))
         return reports
 
     # ---------------------------------------------------------------- arka plan

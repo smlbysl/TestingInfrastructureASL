@@ -26,20 +26,20 @@ class Registry:
 
     def add(self, msg: BaseMessageStructure) -> None:
         self.all.append(msg)
-        if msg.rx_state is not None:
-            if msg.signature_id is not None:
-                key = (msg.channel, msg.signature_id)
+        if msg._rx is not None:
+            if msg._signature_id is not None:
+                key = (msg._channel, msg._signature_id)
                 owner = self.dispatch.get(key)
                 if owner is not None:
                     raise ValueError(
                         f"Çakışma: {type(msg).__name__} ve {type(owner).__name__} aynı "
-                        f"channel ({msg.channel}) ve imzaya (0x{msg.signature_id:X}) sahip")
+                        f"channel ({msg._channel}) ve imzaya (0x{msg._signature_id:X}) sahip")
                 self.dispatch[key] = msg
-                self.channels.add(msg.channel)
-            if msg.rx_state.period:
+                self.channels.add(msg._channel)
+            if msg._rx.timing.is_periodic:
                 self.periodic_rx.append(msg)
         # TX-only nesneler dispatch'e girmez: gelen paket TX nesnesinin üzerine yazmasın
-        if msg.tx_state is not None and msg.tx_state.period:
+        if msg._tx is not None and msg._tx.timing.is_periodic:
             self.periodic_tx.append(msg)
 
     def lookup(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:

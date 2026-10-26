@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import Structure
-from typing import ClassVar, Optional
+from typing import Callable, ClassVar, Optional
 
 from generic.channel import Channel
-from generic.enumerations import Direction, ProtocolType
-from generic.fieldtypes import ChecksumType, CounterType, LengthType
+from generic.enumerations import Direction
+from generic.fieldtypes import FieldType
 from generic.registry import Registry
-from generic.signature import Signature, find_field_type
+from generic.signature import Signature
 from generic.state import RxState, TxState
+from generic.timing import Timing
+
+Callout = Callable[["BaseMessageStructure"], None]
 
 
 class BaseMessageStructure(Structure):
@@ -17,18 +20,19 @@ class BaseMessageStructure(Structure):
 
     Hiyerarşi:  BaseMessageStructure -> Proje -> Aile -> mesaj sınıfı -> nesne
     - Proje: BaseMessageStructure'dan DOĞRUDAN türeyen sınıf. Endian (ctypes tabanı), header
-      alanları, varsayılan channel/yön/periyot. Ailelerinin listesini (_families) tutar.
+      alanları, varsayılan channel/yön/zamanlama. Ailelerinin listesini (_families) tutar.
     - Aile: kendi _signature'ını tanımlayan sınıf. Kendi Registry'sini açar.
       Projenin kendisi de bir registry açar (signature'ı yoksa signature'sız mesajlar için).
     - Mesaj sınıfı: _fields_ ile payload.
-    - Nesne: channel, yön, periyot nesne başına verilir (verilmezse sınıf varsayılanı).
+    - Nesne: channel, yön, zamanlama nesne başına verilir (verilmezse sınıf varsayılanı).
+
+    İsimlendirme: _x_ sadece ctypes'a ait (_fields_, _pack_); sınıf ayarları _x;
+    dışarıya açık bilgiler property (channel, direction, signature_id, rx_state, tx_state).
     """
     _pack_ = 1
 
-    # Özel alanların adları (_fields_ içindeki tipten otomatik bulunur)
-    _COUNTER_FIELD_NAME_: ClassVar[Optional[str]] = None
-    _LENGTH_FIELD_NAME_: ClassVar[Optional[str]] = None
-    _CHECKSUM_FIELD_NAME_: ClassVar[Optional[str]] = None
+    # Özel alanlar: (_order, alan adı), _fields_ içindeki FieldType'lardan otomatik toplanır
+    _special: ClassVar[list[tuple[int, str]]] = []
 
     # Proje / aile
     _signature: ClassVar[Optional[Signature]] = None
@@ -36,18 +40,15 @@ class BaseMessageStructure(Structure):
     _registry: ClassVar[Registry]                # projede ya da ailede tanımlanır
 
     # Varsayılanlar (nesne başına ezilebilir)
-    _COMMPROTOCOL_: ClassVar[Optional[ProtocolType]] = None
-    _COMMINTERFACE_: ClassVar[Optional[int]] = None
-    _DIRECTION_: ClassVar[Direction] = Direction.RX
-    _PERIOD_: ClassVar[Optional[float]] = None
-    _RX_TOLERANCE_: ClassVar[float] = 2.0
+    _channel: ClassVar[Optional[Channel]] = None
+    _direction: ClassVar[Direction] = Direction.RX
+    _timing: ClassVar[Timing] = Timing()
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        for name, ftype, *_ in cls.__dict__.get("_fields_", []):
-            if isinstance(ftype, type) and issubclass(ftype, CounterType):  cls._COUNTER_FIELD_NAME_ = name
-            if isinstance(ftype, type) and issubclass(ftype, LengthType):   cls._LENGTH_FIELD_NAME_ = name
-            if isinstance(ftype, type) and issubclass(ftype, ChecksumType): cls._CHECKSUM_FIELD_NAME_ = name
+        own = [(ftype._order, name) for name, ftype, *_ in cls.__dict__.get("_fields_", [])
+               if isinstance(ftype, type) and issubclass(ftype, FieldType)]
+        cls._special = sorted(cls._special + own)       # miras alınanlar + kendi alanları
 
         if BaseMessageStructure in cls.__bases__:       # proje
             cls._families = []
@@ -60,31 +61,25 @@ class BaseMessageStructure(Structure):
     def __init__(self, *args,
                  channel: Optional[Channel] = None,
                  direction: Optional[Direction] = None,
-                 rx_period: Optional[float] = None,
-                 tx_period: Optional[float] = None,
-                 rx_tolerance: Optional[float] = None,
+                 rx: Optional[Timing] = None,
+                 tx: Optional[Timing] = None,
                  **kw):
         # Metadata keyword olarak alınır, ctypes alanları super()'e gider
         super().__init__(*args, **kw)
 
-        if channel is None and self._COMMPROTOCOL_ is not None and self._COMMINTERFACE_ is not None:
-            channel = Channel(self._COMMPROTOCOL_, self._COMMINTERFACE_)
-        if channel is None:
-            raise AttributeError(f"{type(self).__name__}: channel yok (channel= verin ya da "
-                                 f"_COMMPROTOCOL_ / _COMMINTERFACE_ tanımlayın)")
-        self.channel = channel
+        # Nesne bilgileri alt çizgili tutulur: ICD'de aynı isimde bir alan olsa da çakışmaz
+        self._channel = channel if channel is not None else type(self)._channel
+        if self._channel is None:
+            raise AttributeError(f"{type(self).__name__}: channel yok "
+                                 f"(channel= verin ya da sınıfta _channel tanımlayın)")
+        self._direction = direction if direction is not None else type(self)._direction
+        self._rx = RxState(rx or self._timing) if Direction.RX in self._direction else None
+        self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
+        self._on_receive: list[Callout] = []
+        self._on_send: list[Callout] = []
 
-        self.direction = direction if direction is not None else self._DIRECTION_
-        rx_period = rx_period if rx_period is not None else self._PERIOD_
-        tx_period = tx_period if tx_period is not None else self._PERIOD_
-        tolerance = rx_tolerance if rx_tolerance is not None else self._RX_TOLERANCE_
-        self.rx_state = RxState(rx_period, tolerance) if Direction.RX in self.direction else None
-        self.tx_state = TxState(tx_period) if Direction.TX in self.direction else None
-
-        if self._LENGTH_FIELD_NAME_ is not None:
-            self._update_length()
-        if self._CHECKSUM_FIELD_NAME_ is not None:
-            self._update_checksum()
+        for field in self._special_fields():
+            field.on_init(self)
 
         self._signature_id: Optional[int] = None
         if self._signature is not None:
@@ -92,6 +87,40 @@ class BaseMessageStructure(Structure):
             self._signature_id = self._signature.compute(bytes(self))
 
         self._registry.add(self)
+
+    # ---------------------------------------------------------------- dışarıya açık bilgiler
+
+    @property
+    def channel(self) -> Channel:
+        return self._channel
+
+    @property
+    def direction(self) -> Direction:
+        return self._direction
+
+    @property
+    def signature_id(self) -> Optional[int]:
+        return self._signature_id
+
+    @property
+    def rx_state(self) -> Optional[RxState]:
+        return self._rx
+
+    @property
+    def tx_state(self) -> Optional[TxState]:
+        return self._tx
+
+    # ---------------------------------------------------------------- kullanıcı callout'ları
+
+    def on_receive(self, callout: Callout) -> Callout:
+        """Geçerli paket nesneye yazıldıktan sonra çağrılır. Dekoratör olarak da kullanılabilir."""
+        self._on_receive.append(callout)
+        return callout
+
+    def on_send(self, callout: Callout) -> Callout:
+        """pack() sırasında, counter/checksum'dan ÖNCE çağrılır (değişiklikler checksum'a girer)."""
+        self._on_send.append(callout)
+        return callout
 
     # ---------------------------------------------------------------- proje
 
@@ -119,59 +148,39 @@ class BaseMessageStructure(Structure):
 
     # ---------------------------------------------------------------- RX tarafı
 
-    @property
-    def signature_id(self) -> Optional[int]:
-        return self._signature_id
-
     def validate(self, raw: bytes) -> bool:
-        """Gelen paketin boyu, length alanı ve checksum'ı tutuyor mu?"""
-        size = ctypes.sizeof(self)
-        if len(raw) < size:
+        """Gelen paketin boyu ve özel alanları (length, checksum ...) tutuyor mu?"""
+        if len(raw) < ctypes.sizeof(self):
             return False
-        if self._LENGTH_FIELD_NAME_ is not None:
-            if self._read_field(raw, self._LENGTH_FIELD_NAME_).val != size:
-                return False
-        if self._CHECKSUM_FIELD_NAME_ is not None:
-            field = self._read_field(raw, self._CHECKSUM_FIELD_NAME_)
-            offset = getattr(type(self), self._CHECKSUM_FIELD_NAME_).offset
-            if field.val != field.compute(raw[:offset]):
-                return False
-        return True
+        return all(field.on_receive(self, raw) for field in self._special_fields())
 
     def decode(self, raw: bytes) -> bool:
         """Paket geçerliyse nesnenin ctypes buffer'ına yerinde yazar."""
         if not self.validate(raw):
-            if self.rx_state is not None:
-                self.rx_state.on_error()
+            if self._rx is not None:
+                self._rx.on_error()
             return False
         ctypes.memmove(ctypes.addressof(self), raw, ctypes.sizeof(self))
-        if self.rx_state is not None:
-            self.rx_state.on_receive()
+        if self._rx is not None:
+            self._rx.on_receive()
+        for callout in self._on_receive:
+            callout(self)
         return True
 
     # ---------------------------------------------------------------- TX tarafı
 
     def pack(self) -> bytes:
-        """Gönderim için: counter'ı artırır, checksum'ı günceller, byte'ları döner."""
-        if self._COUNTER_FIELD_NAME_ is not None:
-            getattr(self, self._COUNTER_FIELD_NAME_).next()
-        if self._CHECKSUM_FIELD_NAME_ is not None:
-            self._update_checksum()
-        if self.tx_state is not None:
-            self.tx_state.on_send()
+        """Gönderim için: kullanıcı callout'ları -> özel alanlar (counter, checksum) -> byte'lar."""
+        for callout in self._on_send:
+            callout(self)
+        for field in self._special_fields():
+            field.on_send(self)
+        if self._tx is not None:
+            self._tx.on_send()
         return bytes(self)
 
     # ---------------------------------------------------------------- yardımcılar
 
-    def _read_field(self, raw: bytes, name: str):
-        """Ham paketteki bir alanı kendi tipiyle okur."""
-        ftype = find_field_type(type(self), name)
-        return ftype.from_buffer_copy(raw, getattr(type(self), name).offset)
-
-    def _update_length(self) -> None:
-        getattr(self, self._LENGTH_FIELD_NAME_).val = ctypes.sizeof(self)
-
-    def _update_checksum(self) -> None:
-        offset = getattr(type(self), self._CHECKSUM_FIELD_NAME_).offset
-        field = getattr(self, self._CHECKSUM_FIELD_NAME_)
-        field.val = field.compute(bytes(self)[:offset])
+    def _special_fields(self) -> list[FieldType]:
+        """Özel alanların bu nesnedeki görünümleri, _order sırasıyla (buffer'ı paylaşır)."""
+        return [getattr(self, name) for _, name in self._special]

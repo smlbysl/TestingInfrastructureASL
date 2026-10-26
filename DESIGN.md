@@ -7,11 +7,12 @@ Odak: BaseMessageStructure ve ilişkili yapılar. `comm/` altındakiler (transpo
 ## Dosya yapısı
 ```
 generic/                 projeden bağımsız, her projede aynı
-  basemessage.py         BaseMessageStructure: mesajın kendi işleri (init, validate/decode, pack)
-  fieldtypes.py          FieldType, LengthType, CounterType, ChecksumType, AsciiType
+  basemessage.py         BaseMessageStructure: mesajın kendi işleri (init, validate/decode, pack, callout)
+  fieldtypes.py          FieldType (+ on_init/on_send/on_receive hook'ları), Length/Counter/Checksum/Ascii
   signature.py           Signature: alan listesinden offset+mask, tek ID
   registry.py            Registry: aile başına kayıtlar + lookup
-  state.py               RxState (tazelik), TxState (gönderim zamanı)
+  timing.py              Timing(period, tolerance): sabit zamanlama ayarı
+  state.py               RxState (tazelik), TxState (gönderim zamanı): değişen değerler
   channel.py             Channel(protocol, interface)
   enumerations.py        ProtocolType, Direction (Flag), Endian
 comm/                    haberleşme katmanları (konsept)
@@ -28,10 +29,10 @@ example.py               uçtan uca örnek
 
 ## Katmanlar
 ```
-Test kodu            mesaj nesnelerini kullanır (msg.comut[0], msg.pack())
+Test kodu            mesaj nesnelerini kullanır (msg.comut[0], msg.pack(), msg.on_receive(...))
 Proje / Aile         tanımlar; ProjectX.lookup paketin ailesini bulur
 Registry             aile başına kayıtlar
-Mesaj nesnesi        alanlar, signature_id, decode/pack, rx/tx durumu
+Mesaj nesnesi        alanlar, signature_id, decode/pack, rx/tx durumu, callout'lar
 Scheduler / Monitor  periodic_tx gönderir / periodic_rx denetler
 Dispatcher           transport'tan gelen paketi lookup + decode
 Transport            sadece channel + bytes; alıcı fonksiyon referansı tutar
@@ -42,22 +43,47 @@ Transport hiçbir şeyi bilmez; kurulumda `transport.set_receiver(dispatcher.on_
 ```
 ctypes.Structure
  └ BaseMessageStructure                      ortak davranış
-    └ ProjectBase(..., LittleEndianStructure) endian, header, varsayılanlar, _families
+    └ ProjectBase(..., LittleEndianStructure) endian, header, _channel/_direction/_timing, _families
        ├ Family1   _signature -> _registry
        │  ├ request   _fields_
        │  └ comut     _fields_
        └ Family2   _signature -> _registry
           └ bambaşka  _fields_
-nesne = comut(DEST, SRC, 0x20, channel=..., direction=..., rx_period=...)
+nesne = comut(DEST, SRC, 0x20, channel=..., direction=..., rx=Timing(0.05))
 ```
 - **Proje**: BaseMessageStructure'dan DOĞRUDAN türeyen sınıf. Endian ctypes tabanıyla seçilir
   (`LittleEndianStructure` / `BigEndianStructure`). `_families` listesini ve kendi registry'sini açar
   (signature'ı yoksa signature'sız mesajlar, örn. sadece TX, burada tutulur).
 - **Aile**: kendi `_signature`'ını tanımlayan sınıf. Kendi `Registry`'sini açar, projenin `_families`'ine ekler.
-  Bir projede birden fazla aile (farklı signature) olabilir.
 - **Mesaj sınıfı**: sadece `_fields_` (payload).
-- **Nesne**: `channel`, `direction`, `rx_period`, `tx_period`, `rx_tolerance` keyword olarak;
-  verilmezse proje varsayılanı. Aynı tanım farklı channel'larda farklı nesnelerle kullanılabilir.
+- **Nesne**: `channel`, `direction`, `rx`, `tx` keyword olarak; verilmezse sınıf varsayılanı.
+
+## İsimlendirme
+- `_x_` sadece ctypes'a ait: `_fields_`, `_pack_`.
+- Sınıf ayarları `_x`: `_signature`, `_channel`, `_direction`, `_timing`, `_order` (alan tiplerinde).
+- Nesne bilgileri `_x` olarak saklanır (`_channel`, `_direction`, `_rx`, `_tx`, `_signature_id`);
+  kullanıcıya property ile açılır (`channel`, `direction`, `rx_state`, `tx_state`, `signature_id`).
+- Çerçeve kodu (generic, comm) her zaman alt çizgili bilgiyi kullanır. Böylece ICD'de `channel` ya da
+  `direction` isimli bir alan olsa bile çakışmaz (o mesajda property'yi alan gölgeler, çerçeve etkilenmez).
+
+## Timing
+- `Timing(period=None, tolerance=2.0)`, frozen. `period is None` -> event, değilse periyodik (`is_periodic`).
+- Ayrı "periyodik mi" bayrağı yok; çelişen durum oluşamaz.
+- Ayar sabit ve paylaşılabilir (proje varsayılanı `_timing`); değişen değerler RxState/TxState'te.
+- RX ve TX ayrı: çift yönlü mesajda `rx=Timing(0.1), tx=Timing(0.05)` gibi.
+
+## Özel alanlar (FieldType hook'ları)
+- `__init_subclass__` `_fields_` içindeki FieldType alanlarını `(_order, ad)` olarak `_special`'da toplar
+  (miras alınanlar dahil). BaseMessage alan isimlerini bilmez, sadece hook'ları sırayla çağırır:
+  - `on_init(msg)`: nesne oluşturulurken (LengthType uzunluğu, ChecksumType ilk CRC'yi yazar)
+  - `on_send(msg)`: `pack()` sırasında (CounterType artar, ChecksumType hesaplar)
+  - `on_receive(msg, raw) -> bool`: `validate()` sırasında (LengthType, ChecksumType kontrol eder)
+- ChecksumType `_order = 100`: her zaman en son çalışır, diğer alanların yeni değerini kapsar.
+- Yeni bir özel alan tipi eklemek BaseMessage'a dokunmayı gerektirmez.
+
+## Kullanıcı callout'ları
+- `msg.on_receive(fn)`: geçerli paket nesneye yazıldıktan sonra `fn(msg)`. Dekoratör olarak da kullanılır.
+- `msg.on_send(fn)`: `pack()` içinde, alan hook'larından ÖNCE `fn(msg)`; yapılan değişiklikler checksum'a girer.
 
 ## Signature
 - Aile başına tek tanım: `Signature("alan1", "alan2", ...)`.
@@ -68,15 +94,15 @@ nesne = comut(DEST, SRC, 0x20, channel=..., direction=..., rx_period=...)
 ## Registry (aile başına)
 - `all`: tüm nesneler. `dispatch`: `(channel, signature_id) -> nesne`, sadece RX/çift yönlü.
 - `channels`: ailenin RX aldığı channel'lar. `ProjectX.families(channel)` bununla filtreler.
-- `periodic_rx` (monitor), `periodic_tx` (scheduler).
+- `periodic_rx` (monitor), `periodic_tx` (scheduler): `timing.is_periodic` olanlar.
 - TX-only nesneler `dispatch`'e girmez. Aynı channel + imza ile ikinci RX nesnesi `ValueError`.
-- Mesaj nesnesi kuralları bilmez; sadece `self._registry.add(self)`.
 - `ProjectX.clear_registry()`: projenin tüm ailelerini temizler (testler arası).
 
-## RX / TX
-- `decode(raw)`: `validate` (boy, length alanı, checksum) -> memmove -> `rx_state.on_receive()`;
-  geçersizse nesne değişmez, `rx_state.on_error()`.
-- `pack()`: counter++, checksum, `tx_state.on_send()`, byte'ları döner.
+## RX / TX akışı
+- `decode(raw)`: `validate` (boy + özel alanların `on_receive`'i) -> memmove -> `rx_state.on_receive()`
+  -> kullanıcı `on_receive` callout'ları. Geçersizse nesne değişmez, `rx_state.on_error()`.
+- `pack()`: kullanıcı `on_send` callout'ları -> özel alanların `on_send`'i (counter, checksum)
+  -> `tx_state.on_send()` -> byte'lar.
 
 ## Açık konular
 - Alt sınıfın eklediği alanlar checksum alanının arkasına düşüyor; CRC bu alanları kapsamıyor.
@@ -86,3 +112,4 @@ nesne = comut(DEST, SRC, 0x20, channel=..., direction=..., rx_period=...)
 - Tolerans kuralı (1.5-2x mi, art arda N kaçırma mı) ICD'ye göre seçilecek; şu an `period * tolerance`.
 - Gerçek transport (HTTP üzerinden service) yazılmadı; `Transport`'tan türetilecek.
 - `Counter8` 16 bit (`c_uint16`) alanda tutuluyor, değer 256'da sarıyor; ICD ile kontrol edilmeli.
+- Callout'lar scheduler thread'inde çalışır; uzun süren bir callout gönderim zamanlamasını kaydırır.

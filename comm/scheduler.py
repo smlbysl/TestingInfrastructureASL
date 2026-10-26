@@ -26,15 +26,15 @@ class Scheduler:
         for project in self.projects:
             for reg in project.families():
                 for msg in reg.periodic_tx:
-                    if msg.tx_state.is_due(now):
-                        self.transport.send(msg.channel, msg.pack())
+                    if msg._tx.is_due(now):
+                        self.transport.send(msg._channel, msg.pack())
                         sent += 1
         return sent
 
     @staticmethod
     def send(transport: Transport, msg: BaseMessageStructure) -> None:
         """Periyodik olmayan bir mesajı tek seferlik gönderir."""
-        transport.send(msg.channel, msg.pack())
+        transport.send(msg._channel, msg.pack())
 
     # ---------------------------------------------------------------- arka plan
 

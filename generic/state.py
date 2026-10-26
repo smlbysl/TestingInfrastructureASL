@@ -1,17 +1,18 @@
 """Yöne göre mesaj nesnesine eklenen durum parçaları.
 
 RX içeren mesajda rx_state, TX içeren mesajda tx_state bulunur; çift yönlü mesajda ikisi de.
-TX periyodu ile RX'te beklenen periyot ayrı tutulur.
+Ayar (Timing) sabittir; burada sadece değişen değerler tutulur.
 """
 import time
 from dataclasses import dataclass
 from typing import Optional
 
+from generic.timing import Timing
+
 
 @dataclass
 class RxState:
-    period: Optional[float] = None       # beklenen geliş periyodu (saniye)
-    tolerance: float = 2.0               # period * tolerance aşılırsa veri bayat (ICD'ye göre seçilir)
+    timing: Timing
     last_time: Optional[float] = None    # son geçerli paketin zamanı (time.monotonic)
     count: int = 0                       # geçerli paket sayısı
     errors: int = 0                      # validate'ten geçemeyen paket sayısı
@@ -32,14 +33,14 @@ class RxState:
     def is_fresh(self) -> bool:
         if self.last_time is None:
             return False                 # hiç gelmedi
-        if self.period is None:
-            return True                  # periyodik değil
-        return self.age() <= self.period * self.tolerance
+        if not self.timing.is_periodic:
+            return True                  # event mesajı
+        return self.age() <= self.timing.period * self.timing.tolerance
 
 
 @dataclass
 class TxState:
-    period: Optional[float] = None       # gönderim periyodu (saniye)
+    timing: Timing
     last_time: Optional[float] = None    # son gönderim zamanı (time.monotonic)
     count: int = 0
 
@@ -49,9 +50,9 @@ class TxState:
 
     def is_due(self, now: Optional[float] = None) -> bool:
         """Periyodik mesajın gönderim zamanı geldi mi?"""
-        if self.period is None:
+        if not self.timing.is_periodic:
             return False
         if self.last_time is None:
             return True
         now = time.monotonic() if now is None else now
-        return now - self.last_time >= self.period
+        return now - self.last_time >= self.timing.period
