@@ -3,6 +3,8 @@
 ProjectBase (project)  : endianness, header, default channel/direction/timing
  ├ Family1 (family)    : signature = destinationId + messageId
  └ Family2 (family)    : signature = destinationId + sourceId
+
+The checksum is not part of the header: every message adds it as its last field.
 """
 from ctypes import LittleEndianStructure, c_uint32
 
@@ -11,7 +13,7 @@ from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
 from generic.signature import Signature
 from generic.timing import Timing
-from project.types import CRC16, Counter8, Length16
+from project.types import Counter8, Length16
 
 
 class ProjectBase(BaseMessageStructure, LittleEndianStructure):
@@ -22,7 +24,6 @@ class ProjectBase(BaseMessageStructure, LittleEndianStructure):
         ("messageId",       c_uint32),
         ("messageLength",   Length16),
         ("messageCounter",  Counter8),
-        ("checksum",        CRC16),
     ]
 
     # Defaults (overridden per object with channel= / direction= / rx= / tx=)

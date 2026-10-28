@@ -33,12 +33,13 @@ class TxScheduler:
         """Sends a message once. Returns False if the UTS request failed (LinkError is published)."""
         with self._send_lock:
             raw = msg.pack()
+            image = bytes(msg)
             try:
                 self.transport.send(msg._channel, raw)
             except Exception as error:
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return False
-        self.bus.publish(MessageSent(msg, raw, time.time()))
+        self.bus.publish(MessageSent(msg, raw, time.time(), image))
         return True
 
     # ---------------------------------------------------------------- periodic

@@ -28,9 +28,9 @@ class Dispatcher:
             self.bus.publish(UnknownReceived(frame.channel, frame.data, frame.host_time, frame.timestamp))
             return None
         if not msg.decode(frame.data, frame.timestamp):
-            self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, frame.timestamp))
+            self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, b"", frame.timestamp))
             return None
-        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, frame.timestamp))
+        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, bytes(msg), frame.timestamp))
         return msg
 
     def _lookup(self, frame: RxFrame) -> Optional[BaseMessageStructure]:

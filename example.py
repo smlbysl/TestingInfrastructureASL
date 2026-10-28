@@ -5,13 +5,14 @@ RX timeout and recovery, a re-created message replacing the old one, UTS errors 
 
 Run from the project root:  python example.py
 """
+import ctypes
 import time
 
 from comm import Comm, FakeUtsClient
 from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
 from generic.timing import Timing
-from project.messages import bambaşka, comut, request
+from project.messages import bambaşka, comut, diag_log, request
 from project.project import ProjectBase
 from services import CommLogger, ErrorLog
 
@@ -74,6 +75,18 @@ def main() -> None:
     print(f"  diag.request[0] = 0x{diag.request[0]:X}")
     print(f"  status valid={status.rx_state.count} invalid={status.rx_state.errors}, "
           f"unknown frames: {len(comm.unknown)}")
+
+    # --- Variable size: the checksum follows the used entries -----------------------
+    print("\nVariable size")
+    log = diag_log(DEST, SRC, 0x50)
+    remote_log = diag_log(DEST, SRC, 0x50, direction=Direction.TX)
+    remote_log.count = 3
+    for i in range(3):
+        remote_log.entries[i] = 0x100 + i
+    device_sends(uts, remote_log)
+    time.sleep(0.05)
+    print(f"  wire size {remote_log.messageLength.val} of max {ctypes.sizeof(log)}, "
+          f"count={log.count}, entries={[hex(x) for x in log.entries[:4]]}")
 
     # --- RX timeout and recovery -------------------------------------------------
     print("\nRX timeout")

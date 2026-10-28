@@ -60,6 +60,16 @@ UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey
 - `msg.on_receive` (RX thread'inde) ve `comm.on_receive` (kendi thread'inde) ikisi de var; hangisinin
   kalacağı açık.
 
+## CRC ve değişken boy
+- CRC header'da değil: her mesaj tanımı CRC'yi (`ChecksumType`) son alan olarak ekler.
+- Kablodaki paket = gövde + CRC. Sabit boylu mesajda gövde CRC'ye kadar olan kısım, paket = `bytes(self)`.
+- Değişken boylu mesaj: `_variable_size = True`. ctypes yapısı max boydur; gerçek boy length alanındadır.
+  - RX: paket ≥ length, length ≤ max; CRC `raw[L-T:L]`'den okunur; decode gövdeyi başa, CRC'yi CRC alanına
+    yazar, kullanılmayan kısmı sıfırlar.
+  - TX: mesaj `body_size()`'ı override eder (ör. `entries.offset + count * 4`); length = gövde + CRC,
+    CRC gövde üzerinden hesaplanır, paket gövde + CRC olarak gider.
+- Olaylar iki kopya taşır: `raw` (kablodaki paket, loglanır) ve `image` (ctypes yapısı, `snapshot()` için).
+
 ## Registry
 - `all`, `dispatch` (`(channel, signature_id) -> nesne`, sadece RX), `channels` (dispatch'ten),
   `periodic_rx` (zaman aşımı), `periodic_tx` (aday listesi; gönderim `comm.start` ile).
@@ -72,6 +82,5 @@ UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey
 - UTS toplu/periyodik gönderim desteği -> sadece TX katmanı değişir.
 - `msg.on_receive` kalacak mı.
 - Aynı channel'ı paylaşan ailelerde bir paket iki ailenin signature'ıyla eşleşebilir (ilk aile kazanır).
-- Alt sınıfın alanları checksum'ın arkasına düşüyor; CRC payload'ı kapsamıyor.
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).

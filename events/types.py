@@ -1,7 +1,9 @@
 """Event types published on the event bus.
 
-Events are small, immutable records. Events about a message carry a copy of the packet bytes:
-the RX poller may overwrite the message object while a subscriber is still working,
+Events are small, immutable records. Events about a message carry copies:
+- raw:   the packet as it was on the wire (logged as is)
+- image: the ctypes layout of the message right after decode / pack
+The RX poller may overwrite the message object while a subscriber is still working,
 so subscribers read consistent values with event.snapshot().
 """
 from __future__ import annotations
@@ -16,8 +18,9 @@ from generic.channel import Channel
 @dataclass(frozen=True)
 class MessageEvent:
     message: BaseMessageStructure
-    raw: bytes                          # copy of the packet bytes
+    raw: bytes                          # the packet on the wire
     host_time: float                    # wall clock of this host (time.time)
+    image: bytes = b""                  # ctypes layout of the message (empty for an invalid packet)
 
     @property
     def channel(self) -> Channel:
@@ -28,7 +31,7 @@ class MessageEvent:
 
         It is not registered and does not change when the next packet arrives.
         """
-        return type(self.message).from_buffer_copy(self.raw)
+        return type(self.message).from_buffer_copy(self.image)
 
 
 @dataclass(frozen=True)

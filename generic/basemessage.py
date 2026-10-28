@@ -6,7 +6,7 @@ from typing import Callable, ClassVar, Optional
 
 from generic.channel import Channel
 from generic.enumerations import Direction
-from generic.fieldtypes import FieldType
+from generic.fieldtypes import ChecksumType, FieldType, LengthType
 from generic.registry import Registry
 from generic.signature import Signature
 from generic.state import RxState, TxState
@@ -43,6 +43,10 @@ class BaseMessageStructure(Structure):
     _signature: ClassVar[Optional[Signature]] = None
     _families: ClassVar[list[Registry]]          # defined on the project
     _registry: ClassVar[Registry]                # defined on the project or the family
+
+    # Variable size: the real packet size is in the length field (the ctypes layout is the maximum).
+    # On the wire the checksum (last field) follows the used body directly.
+    _variable_size: ClassVar[bool] = False
 
     # Defaults (can be overridden per object)
     _channel: ClassVar[Optional[Channel]] = None
@@ -172,24 +176,47 @@ class BaseMessageStructure(Structure):
         for reg in cls._families:
             reg.clear()
 
+    # ---------------------------------------------------------------- wire layout
+    #
+    #   ctypes layout:  [ body ............................ | unused (variable size) | trailer ]
+    #   on the wire:    [ body (body_size bytes)            | trailer ]
+    #
+    # The trailer is the checksum field and everything after it (the checksum is the last field).
+    # For a fixed-size message the body ends where the trailer starts, so the wire equals bytes(self).
+
+    def body_size(self) -> int:
+        """Bytes before the checksum that are sent. A variable-size message overrides this for TX,
+        e.g. header + count * element size."""
+        return self._trailer_offset()
+
+    def wire_size(self) -> int:
+        """Total size on the wire (written to the length field)."""
+        return self.body_size() + self._trailer_size()
+
     # ---------------------------------------------------------------- RX side
 
     def validate(self, raw: bytes) -> bool:
         """Do the size and the special fields (length, checksum ...) of the packet match?"""
-        if len(raw) < ctypes.sizeof(self):
+        if len(raw) < self._rx_size(raw):
             return False
         return all(field.on_receive(self, raw) for field in self._special_fields())
 
     def decode(self, raw: bytes, timestamp: Optional[float] = None) -> bool:
         """Writes the packet into the object's ctypes buffer in place, if it is valid.
 
+        Body bytes go to the start of the buffer, trailer bytes to the checksum field;
+        the unused part of a variable-size message is cleared.
         timestamp: arrival time reported by UTS (seconds), stored in rx_state.timestamp.
         """
         if not self.validate(raw):
             if self._rx is not None:
                 self._rx.on_error()
             return False
-        ctypes.memmove(ctypes.addressof(self), raw, ctypes.sizeof(self))
+        body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
+        address = ctypes.addressof(self)
+        ctypes.memset(address, 0, ctypes.sizeof(self))
+        ctypes.memmove(address, raw, body)
+        ctypes.memmove(address + offset, raw[body:body + size], size)
         if self._rx is not None:
             self._rx.on_receive(timestamp)
         for callout in self._on_receive:
@@ -199,14 +226,15 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- TX side
 
     def pack(self) -> bytes:
-        """For sending: user callouts -> special fields (counter, checksum) -> bytes."""
+        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes."""
         for callout in self._on_send:
             callout(self)
         for field in self._special_fields():
             field.on_send(self)
         if self._tx is not None:
             self._tx.on_send()
-        return bytes(self)
+        data = bytes(self)
+        return data[:self.body_size()] + data[self._trailer_offset():]
 
     # ---------------------------------------------------------------- helpers
 
@@ -221,3 +249,27 @@ class BaseMessageStructure(Structure):
     def _special_fields(self) -> list[FieldType]:
         """Views of the special fields on this object, in _order (they share the buffer)."""
         return [getattr(self, name) for _, name in self._special]
+
+    def _find_field(self, kind: type) -> Optional[FieldType]:
+        for field in self._special_fields():
+            if isinstance(field, kind):
+                return field
+        return None
+
+    def _trailer_offset(self) -> int:
+        """Offset of the checksum field in the ctypes layout (the size if there is none)."""
+        checksum = self._find_field(ChecksumType)
+        return checksum.offset_in(self) if checksum is not None else ctypes.sizeof(self)
+
+    def _trailer_size(self) -> int:
+        return ctypes.sizeof(self) - self._trailer_offset()
+
+    def _rx_size(self, raw: bytes) -> int:
+        """Size of the incoming packet: from its length field for a variable-size message."""
+        if self._variable_size:
+            return self._find_field(LengthType).from_raw(self, raw).val
+        return ctypes.sizeof(self)
+
+    def _rx_body(self, raw: bytes) -> int:
+        """Body bytes of the incoming packet (everything before its checksum)."""
+        return self._rx_size(raw) - self._trailer_size()

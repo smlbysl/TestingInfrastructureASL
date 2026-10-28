@@ -53,13 +53,19 @@ class FieldType(Structure):
 
 
 class LengthType(FieldType):
-    """Total length of the message (header + payload + footer)."""
+    """Total length of the packet on the wire (header + body + checksum)."""
 
     def on_init(self, msg) -> None:
-        self.val = ctypes.sizeof(msg)
+        self.val = msg.wire_size()
+
+    def on_send(self, msg) -> None:
+        self.val = msg.wire_size()              # changes with the used body of a variable-size message
 
     def on_receive(self, msg, raw: bytes) -> bool:
-        return self.from_raw(msg, raw).val == ctypes.sizeof(msg)
+        length = self.from_raw(msg, raw).val
+        if msg._variable_size:
+            return length <= ctypes.sizeof(msg)  # the ctypes layout is the maximum
+        return length == ctypes.sizeof(msg)
 
 
 class CounterType(FieldType):
@@ -70,7 +76,11 @@ class CounterType(FieldType):
 
 
 class ChecksumType(FieldType):
-    """Covers the bytes before it. Subclasses define the algorithm in compute."""
+    """The last field of a message; covers the body sent before it.
+
+    Subclasses define the algorithm in compute. For a variable-size message the checksum
+    follows the used body on the wire, so its position changes with every packet.
+    """
     _order = 100                         # always last: must cover the new values of the other fields
 
     def compute(self, data: bytes) -> int:
@@ -80,10 +90,11 @@ class ChecksumType(FieldType):
         self.on_send(msg)
 
     def on_send(self, msg) -> None:
-        self.val = self.compute(bytes(msg)[:self.offset_in(msg)])
+        self.val = self.compute(bytes(msg)[:msg.body_size()])
 
     def on_receive(self, msg, raw: bytes) -> bool:
-        return self.from_raw(msg, raw).val == self.compute(raw[:self.offset_in(msg)])
+        body = msg._rx_body(raw)
+        return type(self).from_buffer_copy(raw, body).val == self.compute(raw[:body])
 
 
 class AsciiType(FieldType):
