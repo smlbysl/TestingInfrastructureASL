@@ -74,6 +74,13 @@ def main() -> None:
     print(f"  son paket geçerli mi (checksum on_send değişikliğini kapsıyor): "
           f"{sw_version_req.validate(bytes(sw_version_req))}")
 
+    # --- Varsayılan değerler ------------------------------------------------------
+    print("\nVarsayılanlar")
+    print(f"  şu an     : {[hex(v) for v in sw_version_req.request]}")
+    sw_version_req.initialize()
+    print(f"  initialize: {[hex(v) for v in sw_version_req.request]}  "
+          f"(geçerli mi: {sw_version_req.validate(bytes(sw_version_req))})")
+
     # --- RX: karşı tarafı taklit et --------------------------------------------
     print("\nRX")
     print("  monitor (başta):", [str(r) for r in monitor.check()])

@@ -34,6 +34,11 @@ class BaseMessageStructure(Structure):
     # Özel alanlar: (_order, alan adı), _fields_ içindeki FieldType'lardan otomatik toplanır
     _special: ClassVar[list[tuple[int, str]]] = []
 
+    # Varsayılan alan değerleri: _defaults sınıfın kendi yazdıkları,
+    # _all_defaults üst sınıflarla birleşmiş hali (otomatik hesaplanır, alt sınıf ezer)
+    _defaults: ClassVar[dict[str, object]] = {}
+    _all_defaults: ClassVar[dict[str, object]] = {}
+
     # Proje / aile
     _signature: ClassVar[Optional[Signature]] = None
     _families: ClassVar[list[Registry]]          # projede tanımlanır
@@ -50,6 +55,11 @@ class BaseMessageStructure(Structure):
                if isinstance(ftype, type) and issubclass(ftype, FieldType)]
         cls._special = sorted(cls._special + own)       # miras alınanlar + kendi alanları
 
+        merged: dict[str, object] = {}
+        for klass in reversed(cls.__mro__):             # üstten alta: alt sınıf ezer
+            merged.update(klass.__dict__.get("_defaults", {}))
+        cls._all_defaults = merged
+
         if BaseMessageStructure in cls.__bases__:       # proje
             cls._families = []
             cls._registry = Registry(cls.__dict__.get("_signature"))
@@ -64,6 +74,8 @@ class BaseMessageStructure(Structure):
                  rx: Optional[Timing] = None,
                  tx: Optional[Timing] = None,
                  **kw):
+        # Önce varsayılanlar; constructor'a verilen değerler bunları ezer
+        self._apply_defaults()
         # Metadata keyword olarak alınır, ctypes alanları super()'e gider
         super().__init__(*args, **kw)
 
@@ -109,6 +121,17 @@ class BaseMessageStructure(Structure):
     @property
     def tx_state(self) -> Optional[TxState]:
         return self._tx
+
+    # ---------------------------------------------------------------- varsayılanlar
+
+    def initialize(self) -> None:
+        """Alanları sınıfta tanımlı varsayılan değerlere getirir; length/checksum yeniden hesaplanır.
+
+        Signature alanları _defaults'a konmamalı: sonradan çağrılırsa registry anahtarı bozulur.
+        """
+        self._apply_defaults()
+        for field in self._special_fields():
+            field.on_init(self)
 
     # ---------------------------------------------------------------- kullanıcı callout'ları
 
@@ -180,6 +203,14 @@ class BaseMessageStructure(Structure):
         return bytes(self)
 
     # ---------------------------------------------------------------- yardımcılar
+
+    def _apply_defaults(self) -> None:
+        for name, value in self._all_defaults.items():
+            field = getattr(self, name)
+            if isinstance(field, FieldType):            # Ascii, Counter gibi özel tipler
+                field.val = value
+            else:
+                setattr(self, name, value)
 
     def _special_fields(self) -> list[FieldType]:
         """Özel alanların bu nesnedeki görünümleri, _order sırasıyla (buffer'ı paylaşır)."""

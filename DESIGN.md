@@ -81,6 +81,14 @@ nesne = comut(DEST, SRC, 0x20, channel=..., direction=..., rx=Timing(0.05))
 - ChecksumType `_order = 100`: her zaman en son çalışır, diğer alanların yeni değerini kapsar.
 - Yeni bir özel alan tipi eklemek BaseMessage'a dokunmayı gerektirmez.
 
+## Varsayılan alan değerleri
+- Sınıfta `_defaults = {"alan": değer, ...}`; alt sınıfta `__init__` yazmaya gerek yok.
+- `_all_defaults`: `__init_subclass__` MRO'yu üstten alta dolaşarak birleştirir (alt sınıf ezer).
+- `__init__` en başta varsayılanları atar; constructor'a verilen değerler bunları ezer.
+- `msg.initialize()`: alanları istendiği an varsayılana döndürür, length/checksum yeniden hesaplanır.
+- Özel tipler (`AsciiType` vb.) `.val` üzerinden, diziler tuple ile verilir.
+- Signature alanları `_defaults`'a konmaz (constructor'dan gelir); sonradan `initialize()` registry anahtarını bozar.
+
 ## Kullanıcı callout'ları
 - `msg.on_receive(fn)`: geçerli paket nesneye yazıldıktan sonra `fn(msg)`. Dekoratör olarak da kullanılır.
 - `msg.on_send(fn)`: `pack()` içinde, alan hook'larından ÖNCE `fn(msg)`; yapılan değişiklikler checksum'a girer.

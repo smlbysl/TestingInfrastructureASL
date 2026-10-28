@@ -8,6 +8,7 @@ class request(Family1):
     _fields_ = [
         ("request",     c_uint32 * 4),
     ]
+    _defaults = {"request": (0, 0xA1, 0xA2, 0xA3)}
 
 
 class comut(Family1):
