@@ -1,12 +1,12 @@
-"""Özel alan tipleri.
+"""Special field types.
 
-Her özel alan tipi, mesajın yaşam döngüsünde ne yapacağını kendisi bilir:
-- on_init(msg)          : nesne oluşturulurken
-- on_send(msg)          : pack() sırasında (kullanıcı callout'larından sonra)
-- on_receive(msg, raw)  : gelen paket doğrulanırken; False dönerse paket geçersiz
+Each special field type knows what to do in the message life cycle:
+- on_init(msg)          : when the object is created
+- on_send(msg)          : inside pack() (after the user callouts)
+- on_receive(msg, raw)  : while an incoming packet is validated; returning False rejects it
 
-BaseMessageStructure bu tipteki alanları _order sırasıyla dolaşıp çağırır; isimlerini bilmez.
-Projeye özel tipler (örn. Length16, CRC16) bunlardan türetilir.
+BaseMessageStructure walks the fields of these types in _order and calls them; it does not know their names.
+Project-specific types (e.g. Length16, CRC16) derive from these.
 """
 import ctypes
 from ctypes import Structure
@@ -14,7 +14,7 @@ from ctypes import Structure
 
 class FieldType(Structure):
     _pack_ = 1
-    _order = 0                           # küçük olan önce çalışır
+    _order = 0                           # lower runs first
 
     @property
     def val(self):
@@ -30,7 +30,7 @@ class FieldType(Structure):
     def on_set(self, v):
         return v
 
-    # ---------------------------------------------------------------- hook'lar
+    # ---------------------------------------------------------------- hooks
 
     def on_init(self, msg) -> None:
         pass
@@ -41,19 +41,19 @@ class FieldType(Structure):
     def on_receive(self, msg, raw: bytes) -> bool:
         return True
 
-    # ---------------------------------------------------------------- yardımcılar
+    # ---------------------------------------------------------------- helpers
 
     def offset_in(self, msg) -> int:
-        """Alanın mesaj içindeki byte offset'i."""
+        """Byte offset of the field inside the message."""
         return ctypes.addressof(self) - ctypes.addressof(msg)
 
     def from_raw(self, msg, raw: bytes):
-        """Aynı alanın gelen paketteki değeri (kendi tipiyle)."""
+        """The same field read from the incoming packet (with its own type)."""
         return type(self).from_buffer_copy(raw, self.offset_in(msg))
 
 
 class LengthType(FieldType):
-    """Mesajın toplam uzunluğu (header + payload + footer)."""
+    """Total length of the message (header + payload + footer)."""
 
     def on_init(self, msg) -> None:
         self.val = ctypes.sizeof(msg)
@@ -63,15 +63,15 @@ class LengthType(FieldType):
 
 
 class CounterType(FieldType):
-    """Her gönderimde bir artar."""
+    """Incremented on every send."""
 
     def on_send(self, msg) -> None:
         self.val += 1
 
 
 class ChecksumType(FieldType):
-    """Kendinden önceki byte'ları kapsar. Alt sınıf algoritmayı compute içinde tanımlar."""
-    _order = 100                         # her zaman en son: diğer alanların yeni değerini kapsamalı
+    """Covers the bytes before it. Subclasses define the algorithm in compute."""
+    _order = 100                         # always last: must cover the new values of the other fields
 
     def compute(self, data: bytes) -> int:
         raise NotImplementedError

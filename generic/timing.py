@@ -1,8 +1,8 @@
-"""Timing: mesajın zamanlama ayarı (sabit).
+"""Timing: the timing setting of a message (immutable).
 
-- period None ise mesaj olay tabanlıdır (event), değilse periyodiktir.
-- frozen olduğu için proje varsayılanı olarak tüm nesneler arasında paylaşılabilir.
-- Değişen değerler (son geliş/gönderim zamanı, sayaçlar) RxState / TxState'te tutulur.
+- period None means the message is event based, otherwise it is periodic.
+- Frozen, so a project default can be shared between all objects.
+- Changing values (last arrival/send time, counters) live in RxState / TxState.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -10,8 +10,8 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class Timing:
-    period: Optional[float] = None       # saniye; None -> event
-    tolerance: float = 2.0               # RX: period * tolerance aşılırsa veri bayat
+    period: Optional[float] = None       # seconds; None -> event
+    tolerance: float = 2.0               # RX: late when period * tolerance is exceeded
 
     @property
     def is_periodic(self) -> bool:

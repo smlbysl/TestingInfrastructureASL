@@ -1,49 +1,32 @@
-"""Transport: sadece byte alır/verir.
+"""Transport: moves bytes on a channel through the UTS client.
 
-Mesajları, signature'ı, periyodu bilmez. Gelen paketi (channel, raw) olarak
-kendisine verilen alıcıya (genelde Dispatcher.on_raw) iletir.
-
-Gerçek ortamda (örn. HTTP request ile service'e giden yapı) Transport'tan türeyen bir
-sınıf send() içinde request'i atar, gelen veride _deliver() çağırır.
+Knows channels and bytes only; nothing about messages, signatures or timing.
+Line-specific framing (if ever needed) belongs here.
 """
-from abc import ABC, abstractmethod
-from typing import Callable, Optional
+import time
+from dataclasses import dataclass
+from typing import Optional
 
+from comm.uts import UtsClient
 from generic.channel import Channel
 
-Receiver = Callable[[Channel, bytes], object]
+
+@dataclass(frozen=True)
+class RxFrame:
+    channel: Channel
+    data: bytes
+    timestamp: Optional[float]          # UTS arrival time in seconds
+    host_time: float                    # wall clock of this host when polled
 
 
-class Transport(ABC):
-    def __init__(self) -> None:
-        self._receiver: Optional[Receiver] = None
-
-    def set_receiver(self, receiver: Receiver) -> None:
-        """Gelen paketlerin iletileceği fonksiyon, örn. dispatcher.on_raw."""
-        self._receiver = receiver
-
-    @abstractmethod
-    def send(self, channel: Channel, data: bytes) -> None:
-        """Byte'ları ilgili channel'dan gönderir."""
-
-    def _deliver(self, channel: Channel, data: bytes) -> None:
-        """Alt sınıf, bir paket geldiğinde bunu çağırır."""
-        if self._receiver is not None:
-            self._receiver(channel, data)
-
-
-class LoopbackTransport(Transport):
-    """Örnek/test transport'u.
-
-    Gönderilenleri `sent` listesinde tutar; inject() gelen bir paketi taklit eder.
-    """
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.sent: list[tuple[Channel, bytes]] = []
+class Transport:
+    def __init__(self, uts: UtsClient):
+        self.uts = uts
 
     def send(self, channel: Channel, data: bytes) -> None:
-        self.sent.append((channel, bytes(data)))
+        self.uts.transfer(channel.protocol, channel.interface, data)
 
-    def inject(self, channel: Channel, data: bytes) -> None:
-        self._deliver(channel, bytes(data))
+    def poll(self, channel: Channel) -> list[RxFrame]:
+        now = time.time()
+        return [RxFrame(channel, f.data, f.timestamp, now)
+                for f in self.uts.fetch(channel.protocol, channel.interface)]

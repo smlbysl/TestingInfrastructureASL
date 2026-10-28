@@ -1,0 +1,79 @@
+"""EventBus: publish / subscribe inside the program.
+
+- Publishers (dispatcher, TX scheduler, RX poller) call publish(event); it returns immediately.
+- Every subscription has its own queue and thread, so a slow subscriber blocks neither
+  the publisher nor the other subscribers.
+- A subscription is made by event type, optionally filtered by message object (where=...).
+  Subscribing to `object` receives every event.
+"""
+import logging
+import queue
+import threading
+from collections import defaultdict
+from typing import Any, Callable, Optional
+
+log = logging.getLogger("comm")
+
+Handler = Callable[[Any], None]
+_STOP = object()
+
+
+class Subscriber(threading.Thread):
+    def __init__(self, event_type: type, handler: Handler, where: Optional[object], name: str):
+        super().__init__(name=name, daemon=True)
+        self.event_type = event_type
+        self.handler = handler
+        self.where = where                    # only events of this message object, if given
+        self.queue: queue.Queue = queue.Queue()
+
+    def accepts(self, event) -> bool:
+        return self.where is None or getattr(event, "message", None) is self.where
+
+    def run(self) -> None:
+        while True:
+            event = self.queue.get()
+            if event is _STOP:
+                break
+            try:
+                self.handler(event)
+            except Exception:
+                log.exception("subscriber %s failed on %s", self.name, type(event).__name__)
+
+    def stop(self) -> None:
+        self.queue.put(_STOP)
+
+
+class EventBus:
+    def __init__(self):
+        self._subs: dict[type, list[Subscriber]] = defaultdict(list)
+        self._lock = threading.Lock()
+
+    def subscribe(self, event_type: type, handler: Handler,
+                  where: Optional[object] = None, name: Optional[str] = None) -> Subscriber:
+        sub = Subscriber(event_type, handler, where, name or getattr(handler, "__name__", "subscriber"))
+        with self._lock:
+            self._subs[event_type].append(sub)
+        sub.start()
+        return sub
+
+    def unsubscribe(self, sub: Subscriber) -> None:
+        with self._lock:
+            self._subs[sub.event_type].remove(sub)
+        sub.stop()
+
+    def publish(self, event) -> None:
+        with self._lock:
+            subs = list(self._subs[type(event)]) + list(self._subs[object])
+        for sub in subs:
+            if sub.accepts(event):
+                sub.queue.put(event)
+
+    def close(self) -> None:
+        """Stops every subscriber after it has handled the events already queued."""
+        with self._lock:
+            subs = [s for group in self._subs.values() for s in group]
+            self._subs.clear()
+        for sub in subs:
+            sub.stop()
+        for sub in subs:
+            sub.join()

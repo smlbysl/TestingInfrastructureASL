@@ -1,7 +1,7 @@
-"""Channel: mesajın hangi protokol + interface üzerinden gidip geldiği.
+"""Channel: the protocol + interface a message travels on.
 
-Service tarafında interface'ler (ip/port vb.) tanımlı; request'te protokol de iletiliyor.
-İkisinin birleşimi bir channel'dır. Hash'lenebilir olduğu için dispatch anahtarında kullanılır.
+UTS is queried and addressed per protocol and interface; the pair is a channel.
+Hashable, so it is used in the dispatch key.
 """
 from dataclasses import dataclass
 

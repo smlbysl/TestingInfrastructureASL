@@ -1,4 +1,4 @@
-"""Mesaj tanımları (ICD). Mesaj sınıfı sadece payload alanlarını tanımlar."""
+"""Message definitions (ICD). A message class only defines its payload fields."""
 from ctypes import c_uint32
 
 from project.project import Family1, Family2

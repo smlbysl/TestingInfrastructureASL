@@ -1,41 +1,41 @@
-"""Dispatcher: gelen ham paketi ilgili mesaj nesnesine yazar.
+"""Dispatcher: delivers a received frame to its message object and publishes the result.
 
-Akış: Transport -> Dispatcher.on_raw(channel, raw) -> ProjectX.lookup(channel, raw) -> obj.decode(raw)
-ProjectX.lookup sadece o channel'dan RX alan ailelerin registry'lerine bakar.
-- Hiçbir projede eşleşmeyen paket `unknown`a,
-- eşleşip validate'ten (boy / length / checksum) geçemeyen paket `invalid`e düşer.
+frame -> ProjectX.lookup(channel, raw) -> msg.decode(raw, timestamp) -> event
+- no message matches          -> UnknownReceived, frame kept in `unknown`
+- matches but fails validate  -> InvalidReceived
+- matches and valid           -> MessageReceived
 """
 from collections import deque
-from typing import Callable, Optional
+from typing import Optional, Sequence
 
+from comm.transport import RxFrame
+from events.bus import EventBus
+from events.types import InvalidReceived, MessageReceived, UnknownReceived
 from generic.basemessage import BaseMessageStructure
-from generic.channel import Channel
 
 
 class Dispatcher:
-    def __init__(self, *projects: type[BaseMessageStructure],
-                 on_unknown: Optional[Callable[[Channel, bytes], None]] = None,
-                 on_invalid: Optional[Callable[[BaseMessageStructure, bytes], None]] = None,
-                 history: int = 100):
-        self.projects = projects                       # örn. (ProjectBase1, ProjectBase2)
-        self.on_unknown = on_unknown
-        self.on_invalid = on_invalid
-        self.unknown: deque = deque(maxlen=history)    # (channel, raw)
-        self.invalid: deque = deque(maxlen=history)    # (nesne, raw)
+    def __init__(self, bus: EventBus, projects: Sequence[type[BaseMessageStructure]],
+                 history: int = 1000):
+        self.bus = bus
+        self.projects = projects
+        self.unknown: deque[RxFrame] = deque(maxlen=history)   # frames that matched no message
 
-    def on_raw(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        for project in self.projects:
-            msg = project.lookup(channel, raw)
-            if msg is None:
-                continue
-            if msg.decode(raw):
-                return msg
-            self.invalid.append((msg, raw))
-            if self.on_invalid:
-                self.on_invalid(msg, raw)
+    def dispatch(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
+        msg = self._lookup(frame)
+        if msg is None:
+            self.unknown.append(frame)
+            self.bus.publish(UnknownReceived(frame.channel, frame.data, frame.host_time, frame.timestamp))
             return None
+        if not msg.decode(frame.data, frame.timestamp):
+            self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, frame.timestamp))
+            return None
+        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, frame.timestamp))
+        return msg
 
-        self.unknown.append((channel, raw))
-        if self.on_unknown:
-            self.on_unknown(channel, raw)
+    def _lookup(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
+        for project in self.projects:
+            msg = project.lookup(frame.channel, frame.data)
+            if msg is not None:
+                return msg
         return None

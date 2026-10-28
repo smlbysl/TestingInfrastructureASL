@@ -1,4 +1,4 @@
-"""Projeye özel alan tipleri (generic.fieldtypes'tan türer)."""
+"""Project-specific field types (derived from generic.fieldtypes)."""
 from ctypes import c_char, c_uint16
 
 from generic.fieldtypes import AsciiType, ChecksumType, CounterType, LengthType

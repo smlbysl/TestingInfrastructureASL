@@ -1,108 +1,119 @@
-"""Uçtan uca örnek: mesaj nesneleri + Transport + Dispatcher + Scheduler + Monitor.
+"""End-to-end example with a fake UTS.
 
-Çalıştırma (proje kökünden):  python example.py
+Shows: periodic and one-shot TX, RX dispatch, listeners, unknown / invalid packets,
+RX timeout and recovery, a re-created message replacing the old one, UTS errors and the logs.
+
+Run from the project root:  python example.py
 """
 import time
 
-from comm import Dispatcher, LoopbackTransport, Monitor, Scheduler
+from comm import Comm, FakeUtsClient
 from generic.channel import Channel
 from generic.enumerations import Direction, ProtocolType
 from generic.timing import Timing
 from project.messages import bambaşka, comut, request
-from project.project import Family1, ProjectBase
+from project.project import ProjectBase
+from services import CommLogger, ErrorLog
 
 RS422_0 = Channel(ProtocolType.RS422, 0)
 ETH_1 = Channel(ProtocolType.ETHERNET, 1)
-
 SRC, DEST = 0x0001, 0x0002
 
 
-def show_registries() -> None:
-    for reg in ProjectBase.families():
-        fields = "+".join(reg.signature.fields) if reg.signature else "-"
-        print(f"  [{fields}]")
-        print("    all        :", [type(m).__name__ for m in reg.all])
-        print("    dispatch   :", {f"{ch}/0x{sid:X}": type(m).__name__ for (ch, sid), m in reg.dispatch.items()})
-        print("    periodic_tx:", [type(m).__name__ for m in reg.periodic_tx])
-        print("    periodic_rx:", [type(m).__name__ for m in reg.periodic_rx])
+def device_sends(uts: FakeUtsClient, msg) -> None:
+    """Plays the device: the packet appears in the UTS receive buffer of the message's channel."""
+    uts.inject(msg.channel.protocol, msg.channel.interface, msg.pack())
 
 
 def main() -> None:
-    # --- Mesaj nesneleri (ICD'den) -------------------------------------------
-    # Aile 1: TX, 20 ms periyotlu -> Scheduler gönderir
-    sw_version_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))
-    # Aile 1: RX, 50 ms'de bir gelmesi beklenen -> Monitor izler, Dispatcher yazar
-    status = comut(DEST, SRC, 0x20, direction=Direction.RX, rx=Timing(0.05, tolerance=1.5))
-    # Aynı mesaj tanımı, farklı channel'dan gelen ikinci nesne (event)
-    status_eth = comut(DEST, SRC, 0x20, channel=ETH_1, direction=Direction.RX)
-    # Aile 1: çift yönlü, varsayılan channel (RS422:0)
-    heartbeat = Family1(SRC, DEST, 0x30, direction=Direction.BOTH, rx=Timing(0.1), tx=Timing(0.1))
-    # Aile 2: farklı signature (destinationId + sourceId), Ethernet'ten gelir
-    diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.RX)
+    uts = FakeUtsClient()
+    comm = Comm(uts, [ProjectBase], poll_interval=0.01)
+    history = CommLogger(comm, "comm_history.csv")
+    errors = ErrorLog(comm, "comm_errors.log")
 
-    # --- Kullanıcı callout'ları ---------------------------------------------------
-    @status.on_receive
-    def print_status(msg):
-        print(f"  [on_receive] {type(msg).__name__}.comut[0] = 0x{msg.comut[0]:X}")
+    # --- Message objects (from the ICD) --------------------------------------
+    sw_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))
+    status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=1.5))
+    diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1)
 
-    # Gönderimden önce payload'ı değiştirir; checksum bu değişikliği kapsar
-    sw_version_req.on_send(lambda msg: msg.request.__setitem__(0, msg.tx_state.count))
+    seen = []
+    comm.on_receive(status, lambda ev: seen.append(hex(ev.snapshot().comut[0])))
 
-    # --- Katmanlar --------------------------------------------------------------
-    transport = LoopbackTransport()
-    dispatcher = Dispatcher(ProjectBase,
-                            on_unknown=lambda ch, raw: print(f"  [unknown] {ch} {raw.hex()}"),
-                            on_invalid=lambda m, raw: print(f"  [invalid] {type(m).__name__}"))
-    transport.set_receiver(dispatcher.on_raw)
-    scheduler = Scheduler(transport, ProjectBase)
-    monitor = Monitor(ProjectBase)
+    comm.open()
 
-    print("Registry (aile başına)")
-    show_registries()
-    print("  RS422:0 aileleri:", [reg.signature.fields for reg in ProjectBase.families(RS422_0)])
-    print("  ETH:1   aileleri:", [reg.signature.fields for reg in ProjectBase.families(ETH_1)])
-
-    # --- TX: Scheduler ----------------------------------------------------------
-    print("\nTX")
-    scheduler.start()
+    # --- TX ---------------------------------------------------------------------
+    print("TX")
+    comm.start(sw_req)
     time.sleep(0.1)
-    scheduler.stop()
-    print(f"  gönderilen paket: {len(transport.sent)}, "
-          f"sw_version_req sayaç: {sw_version_req.messageCounter.val}, "
-          f"request[0] (on_send): {sw_version_req.request[0]}, "
-          f"heartbeat sayaç: {heartbeat.messageCounter.val}")
-    print(f"  son paket geçerli mi (checksum on_send değişikliğini kapsıyor): "
-          f"{sw_version_req.validate(bytes(sw_version_req))}")
+    comm.stop(sw_req)
+    periodic = len(uts.sent)
+    comm.send(sw_req)
+    print(f"  periodic sends: {periodic}, after one-shot: {len(uts.sent)}, "
+          f"counter: {sw_req.messageCounter.val}")
 
-    # --- Varsayılan değerler ------------------------------------------------------
-    print("\nVarsayılanlar")
-    print(f"  şu an     : {[hex(v) for v in sw_version_req.request]}")
-    sw_version_req.initialize()
-    print(f"  initialize: {[hex(v) for v in sw_version_req.request]}  "
-          f"(geçerli mi: {sw_version_req.validate(bytes(sw_version_req))})")
-
-    # --- RX: karşı tarafı taklit et --------------------------------------------
+    # --- RX ---------------------------------------------------------------------
     print("\nRX")
-    print("  monitor (başta):", [str(r) for r in monitor.check()])
-
-    remote = comut(DEST, SRC, 0x20, channel=RS422_0, direction=Direction.TX)   # karşı tarafın mesajı
-    remote.comut[0] = 0xCAFE
-    transport.inject(RS422_0, remote.pack())
-    print(f"  status.comut[0] = 0x{status.comut[0]:X}  (eth nesnesi: 0x{status_eth.comut[0]:X})")
+    remote = comut(DEST, SRC, 0x20, direction=Direction.TX)          # the device's copy of the message
+    for value in (0xCAFE, 0xBEEF):
+        remote.comut[0] = value
+        device_sends(uts, remote)
+        time.sleep(0.03)
 
     remote_diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.TX)
-    remote_diag.request[0] = 0xBEEF
-    transport.inject(ETH_1, remote_diag.pack())
-    print(f"  diag.request[0] = 0x{diag.request[0]:X}  (aile 2, ETH:1)")
+    remote_diag.request[0] = 0x1234
+    device_sends(uts, remote_diag)
 
     bad = bytearray(remote.pack())
-    bad[comut.checksum.offset] ^= 0xFF                                     # bozuk CRC
-    transport.inject(RS422_0, bytes(bad))
-    transport.inject(RS422_0, bytes(16))                                   # tanınmayan paket
+    bad[comut.checksum.offset] ^= 0xFF                                   # broken CRC
+    uts.inject(ProtocolType.RS422, 0, bytes(bad))
+    uts.inject(ProtocolType.RS422, 0, bytes(16))                         # matches no message
+    time.sleep(0.05)
 
-    print("  monitor (sonra):", [str(r) for r in monitor.check()])
-    print(f"  status: geçerli={status.rx_state.count} hatalı={status.rx_state.errors} "
-          f"taze={status.rx_state.is_fresh()}")
+    print(f"  status.comut[0] = 0x{status.comut[0]:X}, uts time = {status.rx_state.timestamp:.3f}")
+    print(f"  listener saw: {seen}")
+    print(f"  diag.request[0] = 0x{diag.request[0]:X}")
+    print(f"  status valid={status.rx_state.count} invalid={status.rx_state.errors}, "
+          f"unknown frames: {len(comm.unknown)}")
+
+    # --- RX timeout and recovery -------------------------------------------------
+    print("\nRX timeout")
+    time.sleep(0.15)                                                     # > 0.05 * 1.5
+    device_sends(uts, remote)
+    time.sleep(0.05)
+
+    # --- Re-creating a message replaces the old object ---------------------------
+    print("\nRe-create")
+    status2 = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=1.5))     # no conflict error
+    remote.comut[0] = 0x5555
+    device_sends(uts, remote)
+    time.sleep(0.05)
+    print(f"  new object: 0x{status2.comut[0]:X}, old object (no longer updated): 0x{status.comut[0]:X}")
+
+    comm.start(sw_req)
+    sw_req2 = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))   # replaces sw_req
+    time.sleep(0.05)
+    print(f"  old periodic request still running: {comm.tx.is_running(sw_req)}")
+
+    # --- UTS error ----------------------------------------------------------------
+    def unreachable(*args):
+        raise ConnectionError("UTS unreachable")
+
+    uts.transfer = unreachable
+    print(f"\nUTS error: send returned {comm.send(sw_req2)}")
+    del uts.transfer
+
+    comm.close()
+    history.close()
+    errors.close()
+
+    print("\ncomm_history.csv (first lines)")
+    with open("comm_history.csv", encoding="utf-8") as f:
+        for line in f.readlines()[:4]:
+            print("  " + line.rstrip())
+    print("\ncomm_errors.log")
+    with open("comm_errors.log", encoding="utf-8") as f:
+        for line in f:
+            print("  " + line.rstrip())
 
 
 if __name__ == "__main__":

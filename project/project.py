@@ -1,8 +1,8 @@
-"""Proje ve aileleri.
+"""Project and its families.
 
-ProjectBase (proje)  : endian, header, varsayılan channel/yön/periyot
- ├ Family1 (aile)    : signature = destinationId + messageId
- └ Family2 (aile)    : signature = destinationId + sourceId
+ProjectBase (project)  : endianness, header, default channel/direction/timing
+ ├ Family1 (family)    : signature = destinationId + messageId
+ └ Family2 (family)    : signature = destinationId + sourceId
 """
 from ctypes import LittleEndianStructure, c_uint32
 
@@ -25,13 +25,13 @@ class ProjectBase(BaseMessageStructure, LittleEndianStructure):
         ("checksum",        CRC16),
     ]
 
-    # Varsayılanlar (nesne başına channel= / direction= / rx= / tx= ile ezilir)
+    # Defaults (overridden per object with channel= / direction= / rx= / tx=)
     _channel = Channel(ProtocolType.RS422, 0)
     _direction = Direction.RX
     _timing = Timing()                  # event
 
     def __init__(self, sourceid, destinationid, messageid, **kw):
-        # kw: channel, direction, rx, tx
+        # kw: channel, direction, rx, tx and field values
         self.sourceId = sourceid
         self.destinationId = destinationid
         self.messageId = messageid
