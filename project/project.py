@@ -18,7 +18,6 @@ from project.types import Counter8, Length16
 
 class ProjectBase(BaseMessageStructure, LittleEndianStructure):
     _fields_ = [
-        ("ethHeader",       c_uint32 * 2),      # Ethernet header (not used in KOFIS)
         ("sourceId",        c_uint32),
         ("destinationId",   c_uint32),
         ("messageId",       c_uint32),
