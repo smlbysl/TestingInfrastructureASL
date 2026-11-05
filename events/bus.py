@@ -61,6 +61,10 @@ class EventBus:
             self._subs[sub.event_type].remove(sub)
         sub.stop()
 
+    def subscribers(self) -> list[Subscriber]:
+        with self._lock:
+            return [s for group in self._subs.values() for s in group]
+
     def publish(self, event) -> None:
         with self._lock:
             subs = list(self._subs[type(event)]) + list(self._subs[object])

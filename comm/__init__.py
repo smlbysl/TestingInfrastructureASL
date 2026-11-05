@@ -1,3 +1,4 @@
-"""Communication layer: UTS client, transport, RX poller, dispatcher, TX scheduler and the Comm facade."""
+"""Communication layer: UTS client, links, transport, RX poller, dispatcher, TX scheduler and the Comm facade."""
 from comm.comm import Comm
-from comm.uts import FakeUtsClient, HttpUtsClient, UtsClient, UtsFrame
+from comm.link import EthernetLink, Link, SerialLink
+from comm.uts import FakeUtsClient, HttpUtsClient, UtsClient, UtsError

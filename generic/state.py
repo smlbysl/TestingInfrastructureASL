@@ -27,6 +27,10 @@ class RxState:
     def on_error(self) -> None:
         self.errors += 1
 
+    def reset_counts(self) -> None:
+        self.count = 0
+        self.errors = 0
+
     def age(self) -> Optional[float]:
         """Host time since the last packet; None if nothing has arrived yet."""
         if self.last_time is None:
@@ -50,3 +54,6 @@ class TxState:
     def on_send(self) -> None:
         self.last_time = time.monotonic()
         self.count += 1
+
+    def reset_counts(self) -> None:
+        self.count = 0

@@ -1,0 +1,29 @@
+# Development / CI setup: no UTS needed (FakeUtsClient).
+
+[uts]
+fake = true
+config_mode = "auto"            # "auto": write link settings to UTS · "manual": keep UTS settings
+
+[comm]
+poll_interval = 0.01            # seconds between two UTS polls
+
+[logging]
+dir = "logs"                    # every run writes into logs/<date-time>/
+level = "INFO"
+console = false
+
+[logging.levels]
+"comm.uts.http" = "WARNING"
+
+[links.ETH1]
+bus = "ethernet"
+interface = 1
+interface_type = "UDP"
+buffer_size = 10
+timeout_ms = 10
+
+[links.SER1]
+bus = "serials"
+interface = 1
+serial_interface_type = "RS-422"
+baud_rate = 921600

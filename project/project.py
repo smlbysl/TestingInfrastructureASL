@@ -9,10 +9,10 @@ The checksum is not part of the header: every message adds it as its last field.
 from ctypes import LittleEndianStructure, c_uint32
 
 from generic.basemessage import BaseMessageStructure
-from generic.channel import Channel
-from generic.enumerations import Direction, ProtocolType
+from generic.enumerations import Direction
 from generic.signature import Signature
 from generic.timing import Timing
+from project.channels import MyChannels
 from project.types import Counter8, Length16
 
 
@@ -26,7 +26,7 @@ class ProjectBase(BaseMessageStructure, LittleEndianStructure):
     ]
 
     # Defaults (overridden per object with channel= / direction= / rx= / tx=)
-    _channel = Channel(ProtocolType.RS422, 0)
+    _channel = MyChannels.CONTROL
     _direction = Direction.RX
     _timing = Timing()                  # event
 
@@ -44,3 +44,4 @@ class Family1(ProjectBase):
 
 class Family2(ProjectBase):
     _signature = Signature("destinationId", "sourceId")
+    _channel = MyChannels.DIAG                  # this family travels on Ethernet with a header

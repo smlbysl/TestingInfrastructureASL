@@ -1,59 +1,53 @@
-"""RxPoller: one thread that polls UTS at a fixed interval.
+"""RxPoller: one thread that polls every UTS link at a fixed interval.
 
 Every cycle:
-1. polls each RX channel (channels with registered RX messages + channels added with listen())
-2. hands every frame to the dispatcher
-3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
-A failed poll is published as LinkError and polling continues.
+1. polls each link of the setup and hands every frame to the dispatcher
+2. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
+A failed poll is logged and published as LinkError; polling continues.
 """
+import logging
 import threading
 import time
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 from comm.clock import UtsClock
 from comm.dispatcher import Dispatcher
+from comm.link import Link
 from comm.transport import Transport
 from events.bus import EventBus
-from events.types import LinkError, RxRestored, RxTimeout
+from events.types import BufferOverflow, LinkError, RxRestored, RxTimeout
 from generic.basemessage import BaseMessageStructure
-from generic.channel import Channel
+
+log = logging.getLogger(__name__)
 
 
 class RxPoller:
     def __init__(self, transport: Transport, dispatcher: Dispatcher, bus: EventBus,
-                 projects: Sequence[type[BaseMessageStructure]], interval: float,
-                 channels: Iterable[Channel] = ()):
+                 projects: Sequence[type[BaseMessageStructure]], links: Sequence[Link], interval: float):
         self.transport = transport
         self.dispatcher = dispatcher
         self.bus = bus
         self.projects = projects
+        self.links = links
         self.interval = interval                    # seconds between two poll cycles
         self.clock = UtsClock()
-        self._extra = set(channels)                 # channels polled even without RX messages
         self._late: set[int] = set()                # id() of timed-out messages (ctypes objects are not hashable)
         self._started: Optional[float] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
-    def listen(self, channel: Channel) -> None:
-        """Also polls a channel that has no registered RX message (to see unknown packets)."""
-        self._extra.add(channel)
-
-    def channels(self) -> set[Channel]:
-        found = set(self._extra)
-        for project in self.projects:
-            for reg in project.families():
-                found |= reg.channels
-        return found
-
     def poll_once(self) -> None:
-        for channel in self.channels():
+        for link in self.links:
             try:
-                frames = self.transport.poll(channel)
+                result = self.transport.poll(link)
             except Exception as error:
-                self.bus.publish(LinkError(channel, "poll", error, time.time()))
+                log.error("poll %s failed: %s", link, error)
+                self.bus.publish(LinkError(link, "poll", error, time.time()))
                 continue
-            for frame in frames:
+            if result.overflow:
+                log.warning("%s: UTS receive buffer overflowed, packets were lost", link)
+                self.bus.publish(BufferOverflow(link, time.time()))
+            for frame in result.frames:
                 self.clock.update(frame.timestamp)
                 self.dispatcher.dispatch(frame)
         self._check_timeouts()
@@ -73,9 +67,12 @@ class RxPoller:
         late = id(msg) in self._late
         if age > limit and not late:
             self._late.add(id(msg))
+            log.warning("%s on %s not received for %.3f s (period %s s)",
+                        type(msg).__name__, msg._channel, age, rx.timing.period)
             self.bus.publish(RxTimeout(msg, age, time.time()))
         elif age <= limit and late:
             self._late.discard(id(msg))
+            log.info("%s on %s received again", type(msg).__name__, msg._channel)
             self.bus.publish(RxRestored(msg, time.time()))
 
     def _age(self, rx) -> float:
@@ -99,6 +96,7 @@ class RxPoller:
         self._stop.set()
         if self._thread is not None:
             self._thread.join()
+            self._thread = None
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval):

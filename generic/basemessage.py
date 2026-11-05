@@ -6,7 +6,7 @@ from typing import Callable, ClassVar, Optional
 
 from generic.channel import Channel
 from generic.enumerations import Direction
-from generic.fieldtypes import ChecksumType, FieldType, LengthType
+from generic.fieldtypes import ChecksumType, CounterType, FieldType, LengthType
 from generic.registry import Registry
 from generic.signature import Signature
 from generic.state import RxState, TxState
@@ -136,6 +136,14 @@ class BaseMessageStructure(Structure):
         self._apply_defaults()
         for field in self._special_fields():
             field.on_init(self)
+
+    def restore(self, image: bytes) -> None:
+        """Brings the fields back to a saved image (bytes(msg)); counter fields keep their value,
+        so the receiver does not see a sequence jump."""
+        counters = [(field, field.val) for field in self._special_fields() if isinstance(field, CounterType)]
+        ctypes.memmove(ctypes.addressof(self), image, ctypes.sizeof(self))
+        for field, value in counters:
+            field.val = value
 
     # ---------------------------------------------------------------- user callouts
 

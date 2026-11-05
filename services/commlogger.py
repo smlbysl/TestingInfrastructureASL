@@ -1,19 +1,18 @@
 """CommLogger: writes the messaging history (every received and sent packet) to one CSV file.
 
 One subscription to all events on a single thread, so lines stay in publish order.
-Raw bytes are logged, so any field can be decoded later with the message class,
+The bytes on the line (wire) are logged, so any field can be decoded later with the message class,
 even fields nobody watched during the test.
 
-Columns: host_time, uts_time, direction, channel, message, signature, length, data
+Columns: host_time, uts_time, direction, link, channel, message, signature, length, data
 """
 import csv
 from datetime import datetime
 from typing import Optional
 
-from comm.comm import Comm
 from events.types import InvalidReceived, MessageReceived, MessageSent, UnknownReceived
 
-HEADER = ["host_time", "uts_time", "direction", "channel", "message", "signature", "length", "data"]
+HEADER = ["host_time", "uts_time", "direction", "link", "channel", "message", "signature", "length", "data"]
 DIRECTIONS = {
     MessageReceived: "RX",
     MessageSent: "TX",
@@ -23,7 +22,7 @@ DIRECTIONS = {
 
 
 class CommLogger:
-    def __init__(self, comm: Comm, path: str):
+    def __init__(self, comm, path):
         self.path = path
         self._file = open(path, "w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._file)
@@ -35,20 +34,25 @@ class CommLogger:
         if direction is None:
             return                                  # not a message event
         msg = getattr(event, "message", None)
+        if msg is not None:
+            channel, link = msg._channel, msg._channel.link
+        else:
+            channel, link = event.channel, event.link
         self._writer.writerow([
             _host_time(event.host_time),
             _uts_time(getattr(event, "timestamp", None)),
             direction,
-            str(event.channel),
+            link.name if link is not None else "",
+            channel.name if channel is not None else "",
             type(msg).__name__ if msg is not None else "",
             f"0x{msg._signature_id:X}" if msg is not None and msg._signature_id is not None else "",
-            len(event.raw),
-            event.raw.hex(" "),
+            len(event.wire),
+            event.wire.hex(" "),
         ])
         self._file.flush()
 
     def close(self) -> None:
-        """Call after comm.close(), so every queued event is written first."""
+        """Called by Comm.close() after the bus has delivered every queued event."""
         self._file.close()
 
 

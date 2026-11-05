@@ -1,0 +1,39 @@
+# Test bench A: real UTS. Adjust base_url, interfaces and settings to the bench.
+
+[uts]
+base_url = "http://localhost:8000"
+timeout = 2.0
+config_mode = "manual"          # keep the settings already on UTS; per link override below
+
+[comm]
+poll_interval = 0.01
+
+[logging]
+dir = "logs"
+level = "INFO"
+console = true
+
+[logging.levels]
+"comm.uts.http" = "INFO"        # DEBUG logs every request and its body
+"urllib3" = "WARNING"
+
+[links.ETH1]
+bus = "ethernet"
+interface = 1
+
+[links.SER1]
+bus = "serials"
+interface = 1
+config_mode = "auto"            # this link is written to UTS on open
+max_message_size = 1024
+buffer_size = 1000
+overwrite_enabled = false
+start_of_header = []
+timeout_ms = 200
+serial_interface_type = "RS-422"
+baud_rate = 921600
+data_bits = "8"
+stop_bits = "1"
+parity = "NONE"
+flow_control = "NONE"
+# splitter = "project.framing:Rs422Splitter"   # only if UTS does not split the packets itself

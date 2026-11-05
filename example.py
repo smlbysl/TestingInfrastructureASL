@@ -1,132 +1,88 @@
-"""End-to-end example with a fake UTS.
+"""End-to-end example on the fake UTS.
 
-Shows: periodic and one-shot TX, RX dispatch, listeners, unknown / invalid packets,
-RX timeout and recovery, a re-created message replacing the old one, UTS errors and the logs.
+Shows: periodic and one-shot TX, RX dispatch, a channel with an envelope, raw rules,
+unknown / invalid packets, RX timeout, baseline and reset, UTS functions and the log files.
 
 Run from the project root:  python example.py
 """
-import ctypes
 import time
 
-from comm import Comm, FakeUtsClient
-from generic.channel import Channel
-from generic.enumerations import Direction, ProtocolType
+from comm import Comm
+from generic.enumerations import Direction
 from generic.timing import Timing
+from project.channels import MyChannels
 from project.messages import bambaşka, comut, diag_log, request
 from project.project import ProjectBase
-from services import CommLogger, ErrorLog
+from project.testing import device_send
 
-RS422_0 = Channel(ProtocolType.RS422, 0)
-ETH_1 = Channel(ProtocolType.ETHERNET, 1)
-SRC, DEST = 0x0001, 0x0002
-
-
-def device_sends(uts: FakeUtsClient, msg) -> None:
-    """Plays the device: the packet appears in the UTS receive buffer of the message's channel."""
-    uts.inject(msg.channel.protocol, msg.channel.interface, msg.pack())
+SRC, DEST = 0x01, 0x02
 
 
 def main() -> None:
-    uts = FakeUtsClient()
-    comm = Comm(uts, [ProjectBase], poll_interval=0.01)
-    history = CommLogger(comm, "comm_history.csv")
-    errors = ErrorLog(comm, "comm_errors.log")
+    comm = Comm.load("setups/fake.toml", ProjectBase, MyChannels)
 
-    # --- Message objects (from the ICD) --------------------------------------
     sw_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))
     status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=1.5))
-    diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1)
+    diag = bambaşka(0x07, SRC, 0x40)                       # Family2 -> DIAG channel (Ethernet + header)
+    log = diag_log(DEST, SRC, 0x50)                        # variable size
 
-    seen = []
-    comm.on_receive(status, lambda ev: seen.append(hex(ev.snapshot().comut[0])))
+    with comm:
+        # --- baseline: what must run in every test ---------------------------------
+        comm.start(sw_req)
+        comm.mark_baseline()
 
-    comm.open()
+        # --- TX ------------------------------------------------------------------------
+        time.sleep(0.1)
+        print(f"TX  periodic request sent {sw_req.tx_state.count} times on {sw_req.channel}")
 
-    # --- TX ---------------------------------------------------------------------
-    print("TX")
-    comm.start(sw_req)
-    time.sleep(0.1)
-    comm.stop(sw_req)
-    periodic = len(uts.sent)
-    comm.send(sw_req)
-    print(f"  periodic sends: {periodic}, after one-shot: {len(uts.sent)}, "
-          f"counter: {sw_req.messageCounter.val}")
+        # --- RX ------------------------------------------------------------------------
+        remote = comut(DEST, SRC, 0x20, direction=Direction.TX)
+        remote.comut[0] = 0xCAFE
+        device_send(comm, remote)
+        remote_diag = bambaşka(0x07, SRC, 0x40, direction=Direction.TX)
+        remote_diag.request[0] = 0x1234
+        wire = device_send(comm, remote_diag)
+        remote_log = diag_log(DEST, SRC, 0x50, direction=Direction.TX)
+        remote_log.count = 2
+        remote_log.entries[0], remote_log.entries[1] = 0x100, 0x101
+        device_send(comm, remote_log)
+        time.sleep(0.05)
+        print(f"RX  status.comut[0] = 0x{status.comut[0]:X} (CONTROL)")
+        print(f"RX  diag.request[0] = 0x{diag.request[0]:X} (DIAG, header {wire[:8].hex(' ')} removed)")
+        print(f"RX  diag_log count={log.count} entries={[hex(x) for x in log.entries[:3]]}")
 
-    # --- RX ---------------------------------------------------------------------
-    print("\nRX")
-    remote = comut(DEST, SRC, 0x20, direction=Direction.TX)          # the device's copy of the message
-    for value in (0xCAFE, 0xBEEF):
-        remote.comut[0] = value
-        device_sends(uts, remote)
-        time.sleep(0.03)
+        # --- raw rule: drop packets on a channel ------------------------------------
+        MyChannels.CONTROL.on_receive_raw(lambda data: None)
+        remote.comut[0] = 0xBEEF
+        device_send(comm, remote)
+        time.sleep(0.05)
+        print(f"RAW rule dropped the packet: status.comut[0] still 0x{status.comut[0]:X}")
 
-    remote_diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.TX)
-    remote_diag.request[0] = 0x1234
-    device_sends(uts, remote_diag)
+        # --- unknown / invalid ------------------------------------------------------
+        comm.uts.inject(MyChannels.DIAG.link, b"\x01\x02\x03")          # no header -> RAW channel
+        time.sleep(0.05)
+        print(f"RX  unknown: {[(f.link.name, f.channel.name) for f in comm.unknown]}")
 
-    bad = bytearray(remote.pack())
-    bad[comut.checksum.offset] ^= 0xFF                                   # broken CRC
-    uts.inject(ProtocolType.RS422, 0, bytes(bad))
-    uts.inject(ProtocolType.RS422, 0, bytes(16))                         # matches no message
-    time.sleep(0.05)
+        # --- RX timeout (status is periodic: 50 ms, tolerance 1.5) --------------------
+        time.sleep(0.1)
 
-    print(f"  status.comut[0] = 0x{status.comut[0]:X}, uts time = {status.rx_state.timestamp:.3f}")
-    print(f"  listener saw: {seen}")
-    print(f"  diag.request[0] = 0x{diag.request[0]:X}")
-    print(f"  status valid={status.rx_state.count} invalid={status.rx_state.errors}, "
-          f"unknown frames: {len(comm.unknown)}")
+        # --- reset back to the baseline ----------------------------------------------
+        comm.stop(sw_req)
+        comm.reset()
+        print(f"RESET periodic request running again: {comm.is_running(sw_req)}, "
+              f"raw rules on CONTROL: {len(MyChannels.CONTROL._rx_rules)}")
 
-    # --- Variable size: the checksum follows the used entries -----------------------
-    print("\nVariable size")
-    log = diag_log(DEST, SRC, 0x50)
-    remote_log = diag_log(DEST, SRC, 0x50, direction=Direction.TX)
-    remote_log.count = 3
-    for i in range(3):
-        remote_log.entries[i] = 0x100 + i
-    device_sends(uts, remote_log)
-    time.sleep(0.05)
-    print(f"  wire size {remote_log.messageLength.val} of max {ctypes.sizeof(log)}, "
-          f"count={log.count}, entries={[hex(x) for x in log.entries[:4]]}")
+        # --- UTS functions -------------------------------------------------------------
+        comm.set_filter(MyChannels.DIAG, [[(0, 0x55), (1, 0xAA)]])
+        comm.clear(MyChannels.CONTROL)
+        comm.configure(MyChannels.CONTROL, baud_rate=115200)
 
-    # --- RX timeout and recovery -------------------------------------------------
-    print("\nRX timeout")
-    time.sleep(0.15)                                                     # > 0.05 * 1.5
-    device_sends(uts, remote)
-    time.sleep(0.05)
-
-    # --- Re-creating a message replaces the old object ---------------------------
-    print("\nRe-create")
-    status2 = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=1.5))     # no conflict error
-    remote.comut[0] = 0x5555
-    device_sends(uts, remote)
-    time.sleep(0.05)
-    print(f"  new object: 0x{status2.comut[0]:X}, old object (no longer updated): 0x{status.comut[0]:X}")
-
-    comm.start(sw_req)
-    sw_req2 = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))   # replaces sw_req
-    time.sleep(0.05)
-    print(f"  old periodic request still running: {comm.tx.is_running(sw_req)}")
-
-    # --- UTS error ----------------------------------------------------------------
-    def unreachable(*args):
-        raise ConnectionError("UTS unreachable")
-
-    uts.transfer = unreachable
-    print(f"\nUTS error: send returned {comm.send(sw_req2)}")
-    del uts.transfer
-
-    comm.close()
-    history.close()
-    errors.close()
-
-    print("\ncomm_history.csv (first lines)")
-    with open("comm_history.csv", encoding="utf-8") as f:
-        for line in f.readlines()[:4]:
-            print("  " + line.rstrip())
-    print("\ncomm_errors.log")
-    with open("comm_errors.log", encoding="utf-8") as f:
+    print(f"\nlogs in {comm.run_dir}")
+    print("comm.log (warnings):")
+    with open(comm.log_file, encoding="utf-8") as f:
         for line in f:
-            print("  " + line.rstrip())
+            if "WARNING" in line:
+                print("  " + line.rstrip())
 
 
 if __name__ == "__main__":
