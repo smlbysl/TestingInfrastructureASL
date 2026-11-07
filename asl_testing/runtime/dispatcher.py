@@ -1,6 +1,8 @@
 """Dispatcher: delivers a received frame to its message object and publishes the result.
 
-frame -> ProjectX.lookup(channel, raw) -> msg.decode(raw, timestamp) -> event
+frame -> lookup -> msg.decode(raw, timestamp) -> event
+lookup: first a signature match in every project, then a message identified by the channel alone
+(a family without a signature), so one project's channel rule does not hide another's signature match.
 - no channel or no message matches -> UnknownReceived, frame kept in `unknown`
 - matches but fails validate  -> InvalidReceived
 - matches and valid           -> MessageReceived
@@ -43,7 +45,11 @@ class Dispatcher:
         if frame.channel is None:
             return None
         for project in self.projects:
-            msg = project.lookup(frame.channel, frame.data)
+            msg = project.lookup_signature(frame.channel, frame.data)
+            if msg is not None:
+                return msg
+        for project in self.projects:
+            msg = project.lookup_channel(frame.channel)
             if msg is not None:
                 return msg
         return None

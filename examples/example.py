@@ -15,7 +15,7 @@ from asl_testing.events import WireReceived, WireSent
 from asl_testing.message.timing import Direction
 from asl_testing.message.timing import Timing
 from projects.example_project.channels import MyChannels
-from projects.example_project.messages import bambaşka, comut, diag_log, motor_cmd, request
+from projects.example_project.messages import bambaşka, comut, diag_log, motor_cmd, request, ser_cmd, ser_report
 from projects.example_project.header import ProjectBase
 from asl_testing.services import CommLogger, ErrorLog
 
@@ -99,6 +99,26 @@ def main() -> None:
     time.sleep(0.05)
     print(f"  wire size {remote_log.messageLength.val} of max {ctypes.sizeof(log)}, "
           f"count={log.count}, entries={[hex(x) for x in log.entries[:4]]}")
+
+    # --- No signature: the channel identifies the message ------------------------
+    print("\nIdentified by the channel (SER2, no signature)")
+    report = ser_report(DEST, SRC, 0x60)
+    remote_report = ser_report(DEST, SRC, 0x60, direction=Direction.TX)
+    comm.send(ser_cmd(SRC, DEST, 0x61, command=5))
+    for count in (2, 5):                                                 # two sizes on the same channel
+        remote_report.count = count
+        for i in range(count):
+            remote_report.values[i] = 10 * count + i
+        report.has_new()
+        device_sends(uts, remote_report)
+        comm.wait_new(report, timeout=0.5)
+        print(f"  {remote_report.messageLength.val} bytes -> count={report.count}, "
+              f"values={list(report.values[:report.count])}")
+    bad = bytearray(remote_report.pack())
+    bad[-1] ^= 0xFF
+    uts.inject(MyChannels.SER2.protocol, 2, bytes(bad))
+    time.sleep(0.05)
+    print(f"  broken CRC -> invalid (not unknown): errors={report.rx_state.errors}")
 
     # --- RX timeout and recovery -------------------------------------------------
     print("\nRX timeout")

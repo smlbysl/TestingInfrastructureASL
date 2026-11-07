@@ -3,6 +3,9 @@
 A family class opens its own Registry when it is defined and adds it to its project's family list.
 A message object does not know the rules; it only calls registry.add(self).
 The registry holds references to the objects; decode writes incoming data directly into them.
+
+A registry without a signature identifies its RX messages by the channel alone: key (channel, None),
+so it holds at most one RX message per channel.
 """
 from __future__ import annotations
 
@@ -36,13 +39,14 @@ class Registry:
 
         self.all.append(msg)
         if msg._rx is not None:
-            if msg._signature_id is not None:
-                key = (msg._channel, msg._signature_id)
+            if self.signature is None or msg._signature_id is not None:
+                key = (msg._channel, msg._signature_id)     # (channel, None): identified by the channel
                 owner = self.dispatch.get(key)
                 if owner is not None:
+                    what = "no signature" if key[1] is None else f"signature 0x{key[1]:X}"
                     raise ValueError(
                         f"Conflict: {type(msg).__name__} and {type(owner).__name__} have the same "
-                        f"channel ({msg._channel}) and signature (0x{msg._signature_id:X})")
+                        f"channel ({msg._channel}) and {what}")
                 self.dispatch[key] = msg
             if msg._rx.timing.is_periodic:
                 self.periodic_rx.append(msg)
@@ -63,7 +67,9 @@ class Registry:
 
     def lookup(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
         """Finds the message object of this family from a raw packet."""
-        if self.signature is None or self.signature.mask is None:
+        if self.signature is None:
+            return self.dispatch.get((channel, None))     # identified by the channel
+        if self.signature.mask is None:
             return None
         return self.dispatch.get((channel, self.signature.compute(raw)))
 

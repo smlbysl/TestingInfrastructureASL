@@ -79,6 +79,15 @@ TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
 RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
 ```
 
+## Kanala göre tanıma (signature'sız aile)
+- `_signature = None` olan bir aile (ya da signature'sız projeye doğrudan bağlı mesajlar) RX mesajını
+  sadece kanalından tanır: anahtar `(kanal, None)`. Kanal başına en fazla bir RX mesajı (ikincisi çakışma hatası).
+- Sıra: önce bütün projelerde signature eşleşmesi, yoksa kanalın signature'sız mesajı. Böylece aynı kanalda
+  sabit boylu mesajlar (ör. length = signature) ile tek bir değişken boylu mesaj birlikte çalışır.
+- Kanal eşleştiği için doğrulamayı geçemeyen paket invalid olur (unknown değil). Değişken boyda boy length alanından.
+- Sabit boylu mesajlarda length alanı signature olarak kullanılabilir (`Signature("length")`); boy her
+  mesajda farklıysa ayrışırlar. Değişken boyda length kimlik olamaz.
+
 ## Yeni paket kontrolü
 - `msg.has_new()`: son çağrıdan bu yana gelen geçerli paket sayısı (0: yok); çağrı sıfırlar.
   `rx_state.count` (toplam) ile son kontrol edilen değer (`_seen`) karşılaştırılır; kilit gerekmez, paket kaçmaz.
@@ -160,6 +169,10 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
 - Unknown paket WARNING olarak loglanıyor; `listen` edilen kanalda beklenen paketler için seviye düşürülebilir.
 - Her mesajın genel loga DEBUG yazılması (CSV ile tekrar) kalacak mı.
+- Aynı kanalda signature'sız iki RX mesajı desteklenmiyor (gerekirse projenin tanıma fonksiyonu ile).
+- Length = signature olan sabit boylu mesajlarla değişken boylu (kanala göre) bir mesaj aynı kanaldaysa, değişken
+  paketin boyu sabit bir mesajın boyuna eşit olduğunda paketi sabit mesaj alır (signature önce denenir; CRC de
+  tutabilir). Bu boylar çakışmamalı ya da signature'a ayırt edici başka bir alan eklenmeli.
 - Periyodik gönderimde `after_send` yarışı: test thread'i istek bitini pack ile after_send arasında yazarsa
   sıfırlama bu değeri siler (istek gitmez). Koruma yok; gerekirse "bir sonraki gönderimde bir kez" yardımcısı.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).

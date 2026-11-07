@@ -188,11 +188,30 @@ class BaseMessageStructure(Structure):
 
     @classmethod
     def lookup(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        """Finds the message object in this project that a raw packet belongs to."""
+        """Finds the message object in this project that a raw packet belongs to.
+
+        Families with a signature are tried first; a family without one (identified by the channel)
+        takes the packet only if no signature matched.
+        """
+        msg = cls.lookup_signature(channel, raw)
+        return msg if msg is not None else cls.lookup_channel(channel)
+
+    @classmethod
+    def lookup_signature(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
         for reg in cls.families(channel):
-            msg = reg.lookup(channel, raw)
-            if msg is not None:
-                return msg
+            if reg.signature is not None:
+                msg = reg.lookup(channel, raw)
+                if msg is not None:
+                    return msg
+        return None
+
+    @classmethod
+    def lookup_channel(cls, channel: Channel) -> Optional[BaseMessageStructure]:
+        for reg in cls.families(channel):
+            if reg.signature is None:
+                msg = reg.dispatch.get((channel, None))
+                if msg is not None:
+                    return msg
         return None
 
     @classmethod
