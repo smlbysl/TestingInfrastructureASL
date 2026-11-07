@@ -24,6 +24,8 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     client.py                UtsClient (arayüz), UtsFrame
     http.py                  HttpUtsClient (yer tutucu)
     fake.py                  FakeUtsClient
+    control.py               UtsControl: config ve filtre (testten dikine, doğrudan çağrı)
+    filters.py               filtre hesapları (mesaj -> hattaki byte konumu, değer)
   runtime/                   4. Çalışma zamanı: ne zaman ve nasıl taşınır
     transport.py             envelope, adres başına sorgu, splitter, kanal tespiti
     rx.py                    RxPoller: sorgu, WireReceived, zaman aşımı
@@ -78,6 +80,19 @@ UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey
 TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
 RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
 ```
+
+## UTS yönetimi (comm.control)
+- Mesaj akışından ayrı, dikine bir yol: test -> `comm.control` (UtsControl) -> UtsClient. RX/TX thread'leri ve
+  olaylar kullanılmaz; çağrı senkron, sonucu döner ya da istisna fırlatır (`UtsError`). Her çağrı INFO loglanır.
+- Hedef bir mesaj nesnesi ya da kanal; mesaj kendi kanalını verir. Kanalın protocol + interface'i UTS arayüzünü seçer.
+- `get_config` / `set_config(**ayarlar)`, `get_filter -> (kind, groups)`, `set_filter(groups, kind)`, `clear_filter`.
+- `add_filter(msg)` / `remove_filter(msg)`: filtreyi okur, mesajın signature byte'larını ekler/çıkarır, geri yazar.
+  Konumlar hattaki konumlardır: kanal envelope'unun `offset`'i (mesajın önündeki byte sayısı) eklenir
+  (`Envelope.offset`, varsayılan 0; örnek `EthHeader.offset = 8`).
+- UtsClient'ın yönetim metotları soyut değil (varsayılan `NotImplementedError`); FakeUtsClient bunları saklar,
+  gelen paketlere uygulamaz.
+- Dikkat: ilk `add_filter` arayüzü "her şey geçer"den "sadece filtre geçer"e çevirir; aynı arayüzdeki (ve aynı adresi
+  paylaşan kanallardaki) filtreye eklenmemiş mesajlar artık gelmez.
 
 ## Kanala göre tanıma (signature'sız aile)
 - Sınıfta açıkça `_signature = None` yazılırsa (aile ya da proje) RX mesajı sadece kanalından tanınır:
@@ -170,6 +185,10 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
 - Unknown paket WARNING olarak loglanıyor; `listen` edilen kanalda beklenen paketler için seviye düşürülebilir.
 - Her mesajın genel loga DEBUG yazılması (CSV ile tekrar) kalacak mı.
+- UTS filtresi: arayüz başına (aynı adresi paylaşan kanallar paylaşır); kısmi bit maskeli signature byte'ını UTS'nin
+  destekleyip desteklemediği; config alan adları/tipleri (doğrulama yok); gerçek HTTP gövdeleri; seri akışta filtre
+  konumunun anlamı; okuma-ekleme-yazma tek işlem değil (aynı anda iki thread add_filter çağırırsa biri kaybolabilir);
+  alım tamponunu boşaltma (clear) RX thread'iyle yarış yüzünden eklenmedi.
 - Aynı kanalda signature'sız iki RX mesajı desteklenmiyor (gerekirse projenin tanıma fonksiyonu ile).
 - Length = signature olan sabit boylu mesajlarla değişken boylu (kanala göre) bir mesaj aynı kanaldaysa, değişken
   paketin boyu sabit bir mesajın boyuna eşit olduğunda paketi sabit mesaj alır (signature önce denenir; CRC de

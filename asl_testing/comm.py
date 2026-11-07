@@ -8,6 +8,7 @@ Test code works with message objects and this class only.
     comm.send(req)                  # one-shot
     comm.start(cmd)                 # periodic, until comm.stop(cmd)
     comm.on_receive(status, handler)
+    comm.control.add_filter(status)   # UTS management: config, filters
     comm.close()
 
 Logging: every part logs on its own `logging` logger (asl_testing.*); where the records go is set
@@ -23,6 +24,7 @@ from asl_testing.runtime.rx import RxPoller
 from asl_testing.runtime.transport import RxFrame, Transport
 from asl_testing.runtime.tx import TxScheduler
 from asl_testing.uts.client import UtsClient
+from asl_testing.uts.control import UtsControl
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import MessageReceived
 from asl_testing.message.base import BaseMessageStructure
@@ -38,6 +40,7 @@ class Comm:
         self.dispatcher = Dispatcher(self.bus, projects, log=logger)
         self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
         self.tx = TxScheduler(self.transport, self.bus, log=logger)
+        self.control = UtsControl(uts, log=logger)          # UTS configuration and filters (direct calls)
 
     # ---------------------------------------------------------------- life cycle
 

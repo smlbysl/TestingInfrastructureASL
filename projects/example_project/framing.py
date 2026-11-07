@@ -14,6 +14,7 @@ from asl_testing.channel.framing import Envelope
 class EthHeader(Envelope):
     MAGIC = b"\x55\xAA"
     SIZE = 8
+    offset = SIZE                                       # the message starts after the header
 
     def on_send(self, data: bytes) -> bytes:
         return self.MAGIC + struct.pack("<H", self.SIZE + len(data)) + bytes(4) + data

@@ -152,6 +152,20 @@ def main() -> None:
     bits = [data[offset] & 1 for _, _, data in uts.sent[first:]]
     print(f"  startReq in sent packets: {bits}, now: {motor.cmd.startReq}, mode kept: {motor.cmd.mode}")
 
+    # --- UTS control: configuration and filters (direct calls) ------------------
+    print("\nUTS control")
+    comm.control.set_config(status, baudRate=115200)                      # message or channel
+    comm.control.add_filter(status)                                      # CONTROL, no envelope
+    comm.control.add_filter(diag)                                        # DIAG, after the 8-byte header
+    comm.control.add_filter(diag)                                        # second time: no change
+    print(f"  config CONTROL: {comm.control.get_config(MyChannels.CONTROL)}")
+    print(f"  filter CONTROL: {comm.control.get_filter(status)}")
+    kind, groups = comm.control.get_filter(MyChannels.DIAG)
+    print(f"  filter DIAG:    {kind}, positions {[p for p, _ in groups[0]]}")
+    comm.control.remove_filter(diag)
+    comm.control.clear_filter(MyChannels.CONTROL)
+    print(f"  after remove / clear: {comm.control.get_filter(diag)[0]}, {comm.control.get_filter(status)[0]}")
+
     # --- UTS error ----------------------------------------------------------------
     def unreachable(*args):
         raise ConnectionError("UTS unreachable")

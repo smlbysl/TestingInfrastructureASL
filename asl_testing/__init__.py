@@ -17,6 +17,7 @@ from asl_testing.comm import Comm
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.message.signature import Signature
 from asl_testing.message.timing import Direction, Timing
-from asl_testing.uts.client import UtsClient, UtsFrame
+from asl_testing.uts.client import UtsClient, UtsError, UtsFrame
+from asl_testing.uts.control import UtsControl
 from asl_testing.uts.fake import FakeUtsClient
 from asl_testing.uts.http import HttpUtsClient

@@ -20,6 +20,8 @@ class Splitter:
 
 
 class Envelope:
+    offset = 0      # bytes in front of the message on the line (header size); used for UTS filters
+
     def on_send(self, data: bytes) -> bytes:
         """TX: message bytes -> bytes on the line."""
         return data
