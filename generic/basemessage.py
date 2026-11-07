@@ -126,6 +126,23 @@ class BaseMessageStructure(Structure):
     def tx_state(self) -> Optional[TxState]:
         return self._tx
 
+    # Times of the last valid packet. Prefixed with rx_ so an ICD field such as "timestamp" does not hide them.
+
+    @property
+    def rx_timestamp(self) -> Optional[float]:
+        """UTS arrival time of the last valid packet (seconds); None if nothing has arrived."""
+        return self._rx.timestamp if self._rx is not None else None
+
+    @property
+    def rx_host_time(self) -> Optional[float]:
+        """Wall clock of this host (time.time) when the last valid packet was received; None if nothing has arrived."""
+        return self._rx.host_time if self._rx is not None else None
+
+    @property
+    def rx_age(self) -> Optional[float]:
+        """Seconds since the last valid packet, on this host's clock; None if nothing has arrived."""
+        return self._rx.age() if self._rx is not None else None
+
     def has_new(self) -> int:
         """Number of valid packets received since the last call (0: none); the call clears it.
 

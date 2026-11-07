@@ -15,6 +15,7 @@ class RxState:
     timing: Timing
     timestamp: Optional[float] = None    # arrival time of the last valid packet, from UTS (seconds)
     last_time: Optional[float] = None    # host time of the last valid packet (time.monotonic)
+    host_time: Optional[float] = None    # wall clock of this host at the last valid packet (time.time)
     count: int = 0                       # number of valid packets
     errors: int = 0                      # number of packets that failed validation
     created: float = field(default_factory=time.monotonic)   # host time the object was created
@@ -23,6 +24,7 @@ class RxState:
     def on_receive(self, timestamp: Optional[float] = None) -> None:
         self.timestamp = timestamp
         self.last_time = time.monotonic()
+        self.host_time = time.time()
         self.count += 1
 
     def check_new(self) -> int:

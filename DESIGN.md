@@ -72,6 +72,13 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `comm.wait_new(msg, timeout)`: yeni paket gelene kadar bekler; gelen paket sayısını ya da zaman aşımında 0 döner.
   Bir isteği göndermeden önce `msg.has_new()` çağrılır ki önceki paket cevap sanılmasın.
 
+## Son paketin zamanı (mesaj üzerinden)
+- `msg.rx_timestamp`: UTS'nin bildirdiği geliş zamanı (saniye).
+- `msg.rx_host_time`: paketin bu bilgisayarda alındığı tarih-saat (`time.time`).
+- `msg.rx_age`: son paketten bu yana geçen saniye (bu bilgisayarın saati).
+- Paket gelmediyse ya da mesaj TX-only ise `None`. `rx_` öneki, ICD'deki `timestamp` gibi alanların
+  property'yi gölgelememesi için. Belirli bir paketin zamanı için olaydaki `ev.timestamp` / `ev.host_time` kullanılır.
+
 ## Olaylar
 - Mesaj seviyesi (değişmedi): `MessageReceived`, `MessageSent`, `InvalidReceived`, `UnknownReceived`
   (`raw` = mesaj byte'ları, envelope çıkarılmış).
