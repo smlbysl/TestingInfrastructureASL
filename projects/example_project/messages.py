@@ -1,8 +1,8 @@
 """Message definitions (ICD). A message class defines its payload fields and ends with the checksum."""
-from ctypes import c_uint16, c_uint32
+from ctypes import c_int16, c_uint16, c_uint32
 
 from projects.example_project.header import Family1, Family2
-from projects.example_project.types import CRC16
+from projects.example_project.types import CRC16, CmdByte
 
 
 class request(Family1):
@@ -38,3 +38,12 @@ class diag_log(Family1):
 
     def body_size(self) -> int:                 # used for TX only; RX reads the size from the packet
         return diag_log.entries.offset + self.count * 4
+
+
+class motor_cmd(Family1):
+    """Command bits in one byte (CmdByte): the start request goes out once."""
+    _fields_ = [
+        ("cmd",         CmdByte),
+        ("speed",       c_int16),
+        ("checksum",    CRC16),
+    ]

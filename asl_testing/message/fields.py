@@ -4,6 +4,7 @@ Each special field type knows what to do in the message life cycle:
 - on_init(msg)          : when the object is created
 - on_send(msg)          : inside pack() (after the user callouts)
 - on_receive(msg, raw)  : while an incoming packet is validated; returning False rejects it
+- after_send(msg)       : after the packet was sent successfully (not on a UTS error), e.g. to clear a request bit
 
 BaseMessageStructure walks the fields of these types in _order and calls them; it does not know their names.
 Project-specific types (e.g. Length16, CRC16) derive from these.
@@ -40,6 +41,9 @@ class FieldType(Structure):
 
     def on_receive(self, msg, raw: bytes) -> bool:
         return True
+
+    def after_send(self, msg) -> None:
+        pass
 
     # ---------------------------------------------------------------- helpers
 

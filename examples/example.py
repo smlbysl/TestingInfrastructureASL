@@ -15,7 +15,7 @@ from asl_testing.events import WireReceived, WireSent
 from asl_testing.message.timing import Direction
 from asl_testing.message.timing import Timing
 from projects.example_project.channels import MyChannels
-from projects.example_project.messages import bambaşka, comut, diag_log, request
+from projects.example_project.messages import bambaşka, comut, diag_log, motor_cmd, request
 from projects.example_project.header import ProjectBase
 from asl_testing.services import CommLogger, ErrorLog
 
@@ -119,12 +119,28 @@ def main() -> None:
     time.sleep(0.05)
     print(f"  old periodic request still running: {comm.tx.is_running(sw_req)}")
 
+    # --- One-shot request bit (after_send of a field type) ----------------------
+    print("\nOne-shot bit")
+    motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.02))
+    first = len(uts.sent)
+    comm.start(motor)
+    time.sleep(0.03)
+    motor.cmd.startReq = 1                                               # request a start once
+    time.sleep(0.1)
+    comm.stop(motor)
+    offset = motor_cmd.cmd.offset
+    bits = [data[offset] & 1 for _, _, data in uts.sent[first:]]
+    print(f"  startReq in sent packets: {bits}, now: {motor.cmd.startReq}, mode kept: {motor.cmd.mode}")
+
     # --- UTS error ----------------------------------------------------------------
     def unreachable(*args):
         raise ConnectionError("UTS unreachable")
 
     uts.transfer = unreachable
     print(f"\nUTS error: send returned {comm.send(sw_req2)}")
+    motor.cmd.startReq = 1
+    comm.send(motor)
+    print(f"  startReq after a failed send (kept for the next send): {motor.cmd.startReq}")
     del uts.transfer
 
     comm.close()

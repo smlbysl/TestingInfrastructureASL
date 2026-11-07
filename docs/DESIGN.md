@@ -126,6 +126,12 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
   Çerçeve kodu her zaman alt çizgili bilgiyi kullanır (ICD alan adlarıyla çakışmaz).
 - `decode(raw, timestamp)`: UTS zamanı `rx_state.timestamp`'e yazılır (ctypes alanı değil).
 - `_defaults` + `initialize()`; alan tipi hook'ları; `msg.on_send` (pack içinde, checksum'dan önce).
+- Alan tipi hook'ları: `on_init`, `on_send` (pack içinde), `on_receive` (doğrulama), `after_send`
+  (TX katmanı, UTS isteği başarılı olunca, gönderim kilidi altında; UTS hatasında çağrılmaz).
+  Olaylar gönderilen değeri taşır (sıfırlamadan önce).
+- Aynı byte'ı paylaşan bitler tek bir özel tipte toplanır (örnek `CmdByte`): ilk değerler `on_init`'te,
+  bir kez gidecek istek biti `after_send`'de sıfırlanır. Erişim `msg.cmd.startReq`; bu tipte `.val` yok,
+  `_defaults` kullanılmaz.
 - `msg.on_receive` (RX thread'inde) ve `comm.on_receive` (kendi thread'inde) ikisi de var; hangisinin
   kalacağı açık.
 
@@ -154,4 +160,6 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
 - Unknown paket WARNING olarak loglanıyor; `listen` edilen kanalda beklenen paketler için seviye düşürülebilir.
 - Her mesajın genel loga DEBUG yazılması (CSV ile tekrar) kalacak mı.
+- Periyodik gönderimde `after_send` yarışı: test thread'i istek bitini pack ile after_send arasında yazarsa
+  sıfırlama bu değeri siler (istek gitmez). Koruma yok; gerekirse "bir sonraki gönderimde bir kez" yardımcısı.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).

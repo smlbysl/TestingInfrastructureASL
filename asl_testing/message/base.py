@@ -261,6 +261,11 @@ class BaseMessageStructure(Structure):
         data = bytes(self)
         return data[:self.body_size()] + data[self._trailer_offset():]
 
+    def _sent(self) -> None:
+        """Called by the TX layer after a successful send: after_send hooks of the special fields."""
+        for field in self._special_fields():
+            field.after_send(self)
+
     # ---------------------------------------------------------------- helpers
 
     def _apply_defaults(self) -> None:

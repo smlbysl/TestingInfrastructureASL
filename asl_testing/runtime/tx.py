@@ -2,7 +2,8 @@
 
 - send(msg): counter, checksum, bytes, envelope and the UTS request happen under one lock, so the
   scheduler and the test sending the same message at the same time cannot mix up the counter.
-  Publishes WireSent (bytes on the line) and MessageSent.
+  Publishes WireSent (bytes on the line) and MessageSent. After a successful send the after_send
+  hooks of the special fields run (still under the lock); the events carry the values that were sent.
 - start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
   the period (not now + period), so the delay does not accumulate.
 - A message that is no longer registered (replaced by a new object) is dropped from the table.
@@ -44,6 +45,7 @@ class TxScheduler:
                 self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return False
+            msg._sent()
         self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))
