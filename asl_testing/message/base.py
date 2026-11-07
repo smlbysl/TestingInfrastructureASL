@@ -15,6 +15,11 @@ from asl_testing.message.timing import Timing
 Callout = Callable[["BaseMessageStructure"], None]
 
 
+def _explicit_none(cls) -> bool:
+    """True when the class writes `_signature = None` itself: its RX messages are identified by the channel."""
+    return "_signature" in cls.__dict__ and cls.__dict__["_signature"] is None
+
+
 class BaseMessageStructure(Structure):
     """Base of all messages.
 
@@ -66,10 +71,10 @@ class BaseMessageStructure(Structure):
 
         if BaseMessageStructure in cls.__bases__:       # project
             cls._families = []
-            cls._registry = Registry(cls.__dict__.get("_signature"))
+            cls._registry = Registry(cls.__dict__.get("_signature"), _explicit_none(cls))
             cls._families.append(cls._registry)
         elif "_signature" in cls.__dict__:              # family
-            cls._registry = Registry(cls._signature)
+            cls._registry = Registry(cls._signature, _explicit_none(cls))
             cls._families.append(cls._registry)         # the project's list, via inheritance
 
     def __init__(self, *args,
@@ -208,7 +213,7 @@ class BaseMessageStructure(Structure):
     @classmethod
     def lookup_channel(cls, channel: Channel) -> Optional[BaseMessageStructure]:
         for reg in cls.families(channel):
-            if reg.signature is None:
+            if reg.by_channel:
                 msg = reg.dispatch.get((channel, None))
                 if msg is not None:
                     return msg

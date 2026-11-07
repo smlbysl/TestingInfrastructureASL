@@ -80,8 +80,9 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 ```
 
 ## Kanala göre tanıma (signature'sız aile)
-- `_signature = None` olan bir aile (ya da signature'sız projeye doğrudan bağlı mesajlar) RX mesajını
-  sadece kanalından tanır: anahtar `(kanal, None)`. Kanal başına en fazla bir RX mesajı (ikincisi çakışma hatası).
+- Sınıfta açıkça `_signature = None` yazılırsa (aile ya da proje) RX mesajı sadece kanalından tanınır:
+  anahtar `(kanal, None)`. Kanal başına en fazla bir RX mesajı (ikincisi çakışma hatası).
+  `_signature` hiç yazılmamış bir proje eskisi gibi kalır: ona doğrudan bağlı RX mesajları kayda girmez.
 - Sıra: önce bütün projelerde signature eşleşmesi, yoksa kanalın signature'sız mesajı. Böylece aynı kanalda
   sabit boylu mesajlar (ör. length = signature) ile tek bir değişken boylu mesaj birlikte çalışır.
 - Kanal eşleştiği için doğrulamayı geçemeyen paket invalid olur (unknown değil). Değişken boyda boy length alanından.

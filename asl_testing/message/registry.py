@@ -4,8 +4,9 @@ A family class opens its own Registry when it is defined and adds it to its proj
 A message object does not know the rules; it only calls registry.add(self).
 The registry holds references to the objects; decode writes incoming data directly into them.
 
-A registry without a signature identifies its RX messages by the channel alone: key (channel, None),
-so it holds at most one RX message per channel.
+A registry opened with by_channel (a class that writes `_signature = None` explicitly) identifies its RX
+messages by the channel alone: key (channel, None), so it holds at most one RX message per channel.
+A registry that simply has no signature (a project without one) does not receive anything, as before.
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ if TYPE_CHECKING:
 
 
 class Registry:
-    def __init__(self, signature: Optional[Signature]):
+    def __init__(self, signature: Optional[Signature], by_channel: bool = False):
         self.signature = signature
+        self.by_channel = by_channel                            # explicit _signature = None
         self.all: list[BaseMessageStructure] = []               # single source: all objects
         self.dispatch: dict[tuple[Channel, int], BaseMessageStructure] = {}  # RX objects only
         self.periodic_rx: list[BaseMessageStructure] = []       # watched for RX timeout
@@ -39,7 +41,7 @@ class Registry:
 
         self.all.append(msg)
         if msg._rx is not None:
-            if self.signature is None or msg._signature_id is not None:
+            if self.by_channel or msg._signature_id is not None:
                 key = (msg._channel, msg._signature_id)     # (channel, None): identified by the channel
                 owner = self.dispatch.get(key)
                 if owner is not None:
@@ -67,9 +69,9 @@ class Registry:
 
     def lookup(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
         """Finds the message object of this family from a raw packet."""
-        if self.signature is None:
+        if self.by_channel:
             return self.dispatch.get((channel, None))     # identified by the channel
-        if self.signature.mask is None:
+        if self.signature is None or self.signature.mask is None:
             return None
         return self.dispatch.get((channel, self.signature.compute(raw)))
 
