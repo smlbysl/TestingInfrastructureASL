@@ -10,6 +10,7 @@ Test code works with message objects and this class only.
     comm.on_receive(status, handler)
     comm.close()
 """
+import time
 from typing import Callable, Iterable, Optional, Sequence
 
 from comm.dispatcher import Dispatcher
@@ -71,6 +72,19 @@ class Comm:
     def on_receive(self, msg: BaseMessageStructure, handler: Callable[[MessageReceived], None]) -> Subscriber:
         """Calls handler(event) in its own thread every time msg is received."""
         return self.bus.subscribe(MessageReceived, handler, where=msg)
+
+    def wait_new(self, msg: BaseMessageStructure, timeout: float = 1.0, interval: float = 0.005) -> int:
+        """Waits until msg has received a packet since its last has_new() call.
+
+        Returns the number of new packets (cleared, as with has_new()), or 0 on timeout.
+        Call msg.has_new() before sending a request, so an earlier packet is not taken as the answer.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            new = msg.has_new()
+            if new or time.monotonic() >= deadline:
+                return new
+            time.sleep(interval)
 
     def listen(self, channel: Channel) -> None:
         """Polls a channel even if no RX message is registered on it."""

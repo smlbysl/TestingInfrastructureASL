@@ -126,6 +126,14 @@ class BaseMessageStructure(Structure):
     def tx_state(self) -> Optional[TxState]:
         return self._tx
 
+    def has_new(self) -> int:
+        """Number of valid packets received since the last call (0: none); the call clears it.
+
+            if status.has_new():
+                print(status.speed)
+        """
+        return self._rx.check_new() if self._rx is not None else 0
+
     # ---------------------------------------------------------------- defaults
 
     def initialize(self) -> None:

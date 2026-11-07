@@ -66,6 +66,12 @@ TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
 RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
 ```
 
+## Yeni paket kontrolü
+- `msg.has_new()`: son çağrıdan bu yana gelen geçerli paket sayısı (0: yok); çağrı sıfırlar.
+  `rx_state.count` (toplam) ile son kontrol edilen değer (`_seen`) karşılaştırılır; kilit gerekmez, paket kaçmaz.
+- `comm.wait_new(msg, timeout)`: yeni paket gelene kadar bekler; gelen paket sayısını ya da zaman aşımında 0 döner.
+  Bir isteği göndermeden önce `msg.has_new()` çağrılır ki önceki paket cevap sanılmasın.
+
 ## Olaylar
 - Mesaj seviyesi (değişmedi): `MessageReceived`, `MessageSent`, `InvalidReceived`, `UnknownReceived`
   (`raw` = mesaj byte'ları, envelope çıkarılmış).

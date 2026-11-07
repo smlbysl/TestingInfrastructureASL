@@ -18,11 +18,22 @@ class RxState:
     count: int = 0                       # number of valid packets
     errors: int = 0                      # number of packets that failed validation
     created: float = field(default_factory=time.monotonic)   # host time the object was created
+    _seen: int = 0                       # count at the last check_new() call
 
     def on_receive(self, timestamp: Optional[float] = None) -> None:
         self.timestamp = timestamp
         self.last_time = time.monotonic()
         self.count += 1
+
+    def check_new(self) -> int:
+        """Number of valid packets since the last call (0: none); the call clears it.
+
+        count only grows (RX thread) and is read once here, so no packet is missed and no lock is needed.
+        """
+        count = self.count
+        new = count - self._seen
+        self._seen = count
+        return new
 
     def on_error(self) -> None:
         self.errors += 1
