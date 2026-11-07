@@ -39,7 +39,7 @@ class CommLogger:
             _host_time(event.host_time),
             _uts_time(getattr(event, "timestamp", None)),
             direction,
-            str(event.channel),
+            str(event.channel) if event.channel is not None else "",
             type(msg).__name__ if msg is not None else "",
             f"0x{msg._signature_id:X}" if msg is not None and msg._signature_id is not None else "",
             len(event.raw),

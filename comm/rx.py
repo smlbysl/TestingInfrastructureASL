@@ -1,8 +1,9 @@
 """RxPoller: one thread that polls UTS at a fixed interval.
 
 Every cycle:
-1. polls each RX channel (channels with registered RX messages + channels added with listen())
-2. hands every frame to the dispatcher
+1. polls each RX address once: the addresses of channels with registered RX messages
+   and of channels added with listen(); channels sharing an address are told apart by their envelope
+2. publishes WireReceived for every packet and hands it to the dispatcher
 3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
 A failed poll is published as LinkError and polling continues.
 """
@@ -14,9 +15,9 @@ from comm.clock import UtsClock
 from comm.dispatcher import Dispatcher
 from comm.transport import Transport
 from events.bus import EventBus
-from events.types import LinkError, RxRestored, RxTimeout
+from events.types import LinkError, RxRestored, RxTimeout, WireReceived
 from generic.basemessage import BaseMessageStructure
-from generic.channel import Channel
+from generic.channel import Address, Channel, by_address
 
 
 class RxPoller:
@@ -46,15 +47,21 @@ class RxPoller:
                 found |= reg.channels
         return found
 
+    def addresses(self) -> dict[Address, list[Channel]]:
+        """Address -> its channels, in the order they are tried on RX."""
+        return by_address(self.channels())
+
     def poll_once(self) -> None:
-        for channel in self.channels():
+        for address, channels in self.addresses().items():
             try:
-                frames = self.transport.poll(channel)
+                frames = self.transport.poll(address, channels)
             except Exception as error:
-                self.bus.publish(LinkError(channel, "poll", error, time.time()))
+                self.bus.publish(LinkError(channels[0], "poll", error, time.time()))
                 continue
             for frame in frames:
                 self.clock.update(frame.timestamp)
+                self.bus.publish(WireReceived(frame.channel, frame.protocol, frame.interface, frame.wire,
+                                              frame.timestamp, frame.host_time))
                 self.dispatcher.dispatch(frame)
         self._check_timeouts()
 

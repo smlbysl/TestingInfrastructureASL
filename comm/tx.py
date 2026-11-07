@@ -1,7 +1,8 @@
 """TxScheduler: one-shot sends and one thread for all periodic messages.
 
-- send(msg): counter, checksum, bytes and the UTS request happen under one lock, so the scheduler
-  and the test sending the same message at the same time cannot mix up the counter.
+- send(msg): counter, checksum, bytes, envelope and the UTS request happen under one lock, so the
+  scheduler and the test sending the same message at the same time cannot mix up the counter.
+  Publishes WireSent (bytes on the line) and MessageSent.
 - start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
   the period (not now + period), so the delay does not accumulate.
 - A message that is no longer registered (replaced by a new object) is dropped from the table.
@@ -12,7 +13,7 @@ from typing import Optional
 
 from comm.transport import Transport
 from events.bus import EventBus
-from events.types import LinkError, MessageSent
+from events.types import LinkError, MessageSent, WireSent
 from generic.basemessage import BaseMessageStructure
 
 
@@ -35,11 +36,13 @@ class TxScheduler:
             raw = msg.pack()
             image = bytes(msg)
             try:
-                self.transport.send(msg._channel, raw)
+                wire = self.transport.send(msg._channel, raw)
             except Exception as error:
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return False
-        self.bus.publish(MessageSent(msg, raw, time.time(), image))
+        now = time.time()
+        self.bus.publish(WireSent(msg._channel, msg, wire, now))
+        self.bus.publish(MessageSent(msg, raw, now, image))
         return True
 
     # ---------------------------------------------------------------- periodic

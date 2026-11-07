@@ -14,14 +14,16 @@ generic/                 mesaj katmanı (projeden bağımsız)
   registry.py            Registry: aile başına kayıtlar, lookup, yer değiştirme kuralı
   timing.py              Timing(period, tolerance)
   state.py               RxState (UTS zamanı, tazelik), TxState
-  channel.py             Channel(protocol, interface)
+  channel.py             Channel (EthernetChannel, Rs422Channel), ChannelSet, kanal kuralları
+  framing.py             Splitter (akış -> paket), Envelope (paket etrafı), Framing
   enumerations.py        ProtocolType, Direction (Flag), Endian
 events/
-  types.py               olaylar: MessageReceived/Sent, Invalid/UnknownReceived, RxTimeout/Restored, LinkError
+  types.py               olaylar: MessageReceived/Sent, Invalid/UnknownReceived, RxTimeout/Restored, LinkError,
+                         hat seviyesi: WireReceived, WireSent
   bus.py                 EventBus: abone başına kuyruk + thread, where= filtresi
 comm/                    haberleşme katmanı
   uts.py                 UtsClient (soyut), HttpUtsClient (yer tutucu), FakeUtsClient
-  transport.py           Transport: channel <-> UTS, send / poll, sadece byte
+  transport.py           Transport: envelope, adres başına sorgu, splitter, kanal tespiti
   dispatcher.py          lookup + decode + olay, unknown listesi
   clock.py               UtsClock: tahmini UTS "şimdi"si
   rx.py                  RxPoller thread'i + periyodik RX zaman aşımı
@@ -30,7 +32,8 @@ comm/                    haberleşme katmanı
 services/
   commlogger.py          CommLogger: mesajlaşma geçmişi (CSV)
   errorlog.py            ErrorLog: UTS hataları, RX zaman aşımı, abone hataları (ayrı dosya)
-project/                 projeye özel (ICD): types, project (proje + aileler), messages
+project/                 projeye özel (ICD): types, channels (MyChannels), framing (örnek EthHeader),
+                         project (proje + aileler), messages
 example.py               sahte UTS ile uçtan uca örnek
 ```
 
@@ -41,9 +44,34 @@ Comm             katmanları kurar, open/close
 TxScheduler      ne zaman gönderilir        RxPoller   ne zaman sorgulanır + zaman aşımı
                                             Dispatcher registry ile eşleme, decode, olay
 EventBus         olayları abonelere dağıtır (CommLogger, ErrorLog, test dinleyicileri, ileride simülasyon/UI)
-Transport        channel <-> protocol/interface, byte
+Transport        kanal envelope'u, adres (protocol + interface) başına sorgu, splitter, kanal tespiti
 UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey burada
 ```
+
+## Kanal ve framing
+- `Channel`: generic kanal tanımı = protokol (alt sınıf: `EthernetChannel`, `Rs422Channel`) + interface + `Framing`.
+  IP, port, baud gibi fiziksel ayarlar kanalda yok. Eşitlik kimliğe göre: her kanal bir kez tanımlanır.
+- `Framing(splitter, envelope)`, ikisi de isteğe bağlı; varsayılanları bir şey yapmaz.
+  - Splitter: akış seviyesi, kanal belli olmadan çalışır; bir adreste en fazla bir splitter.
+  - Envelope: paket seviyesi; `on_send` ekler, `on_receive` çıkarır, paket bu kanalın değilse `None`.
+- Proje kanallarını `ChannelSet` ile tanımlar (`project/channels.py`): isimleri verir, kuralları sınıf tanımlanırken
+  kontrol eder (adres başına en fazla bir splitter, en fazla bir envelope'suz kanal). `Comm`'a verilmez.
+- Kanal mesaja sınıf varsayılanı olarak verilir (`_channel = MyChannels.CONTROL`); nesne oluştururken verilmez.
+- Aynı adresi paylaşan kanallar: adres bir kez sorgulanır; RX'te kanallar sırayla denenir (envelope'lular önce,
+  envelope'suz en son), paketi kabul eden ilk kanal seçilir; hiçbiri kabul etmezse paket unknown olur.
+- Sorgulanan adresler: RX mesajı kayıtlı kanalların ve `comm.listen(kanal)` ile eklenenlerin adresleri.
+  RX mesajı olmayan bir kanalın paketleri, o kanal `listen` ile eklenmedikçe tanınmaz.
+```
+TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
+RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
+```
+
+## Olaylar
+- Mesaj seviyesi (değişmedi): `MessageReceived`, `MessageSent`, `InvalidReceived`, `UnknownReceived`
+  (`raw` = mesaj byte'ları, envelope çıkarılmış).
+- Hat seviyesi: `WireReceived` (hattan gelen her paket, envelope dahil; mesaj eşleşmesinden önce) ve
+  `WireSent` (hatta giden paket). Abonelik: `comm.subscribe(WireReceived, handler)`.
+- Bir paket için önce hat seviyesi, sonra mesaj seviyesi olay yayınlanır.
 
 ## Thread modeli
 - 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.

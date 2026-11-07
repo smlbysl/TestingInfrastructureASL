@@ -1,7 +1,7 @@
 """Dispatcher: delivers a received frame to its message object and publishes the result.
 
 frame -> ProjectX.lookup(channel, raw) -> msg.decode(raw, timestamp) -> event
-- no message matches          -> UnknownReceived, frame kept in `unknown`
+- no channel or no message matches -> UnknownReceived, frame kept in `unknown`
 - matches but fails validate  -> InvalidReceived
 - matches and valid           -> MessageReceived
 """
@@ -34,6 +34,8 @@ class Dispatcher:
         return msg
 
     def _lookup(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
+        if frame.channel is None:
+            return None
         for project in self.projects:
             msg = project.lookup(frame.channel, frame.data)
             if msg is not None:

@@ -1,7 +1,8 @@
 """End-to-end example with a fake UTS.
 
 Shows: periodic and one-shot TX, RX dispatch, listeners, unknown / invalid packets,
-RX timeout and recovery, a re-created message replacing the old one, UTS errors and the logs.
+channels sharing an interface (envelope), line-level events, RX timeout and recovery,
+a re-created message replacing the old one, UTS errors and the logs.
 
 Run from the project root:  python example.py
 """
@@ -9,21 +10,21 @@ import ctypes
 import time
 
 from comm import Comm, FakeUtsClient
-from generic.channel import Channel
-from generic.enumerations import Direction, ProtocolType
+from events import WireReceived, WireSent
+from generic.enumerations import Direction
 from generic.timing import Timing
+from project.channels import MyChannels
 from project.messages import bambaşka, comut, diag_log, request
 from project.project import ProjectBase
 from services import CommLogger, ErrorLog
 
-RS422_0 = Channel(ProtocolType.RS422, 0)
-ETH_1 = Channel(ProtocolType.ETHERNET, 1)
 SRC, DEST = 0x0001, 0x0002
 
 
 def device_sends(uts: FakeUtsClient, msg) -> None:
-    """Plays the device: the packet appears in the UTS receive buffer of the message's channel."""
-    uts.inject(msg.channel.protocol, msg.channel.interface, msg.pack())
+    """Plays the device: the packet, with the channel's envelope, appears in the UTS receive buffer."""
+    ch = msg.channel
+    uts.inject(ch.protocol, ch.interface, ch.framing.envelope.on_send(msg.pack()))
 
 
 def main() -> None:
@@ -35,10 +36,14 @@ def main() -> None:
     # --- Message objects (from the ICD) --------------------------------------
     sw_req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.02))
     status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=1.5))
-    diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1)
+    diag = bambaşka(0x07, SRC, 0x40)                                    # Family2 -> DIAG (Ethernet + header)
 
     seen = []
     comm.on_receive(status, lambda ev: seen.append(hex(ev.snapshot().comut[0])))
+    wire_rx, wire_tx = [], []
+    comm.subscribe(WireReceived, lambda ev: wire_rx.append((str(ev.channel), ev.wire)))
+    comm.subscribe(WireSent, lambda ev: wire_tx.append((str(ev.channel), ev.wire)))
+    comm.listen(MyChannels.RAW)        # no RX message on RAW: listen to see its packets
 
     comm.open()
 
@@ -60,21 +65,24 @@ def main() -> None:
         device_sends(uts, remote)
         time.sleep(0.03)
 
-    remote_diag = bambaşka(0x07, SRC, 0x40, channel=ETH_1, direction=Direction.TX)
+    remote_diag = bambaşka(0x07, SRC, 0x40, direction=Direction.TX)
     remote_diag.request[0] = 0x1234
     device_sends(uts, remote_diag)
 
     bad = bytearray(remote.pack())
     bad[comut.checksum.offset] ^= 0xFF                                   # broken CRC
-    uts.inject(ProtocolType.RS422, 0, bytes(bad))
-    uts.inject(ProtocolType.RS422, 0, bytes(16))                         # matches no message
+    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(bad))
+    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(16))                # matches no message
+    uts.inject(MyChannels.RAW.protocol, 1, b"\x01\x02\x03")               # no header on ETHERNET:1 -> RAW
     time.sleep(0.05)
 
     print(f"  status.comut[0] = 0x{status.comut[0]:X}, uts time = {status.rx_state.timestamp:.3f}")
     print(f"  listener saw: {seen}")
-    print(f"  diag.request[0] = 0x{diag.request[0]:X}")
+    print(f"  diag.request[0] = 0x{diag.request[0]:X}  (DIAG: header removed)")
     print(f"  status valid={status.rx_state.count} invalid={status.rx_state.errors}, "
-          f"unknown frames: {len(comm.unknown)}")
+          f"unknown frames: {[str(f.channel) for f in comm.unknown]}")
+    eth_in = next(w for ch, w in wire_rx if ch == "DIAG")
+    print(f"  WireReceived on DIAG: {eth_in[:8].hex(' ')} | ... ({len(eth_in)} bytes, header included)")
 
     # --- Variable size: the checksum follows the used entries -----------------------
     print("\nVariable size")
@@ -116,6 +124,7 @@ def main() -> None:
     del uts.transfer
 
     comm.close()
+    print(f"\nline level: {len(wire_tx)} WireSent, {len(wire_rx)} WireReceived")
     history.close()
     errors.close()
 

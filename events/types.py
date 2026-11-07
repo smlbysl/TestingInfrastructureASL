@@ -13,6 +13,7 @@ from typing import Optional
 
 from generic.basemessage import BaseMessageStructure
 from generic.channel import Channel
+from generic.enumerations import ProtocolType
 
 
 @dataclass(frozen=True)
@@ -52,8 +53,8 @@ class InvalidReceived(MessageEvent):
 
 @dataclass(frozen=True)
 class UnknownReceived:
-    """The packet matched no registered message."""
-    channel: Channel
+    """The packet matched no registered message (channel is None if no envelope accepted it)."""
+    channel: Optional[Channel]
     raw: bytes
     host_time: float
     timestamp: Optional[float] = None
@@ -80,4 +81,29 @@ class LinkError:
     channel: Optional[Channel]
     operation: str                      # "send" or "poll"
     error: Exception
+    host_time: float
+
+
+# ---------------------------------------------------------------- line level
+# Every packet as it is on the line (envelope included). A received packet gives WireReceived
+# first, then one of MessageReceived / InvalidReceived / UnknownReceived; a sent message gives
+# WireSent, then MessageSent.
+
+@dataclass(frozen=True)
+class WireReceived:
+    """A packet as it came from the line, before it is matched to a message."""
+    channel: Optional[Channel]          # None: no envelope on the address accepted it
+    protocol: ProtocolType
+    interface: int
+    wire: bytes
+    timestamp: Optional[float]          # UTS arrival time in seconds
+    host_time: float
+
+
+@dataclass(frozen=True)
+class WireSent:
+    """A packet as it went to the line."""
+    channel: Channel
+    message: BaseMessageStructure
+    wire: bytes
     host_time: float
