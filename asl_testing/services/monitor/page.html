@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Message Monitor</title>
+<style>
+:root {
+  --bg: #eef0f3; --panel: #ffffff; --panel-2: #f6f7f9; --line: #d5d9e0; --text: #1d2330;
+  --muted: #6a7282; --accent: #1f6feb; --hover: #e8eefb; --menu: #2b3240; --menu-text: #e9edf3;
+  --grid: #e6e9ee; --axis: #8a93a3; --ok: #1a7f37; --warn: #b54708;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171c; --panel: #1b1f26; --panel-2: #20252d; --line: #2e3540; --text: #e3e7ee;
+    --muted: #8d96a5; --accent: #4c8dff; --hover: #26324a; --menu: #0f1216; --menu-text: #e3e7ee;
+    --grid: #262c35; --axis: #6f7887; --ok: #3fb950; --warn: #e3a008;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171c; --panel: #1b1f26; --panel-2: #20252d; --line: #2e3540; --text: #e3e7ee;
+  --muted: #8d96a5; --accent: #4c8dff; --hover: #26324a; --menu: #0f1216; --menu-text: #e3e7ee;
+  --grid: #262c35; --axis: #6f7887; --ok: #3fb950; --warn: #e3a008;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+       display: flex; flex-direction: column; overflow: hidden; }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+/* menu bar */
+#menubar { display: flex; align-items: stretch; background: var(--menu); color: var(--menu-text); height: 30px;
+           flex: none; user-select: none; }
+.menu { position: relative; }
+.menu > button { height: 100%; background: none; border: 0; color: inherit; font: inherit; padding: 0 12px; cursor: default; }
+.menu > button:hover, .menu.open > button { background: rgba(255,255,255,.12); }
+.dropdown { display: none; position: absolute; top: 100%; left: 0; min-width: 210px; background: var(--panel); color: var(--text);
+            border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.18); z-index: 20; padding: 4px 0; }
+.menu.open .dropdown { display: block; }
+.item { padding: 6px 14px; display: flex; justify-content: space-between; gap: 16px; cursor: default; white-space: nowrap; }
+.item:hover { background: var(--hover); }
+.item.disabled { color: var(--muted); pointer-events: none; }
+.item .key { color: var(--muted); }
+.sep { height: 1px; background: var(--line); margin: 4px 0; }
+#status { margin-left: auto; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 12px; opacity: .92; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #7d8590; margin-right: 6px; vertical-align: -1px; }
+.dot.on { background: #3fb950; box-shadow: 0 0 0 3px rgba(63,185,80,.25); }
+
+/* layout */
+#main { flex: 1; display: flex; min-height: 0; }
+#side { width: 340px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+#side header { padding: 8px; border-bottom: 1px solid var(--line); }
+#filter { width: 100%; padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); color: var(--text); font: inherit; }
+#tree { flex: 1; overflow: auto; padding: 4px 0 12px; user-select: none; }
+.group { padding: 8px 10px 4px; font-weight: 600; color: var(--muted); font-size: 11px; letter-spacing: .06em; }
+.msg { display: flex; align-items: center; gap: 6px; padding: 3px 8px 3px 6px; cursor: default; }
+.msg:hover, .field:hover { background: var(--hover); }
+.msg .tw { width: 14px; color: var(--muted); text-align: center; flex: none; }
+.msg .name { font-weight: 600; }
+.msg .meta { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg .count { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.field { display: flex; gap: 8px; padding: 2px 8px 2px 34px; cursor: default; }
+.field .path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field .val { color: var(--muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field.text .path { color: var(--muted); }
+.field .swatch { width: 8px; height: 8px; border-radius: 2px; align-self: center; flex: none; background: transparent; }
+.empty { padding: 14px 12px; color: var(--muted); }
+
+/* plot area */
+#plots-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#toolbar { display: flex; gap: 10px; align-items: center; padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
+#toolbar label { color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button, .btn { background: var(--panel-2); border: 0; color: var(--text); font: inherit; padding: 3px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--accent); color: #fff; }
+.btn { border: 1px solid var(--line); border-radius: 4px; }
+.btn.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+#cursor-read { margin-left: auto; color: var(--muted); }
+#plots { flex: 1; overflow-y: auto; padding: 8px 10px 4px; }
+.strip { background: var(--panel); border: 1px solid var(--line); border-left-width: 4px; border-radius: 4px; margin-bottom: 6px; }
+.strip header { display: flex; gap: 10px; align-items: baseline; padding: 4px 10px 0; }
+.strip .title { font-weight: 600; }
+.strip .chan { color: var(--muted); font-size: 11.5px; }
+.strip .cur { margin-left: auto; font-size: 13px; }
+.strip canvas { display: block; width: 100%; height: 110px; }
+#axis { height: 24px; flex: none; margin: 0 10px 6px; }
+#hint { margin: 40px auto; max-width: 460px; color: var(--muted); text-align: center; line-height: 1.6; }
+
+/* context menu */
+#ctx { position: fixed; display: none; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.18); z-index: 30; padding: 4px 0; min-width: 190px; }
+#toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--menu); color: var(--menu-text);
+         padding: 7px 14px; border-radius: 4px; display: none; z-index: 40; }
+@media (max-width: 760px) { #side { width: 46%; } }
+</style>
+</head>
+<body>
+<nav id="menubar">
+  <div class="menu" data-menu="file"><button>File</button>
+    <div class="dropdown">
+      <div class="item" data-action="import">Import CSV…</div>
+      <div class="item" data-action="clear-data">Clear recorded data</div>
+    </div>
+  </div>
+  <div class="menu" data-menu="tools"><button>Tools</button>
+    <div class="dropdown">
+      <div class="item" data-action="start" id="m-start">Start measurement <span class="key">live</span></div>
+      <div class="item" data-action="stop" id="m-stop">Stop measurement</div>
+    </div>
+  </div>
+  <div class="menu" data-menu="view"><button>View</button>
+    <div class="dropdown">
+      <div class="item" data-action="pause">Pause / resume display</div>
+      <div class="item" data-action="fit">Fit time axis</div>
+      <div class="item" data-action="remove-all">Remove all charts</div>
+      <div class="sep"></div>
+      <div class="item" data-action="theme">Toggle light / dark</div>
+    </div>
+  </div>
+  <div id="status">
+    <span id="st-source">no data</span>
+    <span><span class="dot" id="st-dot"></span><span id="st-listen">stopped</span></span>
+  </div>
+</nav>
+
+<div id="main">
+  <aside id="side">
+    <header><input id="filter" placeholder="Filter messages / fields" autocomplete="off"></header>
+    <div id="tree"></div>
+  </aside>
+  <section id="plots-wrap">
+    <div id="toolbar">
+      <label>Window</label>
+      <div class="seg" id="win">
+        <button data-w="10">10 s</button><button data-w="30">30 s</button><button data-w="60">60 s</button><button data-w="0">All</button>
+      </div>
+      <button class="btn" id="pause">Pause</button>
+      <span class="mono" id="cursor-read"></span>
+    </div>
+    <div id="plots"><div id="hint">Tools → Start measurement listens to the running test.<br>File → Import CSV opens a CommLogger file.<br>
+      Right-click a message or a field in the tree to add it here; double-click a field also adds it.<br>
+      Wheel: zoom time · drag: move · double-click a chart: fit.</div></div>
+    <canvas id="axis"></canvas>
+  </section>
+</div>
+<div id="ctx"></div>
+<div id="toast"></div>
+<input type="file" id="file" accept=".csv,text/csv" hidden>
+
+<script>
+"use strict";
+const COLORS = ["#1f77b4","#d62728","#2ca02c","#ff7f0e","#9467bd","#17becf","#e377c2","#8c564b","#bcbd22","#7f7f7f","#0047ab","#c71585"];
+const S = {
+  state: { messages: [], t0: null, listening: false, live: false, source: "empty" },
+  open: new Set(), fields: {}, signals: [], colorIx: 0, win: 30, paused: false,
+  view: null,            // {a, b}: fixed time range (zoom / pan) or null: follow
+  cursor: null, t0: null, dirty: true,
+};
+
+// ------------------------------------------------------------------ API
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json();
+  if (j && j.error) throw new Error(j.error);
+  return j;
+}
+const post = (path, body, type) => api(path, { method: "POST", body: body === undefined ? "" : (typeof body === "string" ? body : JSON.stringify(body)),
+                                                headers: { "Content-Type": type || "application/json" } });
+function toast(text) {
+  const el = document.getElementById("toast"); el.textContent = text; el.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.style.display = "none", 3200);
+}
+
+// ------------------------------------------------------------------ menus
+document.querySelectorAll(".menu > button").forEach(b => b.addEventListener("click", e => {
+  const m = b.parentElement, was = m.classList.contains("open");
+  closeMenus(); if (!was) m.classList.add("open"); e.stopPropagation();
+}));
+document.querySelectorAll(".menu > button").forEach(b => b.addEventListener("mouseenter", () => {
+  if (document.querySelector(".menu.open")) { closeMenus(); b.parentElement.classList.add("open"); }
+}));
+function closeMenus() { document.querySelectorAll(".menu.open").forEach(m => m.classList.remove("open")); hideCtx(); }
+document.addEventListener("click", closeMenus);
+document.querySelectorAll(".dropdown .item").forEach(it => it.addEventListener("click", () => { closeMenus(); action(it.dataset.action); }));
+
+async function action(a) {
+  try {
+    if (a === "import") document.getElementById("file").click();
+    else if (a === "clear-data") { setState(await post("/api/clear")); resetData(); }
+    else if (a === "start") { setState(await post("/api/start")); toast("Measurement started"); }
+    else if (a === "stop") { setState(await post("/api/stop")); toast("Measurement stopped"); }
+    else if (a === "pause") togglePause();
+    else if (a === "fit") { S.view = null; setWin(0); }
+    else if (a === "remove-all") { S.signals = []; renderStrips(); }
+    else if (a === "theme") {
+      const dark = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim() === "#14171c";
+      document.documentElement.dataset.theme = dark ? "light" : "dark"; S.dirty = true;
+    }
+  } catch (e) { toast(e.message); }
+}
+document.getElementById("file").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const text = await f.text();
+    const r = await post("/api/import?name=" + encodeURIComponent(f.name), text, "text/csv");
+    resetData(); setState(r); S.view = null; setWin(0);
+    toast(`${r.loaded} packets loaded from ${f.name}`);
+  } catch (err) { toast(err.message); }
+  e.target.value = "";
+});
+
+// ------------------------------------------------------------------ state and tree
+function setState(st) {
+  if (st.t0 !== S.t0) { resetData(); S.t0 = st.t0; }
+  S.state = st;
+  document.getElementById("st-source").textContent = st.source === "empty" ? "no data" : st.source;
+  document.getElementById("st-dot").classList.toggle("on", st.listening);
+  document.getElementById("st-listen").textContent = st.listening ? "measuring" : (st.live ? "stopped" : "offline");
+  document.getElementById("m-start").classList.toggle("disabled", !st.live || st.listening);
+  document.getElementById("m-stop").classList.toggle("disabled", !st.listening);
+  renderTree();
+}
+function resetData() { for (const s of S.signals) { s.t = []; s.v = []; s.next = 0; } S.fields = {}; S.dirty = true; }
+
+let treeKey = "";
+function renderTree(force) {
+  const tree = document.getElementById("tree");
+  const key = JSON.stringify([S.state.messages, S.fields, [...S.open], document.getElementById("filter").value, S.signals.map(x => x.id + x.path + x.color)]);
+  if (!force && key === treeKey) return;
+  treeKey = key;
+  const q = document.getElementById("filter").value.trim().toLowerCase();
+  const msgs = S.state.messages;
+  if (!msgs.length) { tree.innerHTML = `<div class="empty">No messages yet.<br>Tools → Start measurement or File → Import CSV.</div>`; return; }
+  const parts = [];
+  for (const dir of ["RX", "TX"]) {
+    const list = msgs.filter(m => m.direction === dir).sort((a, b) => a.name.localeCompare(b.name) || a.signature.localeCompare(b.signature));
+    if (!list.length) continue;
+    parts.push(`<div class="group">${dir === "RX" ? "RECEIVED (RX)" : "TRANSMITTED (TX)"}</div>`);
+    for (const m of list) {
+      const fields = S.fields[m.id] || [];
+      const matchMsg = !q || m.name.toLowerCase().includes(q);
+      const matchFields = q ? fields.filter(f => f.path.toLowerCase().includes(q)) : fields;
+      if (!matchMsg && !matchFields.length) continue;
+      const open = S.open.has(m.id) || (q && !matchMsg && matchFields.length);
+      parts.push(`<div class="msg" data-id="${esc(m.id)}"><span class="tw">${open ? "▾" : "▸"}</span><span class="name">${esc(m.name)}</span>
+        <span class="meta">${esc(m.channel)} ${esc(m.signature)}</span><span class="count mono">${m.count}</span></div>`);
+      if (open) for (const f of (matchMsg ? fields : matchFields)) {
+        const sig = S.signals.find(s => s.id === m.id && s.path === f.path);
+        parts.push(`<div class="field ${f.plot ? "" : "text"}" data-id="${esc(m.id)}" data-path="${esc(f.path)}">
+          <span class="swatch" style="background:${sig ? sig.color : "transparent"}"></span>
+          <span class="path mono">${esc(f.path)}</span><span class="val mono">${fmt(f.value)}</span></div>`);
+      }
+    }
+  }
+  tree.innerHTML = parts.join("");
+}
+document.getElementById("filter").addEventListener("input", async () => {
+  if (document.getElementById("filter").value.trim()) await Promise.all(S.state.messages.map(m => loadFields(m.id)));
+  renderTree();
+});
+async function loadFields(id) { try { S.fields[id] = await api("/api/fields?id=" + encodeURIComponent(id)); } catch (e) {} }
+
+const tree = document.getElementById("tree");
+tree.addEventListener("click", async e => {
+  const m = e.target.closest(".msg"); if (!m) return;
+  const id = m.dataset.id;
+  if (S.open.has(id)) S.open.delete(id); else { S.open.add(id); await loadFields(id); }
+  renderTree();
+});
+tree.addEventListener("dblclick", e => {
+  const f = e.target.closest(".field"); if (f) addSignal(f.dataset.id, f.dataset.path);
+});
+tree.addEventListener("contextmenu", async e => {
+  const f = e.target.closest(".field"), m = e.target.closest(".msg");
+  if (!f && !m) return;
+  e.preventDefault();
+  if (f) {
+    const info = (S.fields[f.dataset.id] || []).find(x => x.path === f.dataset.path);
+    showCtx(e, [[ "Add to plot", () => addSignal(f.dataset.id, f.dataset.path), !info || !info.plot ]]);
+  } else {
+    const id = m.dataset.id;
+    if (!S.fields[id]) await loadFields(id);
+    showCtx(e, [
+      ["Add all fields to plot", () => (S.fields[id] || []).filter(x => x.plot).forEach(x => addSignal(id, x.path, true))],
+      [S.open.has(id) ? "Collapse" : "Expand", async () => { S.open.has(id) ? S.open.delete(id) : S.open.add(id); renderTree(); }],
+    ]);
+  }
+});
+
+function showCtx(e, items) {
+  const ctx = document.getElementById("ctx");
+  ctx.innerHTML = items.map((it, i) => `<div class="item ${it[2] ? "disabled" : ""}" data-i="${i}">${esc(it[0])}</div>`).join("");
+  ctx.querySelectorAll(".item").forEach(el => el.addEventListener("click", ev => { ev.stopPropagation(); hideCtx(); items[+el.dataset.i][1](); }));
+  ctx.style.display = "block";
+  const w = ctx.offsetWidth, h = ctx.offsetHeight;
+  ctx.style.left = Math.min(e.clientX, innerWidth - w - 4) + "px";
+  ctx.style.top = Math.min(e.clientY, innerHeight - h - 4) + "px";
+}
+function hideCtx() { document.getElementById("ctx").style.display = "none"; }
+
+// ------------------------------------------------------------------ signals and charts
+function addSignal(id, path, quiet) {
+  if (S.signals.some(s => s.id === id && s.path === path)) { if (!quiet) toast("Already in the plot"); return; }
+  const info = (S.fields[id] || []).find(x => x.path === path);
+  if (info && !info.plot) { toast("Text values cannot be plotted"); return; }
+  const msg = S.state.messages.find(m => m.id === id) || {};
+  S.signals.push({ id, path, name: `${msg.name || "?"}.${path}`, dir: msg.direction, channel: msg.channel,
+                   color: COLORS[S.colorIx++ % COLORS.length], t: [], v: [], next: 0 });
+  renderStrips(); renderTree(); poll();
+}
+function removeSignal(sig) { S.signals = S.signals.filter(s => s !== sig); renderStrips(); renderTree(); }
+
+function renderStrips() {
+  const plots = document.getElementById("plots");
+  if (!S.signals.length) { plots.innerHTML = HINT; S.dirty = true; return; }
+  plots.innerHTML = "";
+  for (const s of S.signals) {
+    const el = document.createElement("div");
+    el.className = "strip"; el.style.borderLeftColor = s.color;
+    el.innerHTML = `<header><span class="title" style="color:${s.color}">${esc(s.name)}</span><span class="chan">${s.dir} · ${esc(s.channel || "")}</span>
+      <span class="cur mono"></span></header><canvas></canvas>`;
+    s.el = el; s.canvas = el.querySelector("canvas"); s.cur = el.querySelector(".cur");
+    el.addEventListener("contextmenu", e => { e.preventDefault(); showCtx(e, [["Remove chart", () => removeSignal(s)], ["Remove all charts", () => action("remove-all")]]); });
+    attachZoom(s.canvas);
+    plots.appendChild(el);
+  }
+  S.dirty = true;
+}
+const HINT = document.getElementById("plots").innerHTML;
+
+let polling = false;
+async function poll() {
+  if (polling || !S.signals.length) return;
+  polling = true;
+  try {
+    const r = await post("/api/series", { signals: S.signals.map(s => ({ id: s.id, path: s.path, from: s.next })) });
+    if (r.t0 !== S.t0) { S.t0 = r.t0; resetData(); }
+    else for (const part of r.series) {
+      const s = S.signals.find(x => x.id === part.id && x.path === part.path);
+      if (!s || !part.t.length) continue;
+      for (let i = 0; i < part.t.length; i++) { s.t.push(part.t[i] - S.t0); s.v.push(part.v[i]); }
+      s.next = part.next; S.dirty = true;
+    }
+  } catch (e) { /* server gone: keep the last picture */ }
+  polling = false;
+}
+
+function range() {
+  if (S.view) return S.view;
+  let lo = Infinity, hi = -Infinity;
+  for (const s of S.signals) if (s.t.length) { lo = Math.min(lo, s.t[0]); hi = Math.max(hi, s.t[s.t.length - 1]); }
+  if (S.state.listening && S.t0 !== null) hi = Math.max(hi, Date.now() / 1000 - S.t0);
+  if (!isFinite(lo)) return { a: 0, b: S.win || 10 };
+  if (S.win) return { a: Math.max(hi - S.win, Math.min(lo, hi - S.win)), b: hi };
+  return { a: lo, b: hi > lo ? hi : lo + 1 };
+}
+
+function sizeCanvas(c) {
+  const dpr = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return [ctx, w, h];
+}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const PAD_L = 64, PAD_R = 12;
+
+function draw() {
+  const { a, b } = range(), span = b - a || 1;
+  const grid = css("--grid"), axis = css("--axis"), text = css("--muted");
+  for (const s of S.signals) {
+    if (!s.canvas) continue;
+    const [ctx, w, h] = sizeCanvas(s.canvas), top = 8, bot = h - 8, pw = w - PAD_L - PAD_R;
+    ctx.clearRect(0, 0, w, h);
+    // visible points
+    let i0 = lowerBound(s.t, a), i1 = lowerBound(s.t, b);
+    if (i0 > 0) i0--; if (i1 < s.t.length) i1++;
+    let lo = Infinity, hi = -Infinity;
+    for (let i = i0; i < i1; i++) { const v = s.v[i]; if (v === null) continue; if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (!isFinite(lo)) { lo = 0; hi = 1; }
+    if (hi === lo) { hi += 1; lo -= 1; }
+    const padY = (hi - lo) * .08; lo -= padY; hi += padY;
+    const X = t => PAD_L + (t - a) / span * pw, Y = v => bot - (v - lo) / (hi - lo) * (bot - top);
+    // grid + y labels
+    ctx.font = "11px ui-monospace, Consolas, monospace"; ctx.fillStyle = text; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    ctx.strokeStyle = grid; ctx.lineWidth = 1;
+    for (const tk of ticks(lo, hi, 4)) { const y = Math.round(Y(tk)) + .5; ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(w - PAD_R, y); ctx.stroke(); ctx.fillText(fmtNum(tk), PAD_L - 6, y); }
+    for (const tk of ticks(a, b, 8)) { const x = Math.round(X(tk)) + .5; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); }
+    ctx.strokeStyle = axis; ctx.strokeRect(PAD_L + .5, top + .5, pw, bot - top);
+    // line: steps (a value holds until the next packet), min/max per pixel when dense
+    ctx.save(); ctx.beginPath(); ctx.rect(PAD_L, top, pw, bot - top); ctx.clip();
+    ctx.strokeStyle = s.color; ctx.lineWidth = 1.6; ctx.beginPath();
+    const dense = (i1 - i0) > pw * 2;
+    let started = false, lastY = 0;
+    if (dense) {
+      let col = -1, cmin = 0, cmax = 0, cfirst = 0, clast = 0;
+      const flush = () => { if (col < 0) return; const x = PAD_L + col;
+        if (!started) { ctx.moveTo(x, Y(cfirst)); started = true; } else ctx.lineTo(x, Y(cfirst));
+        ctx.lineTo(x, Y(cmin)); ctx.lineTo(x, Y(cmax)); ctx.lineTo(x, Y(clast)); };
+      for (let i = i0; i < i1; i++) { const v = s.v[i]; if (v === null) continue; const c = Math.floor(X(s.t[i]) - PAD_L);
+        if (c !== col) { flush(); col = c; cmin = cmax = cfirst = clast = v; } else { cmin = Math.min(cmin, v); cmax = Math.max(cmax, v); clast = v; } }
+      flush();
+    } else {
+      for (let i = i0; i < i1; i++) { const v = s.v[i]; if (v === null) continue; const x = X(s.t[i]), y = Y(v);
+        if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, lastY); ctx.lineTo(x, y); } lastY = y; }
+      if (started && S.state.listening && !S.view) ctx.lineTo(X(b), lastY);
+    }
+    ctx.stroke();
+    if (!dense && (i1 - i0) < pw / 6) { ctx.fillStyle = s.color;
+      for (let i = i0; i < i1; i++) if (s.v[i] !== null) { ctx.beginPath(); ctx.arc(X(s.t[i]), Y(s.v[i]), 2.2, 0, 7); ctx.fill(); } }
+    // cursor
+    if (S.cursor !== null && S.cursor >= a && S.cursor <= b) {
+      const x = Math.round(X(S.cursor)) + .5; ctx.strokeStyle = axis; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke(); ctx.setLineDash([]);
+      const k = lowerBound(s.t, S.cursor + 1e-9) - 1;
+      if (k >= 0 && s.v[k] !== null) { ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(x, Y(s.v[k]), 3.5, 0, 7); ctx.fill(); }
+    }
+    ctx.restore();
+    // header value: at the cursor, or the latest
+    const k = S.cursor !== null ? lowerBound(s.t, S.cursor + 1e-9) - 1 : s.v.length - 1;
+    s.cur.textContent = k >= 0 ? fmt(s.v[k]) : "—";
+  }
+  // time axis
+  const c = document.getElementById("axis"), [ctx, w, h] = sizeCanvas(c), pw = w - PAD_L - PAD_R;
+  ctx.clearRect(0, 0, w, h); ctx.fillStyle = text; ctx.font = "11px ui-monospace, Consolas, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+  if (S.signals.length) { for (const tk of ticks(a, b, 8)) ctx.fillText(fmtNum(tk) + " s", PAD_L + (tk - a) / span * pw, 4); }
+  const cr = document.getElementById("cursor-read");
+  cr.textContent = S.cursor !== null ? `t = ${S.cursor.toFixed(3)} s` : (S.view ? "zoomed · double-click to fit" : "");
+}
+
+function attachZoom(c) {
+  let drag = null;
+  const tAt = e => { const { a, b } = range(), r = c.getBoundingClientRect(); return a + (e.clientX - r.left - PAD_L) / (r.width - PAD_L - PAD_R) * (b - a); };
+  c.addEventListener("mousemove", e => {
+    if (drag) { const r = c.getBoundingClientRect(), dt = (e.clientX - drag.x) / (r.width - PAD_L - PAD_R) * (drag.b - drag.a);
+                S.view = { a: drag.a - dt, b: drag.b - dt }; }
+    S.cursor = tAt(e); S.dirty = true;
+  });
+  c.addEventListener("mouseleave", () => { S.cursor = null; drag = null; S.dirty = true; });
+  c.addEventListener("mousedown", e => { if (e.button !== 0) return; const { a, b } = range(); drag = { x: e.clientX, a, b }; });
+  addEventListener("mouseup", () => drag = null);
+  c.addEventListener("wheel", e => { e.preventDefault(); const { a, b } = range(), t = tAt(e), f = e.deltaY > 0 ? 1.25 : 0.8;
+    S.view = { a: t - (t - a) * f, b: t + (b - t) * f }; S.dirty = true; }, { passive: false });
+  c.addEventListener("dblclick", () => { S.view = null; S.dirty = true; });
+}
+
+// ------------------------------------------------------------------ toolbar
+function setWin(w) { S.win = w; S.view = null; document.querySelectorAll("#win button").forEach(b => b.classList.toggle("on", +b.dataset.w === w)); S.dirty = true; }
+document.querySelectorAll("#win button").forEach(b => b.addEventListener("click", () => setWin(+b.dataset.w)));
+function togglePause() { S.paused = !S.paused; document.getElementById("pause").classList.toggle("on", S.paused);
+  document.getElementById("pause").textContent = S.paused ? "Paused" : "Pause";
+  if (S.paused) S.view = range(); else S.view = null; S.dirty = true; }
+document.getElementById("pause").addEventListener("click", togglePause);
+
+// ------------------------------------------------------------------ helpers
+function lowerBound(arr, x) { let lo = 0, hi = arr.length; while (lo < hi) { const m = (lo + hi) >> 1; if (arr[m] < x) lo = m + 1; else hi = m; } return lo; }
+function ticks(a, b, n) {
+  const span = b - a; if (!(span > 0)) return [a];
+  const step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0))), r = step0 / mag;
+  const step = (r < 1.5 ? 1 : r < 3 ? 2 : r < 7 ? 5 : 10) * mag, out = [];
+  for (let t = Math.ceil(a / step) * step; t <= b + step * 1e-9; t += step) out.push(+t.toFixed(10));
+  return out;
+}
+function fmtNum(v) { const a = Math.abs(v); if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(2); return +v.toFixed(a >= 100 ? 1 : 3) + ""; }
+function fmt(v) { if (v === null || v === undefined) return "—"; if (typeof v === "number") return Number.isInteger(v) ? String(v) : fmtNum(v); return String(v); }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ------------------------------------------------------------------ loops
+setWin(30);
+async function refreshState() {
+  try {
+    setState(await api("/api/state"));
+    await Promise.all([...S.open].map(loadFields)); renderTree();
+  } catch (e) {}
+}
+refreshState();
+setInterval(refreshState, 1000);
+setInterval(() => { if (!S.paused) poll(); }, 200);
+(function frame() { if (S.dirty || S.state.listening) { draw(); S.dirty = false; } requestAnimationFrame(frame); })();
+addEventListener("resize", () => S.dirty = true);
+</script>
+</body>
+</html>

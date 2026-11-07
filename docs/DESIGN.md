@@ -38,6 +38,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
   services/                  6. Olay aboneleri
     history.py               CommLogger: mesajlaşma geçmişi (CSV)
     errors.py                ErrorLog: UTS hataları, RX zaman aşımı, abone hataları (ayrı dosya)
+    monitor/                 MonitorService: mesaj değerlerini zamanla izleme sayfası (canlı / CSV)
 projects/
   example_project/           PROJEYE ÖZEL (ICD)
     header.py                ProjectBase (header, varsayılan kanal) ve aileler
@@ -80,6 +81,22 @@ UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey
 TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
 RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
 ```
+
+## Monitor (services/monitor)
+- Ayrı bir servis; mevcut koda dokunmaz. Yerel bir web sayfası (sadece standart kütüphane, internet gerekmez).
+  `MonitorService(comm, [ProjectBase], port=8050).start()` -> http://127.0.0.1:8050.
+- Canlı: Tools > Start, `MessageReceived` / `MessageSent` olaylarına abone olur (Stop: abonelik kalkar).
+  Offline: File > Import CSV (CommLogger dosyası); satırlar mesaj sınıfı adıyla çözülür. Testsiz açmak için:
+  `python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages`
+  (mesaj sınıflarının modülü de verilir, sınıflar adla bulunur).
+- Recorder her mesaj akışı (yön, sınıf, kanal, signature) için (zaman, ctypes görüntüsü) tutar; alan değerleri sadece
+  görüntülenen sinyaller için, istendikçe çözülür. Alan yolları: `speed`, `comut[0]`, `cmd.startReq`; özel tiplerde `.val`.
+- Sayfa: RX/TX ağacı (tık: alanlar ve son değerler; sağ tık: "Add all fields" / "Add to plot"; çift tık: ekle),
+  sinyal başına ayrı renkte grafik, ortak zaman ekseni (10/30/60 s / All), Pause, imleçle değer okuma, tekerlek ile
+  yakınlaştırma, sürükleyerek kaydırma, grafikte sağ tık ile kaldırma.
+- Maliyet: canlı modda iki abonelik (olay başına ~2–3 µs); çözme sadece sayfa açıkken ve seçili sinyaller için.
+- Açık: kayıtlar bellekte sınırsız birikir (uzun koşularda sınır gerekebilir); zaman ekseni bu bilgisayarın saati
+  (UTS zamanı değil); değişken boylu mesajlarda CSV'den çözülen görüntüde kullanılmayan kısım sıfırdır.
 
 ## UTS yönetimi (comm.control)
 - Mesaj akışından ayrı, dikine bir yol: test -> `comm.control` (UtsControl) -> UtsClient. RX/TX thread'leri ve
