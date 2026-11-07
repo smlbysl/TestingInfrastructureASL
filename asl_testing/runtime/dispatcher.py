@@ -4,7 +4,9 @@ frame -> ProjectX.lookup(channel, raw) -> msg.decode(raw, timestamp) -> event
 - no channel or no message matches -> UnknownReceived, frame kept in `unknown`
 - matches but fails validate  -> InvalidReceived
 - matches and valid           -> MessageReceived
+Logs: unknown and invalid packets as WARNING, every valid packet as DEBUG.
 """
+import logging
 from collections import deque
 from typing import Optional, Sequence
 
@@ -16,20 +18,24 @@ from asl_testing.message.base import BaseMessageStructure
 
 class Dispatcher:
     def __init__(self, bus: EventBus, projects: Sequence[type[BaseMessageStructure]],
-                 history: int = 1000):
+                 history: int = 1000, log=None):
         self.bus = bus
         self.projects = projects
+        self.log = log or logging.getLogger(__name__)
         self.unknown: deque[RxFrame] = deque(maxlen=history)   # frames that matched no message
 
     def dispatch(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
         msg = self._lookup(frame)
         if msg is None:
             self.unknown.append(frame)
+            self.log.warning("unknown packet on %s (%d bytes)", frame.channel, len(frame.data))
             self.bus.publish(UnknownReceived(frame.channel, frame.data, frame.host_time, frame.timestamp))
             return None
         if not msg.decode(frame.data, frame.timestamp):
+            self.log.warning("invalid %s on %s (%d bytes)", type(msg).__name__, frame.channel, len(frame.data))
             self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, b"", frame.timestamp))
             return None
+        self.log.debug("RX %s on %s (%d bytes)", type(msg).__name__, frame.channel, len(frame.data))
         self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, bytes(msg), frame.timestamp))
         return msg
 

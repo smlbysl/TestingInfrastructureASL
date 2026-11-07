@@ -6,7 +6,9 @@
 - start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
   the period (not now + period), so the delay does not accumulate.
 - A message that is no longer registered (replaced by a new object) is dropped from the table.
+Logs: a failed send as ERROR (with traceback), periodic start / stop as INFO, every send as DEBUG.
 """
+import logging
 import threading
 import time
 from typing import Optional
@@ -18,9 +20,10 @@ from asl_testing.message.base import BaseMessageStructure
 
 
 class TxScheduler:
-    def __init__(self, transport: Transport, bus: EventBus):
+    def __init__(self, transport: Transport, bus: EventBus, log=None):
         self.transport = transport
         self.bus = bus
+        self.log = log or logging.getLogger(__name__)
         self._send_lock = threading.Lock()
         # id(message) -> [message, next due (monotonic)]; ctypes objects are not hashable
         self._table: dict[int, list] = {}
@@ -38,8 +41,10 @@ class TxScheduler:
             try:
                 wire = self.transport.send(msg._channel, raw)
             except Exception as error:
+                self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return False
+        self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))
         self.bus.publish(MessageSent(msg, raw, now, image))
@@ -51,10 +56,12 @@ class TxScheduler:
         if msg._tx is None or not msg._tx.timing.is_periodic:
             raise ValueError(f"{type(msg).__name__} has no periodic TX timing (tx=Timing(period))")
         self._table[id(msg)] = [msg, time.monotonic()]
+        self.log.info("periodic TX started: %s every %s s", type(msg).__name__, msg._tx.timing.period)
         self._wake.set()
 
     def stop(self, msg: BaseMessageStructure) -> None:
-        self._table.pop(id(msg), None)
+        if self._table.pop(id(msg), None) is not None:
+            self.log.info("periodic TX stopped: %s", type(msg).__name__)
         self._wake.set()
 
     def is_running(self, msg: BaseMessageStructure) -> bool:

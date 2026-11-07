@@ -7,6 +7,7 @@ a re-created message replacing the old one, UTS errors and the logs.
 Run from the repository root:  python -m examples.example
 """
 import ctypes
+import logging
 import time
 
 from asl_testing import Comm, FakeUtsClient
@@ -28,6 +29,9 @@ def device_sends(uts: FakeUtsClient, msg) -> None:
 
 
 def main() -> None:
+    # General log: every layer (and the test code) in one file; set once by the test side
+    logging.basicConfig(filename="comm.log", filemode="w", level=logging.DEBUG,
+                        format="%(asctime)s %(levelname)-7s %(name)-28s %(message)s")
     uts = FakeUtsClient()
     comm = Comm(uts, [ProjectBase], poll_interval=0.01)
     history = CommLogger(comm, "comm_history.csv")

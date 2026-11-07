@@ -5,8 +5,10 @@ Every cycle:
    and of channels added with listen(); channels sharing an address are told apart by their envelope
 2. publishes WireReceived for every packet and hands it to the dispatcher
 3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
-A failed poll is published as LinkError and polling continues.
+A failed poll is published as LinkError, logged as ERROR (with traceback) and polling continues.
+Timeouts are logged as WARNING, recoveries as INFO.
 """
+import logging
 import threading
 import time
 from typing import Iterable, Optional, Sequence
@@ -23,11 +25,12 @@ from asl_testing.channel.channel import Address, Channel, by_address
 class RxPoller:
     def __init__(self, transport: Transport, dispatcher: Dispatcher, bus: EventBus,
                  projects: Sequence[type[BaseMessageStructure]], interval: float,
-                 channels: Iterable[Channel] = ()):
+                 channels: Iterable[Channel] = (), log=None):
         self.transport = transport
         self.dispatcher = dispatcher
         self.bus = bus
         self.projects = projects
+        self.log = log or logging.getLogger(__name__)
         self.interval = interval                    # seconds between two poll cycles
         self.clock = UtsClock()
         self._extra = set(channels)                 # channels polled even without RX messages
@@ -39,6 +42,7 @@ class RxPoller:
     def listen(self, channel: Channel) -> None:
         """Also polls a channel that has no registered RX message (to see unknown packets)."""
         self._extra.add(channel)
+        self.log.info("listening on %s", channel)
 
     def channels(self) -> set[Channel]:
         found = set(self._extra)
@@ -56,6 +60,7 @@ class RxPoller:
             try:
                 frames = self.transport.poll(address, channels)
             except Exception as error:
+                self.log.exception("UTS poll failed on %s", address)
                 self.bus.publish(LinkError(channels[0], "poll", error, time.time()))
                 continue
             for frame in frames:
@@ -80,9 +85,12 @@ class RxPoller:
         late = id(msg) in self._late
         if age > limit and not late:
             self._late.add(id(msg))
+            self.log.warning("%s on %s not received for %.3f s (period %s s)", type(msg).__name__,
+                             msg._channel, age, rx.timing.period)
             self.bus.publish(RxTimeout(msg, age, time.time()))
         elif age <= limit and late:
             self._late.discard(id(msg))
+            self.log.info("%s on %s received again", type(msg).__name__, msg._channel)
             self.bus.publish(RxRestored(msg, time.time()))
 
     def _age(self, rx) -> float:

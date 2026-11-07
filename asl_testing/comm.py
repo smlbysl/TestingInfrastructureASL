@@ -9,7 +9,12 @@ Test code works with message objects and this class only.
     comm.start(cmd)                 # periodic, until comm.stop(cmd)
     comm.on_receive(status, handler)
     comm.close()
+
+Logging: every part logs on its own `logging` logger (asl_testing.*); where the records go is set
+by the test side (e.g. logging.basicConfig). Comm(..., logger=x) makes every part log on x instead;
+x only needs debug / info / warning / error / exception methods.
 """
+import logging
 import time
 from typing import Callable, Iterable, Optional, Sequence
 
@@ -26,12 +31,13 @@ from asl_testing.channel.channel import Channel
 
 class Comm:
     def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
-                 poll_interval: float = 0.01, channels: Iterable[Channel] = ()):
-        self.bus = EventBus()
+                 poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
+        self.log = logger or logging.getLogger(__name__)
+        self.bus = EventBus(log=logger)
         self.transport = Transport(uts)
-        self.dispatcher = Dispatcher(self.bus, projects)
-        self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels)
-        self.tx = TxScheduler(self.transport, self.bus)
+        self.dispatcher = Dispatcher(self.bus, projects, log=logger)
+        self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
+        self.tx = TxScheduler(self.transport, self.bus, log=logger)
 
     # ---------------------------------------------------------------- life cycle
 
@@ -39,12 +45,14 @@ class Comm:
         """Starts the RX poller and the TX scheduler threads."""
         self.rx.start()
         self.tx.start_thread()
+        self.log.info("comm opened")
 
     def close(self) -> None:
         """Stops periodic sending and polling, then the subscribers (after their queued events)."""
         self.tx.stop_thread()
         self.rx.stop()
         self.bus.close()
+        self.log.info("comm closed")
 
     def __enter__(self) -> "Comm":
         self.open()

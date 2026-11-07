@@ -5,6 +5,7 @@
   the publisher nor the other subscribers.
 - A subscription is made by event type, optionally filtered by message object (where=...).
   Subscribing to `object` receives every event.
+- An exception in a handler is logged (on the given logger) and the subscriber keeps running.
 """
 import logging
 import queue
@@ -12,15 +13,14 @@ import threading
 from collections import defaultdict
 from typing import Any, Callable, Optional
 
-log = logging.getLogger("comm")
-
 Handler = Callable[[Any], None]
 _STOP = object()
 
 
 class Subscriber(threading.Thread):
-    def __init__(self, event_type: type, handler: Handler, where: Optional[object], name: str):
+    def __init__(self, event_type: type, handler: Handler, where: Optional[object], name: str, log):
         super().__init__(name=name, daemon=True)
+        self.log = log
         self.event_type = event_type
         self.handler = handler
         self.where = where                    # only events of this message object, if given
@@ -37,20 +37,21 @@ class Subscriber(threading.Thread):
             try:
                 self.handler(event)
             except Exception:
-                log.exception("subscriber %s failed on %s", self.name, type(event).__name__)
+                self.log.exception("subscriber %s failed on %s", self.name, type(event).__name__)
 
     def stop(self) -> None:
         self.queue.put(_STOP)
 
 
 class EventBus:
-    def __init__(self):
+    def __init__(self, log=None):
+        self.log = log or logging.getLogger(__name__)
         self._subs: dict[type, list[Subscriber]] = defaultdict(list)
         self._lock = threading.Lock()
 
     def subscribe(self, event_type: type, handler: Handler,
                   where: Optional[object] = None, name: Optional[str] = None) -> Subscriber:
-        sub = Subscriber(event_type, handler, where, name or getattr(handler, "__name__", "subscriber"))
+        sub = Subscriber(event_type, handler, where, name or getattr(handler, "__name__", "subscriber"), self.log)
         with self._lock:
             self._subs[event_type].append(sub)
         sub.start()

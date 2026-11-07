@@ -35,7 +35,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     bus.py                   EventBus: abone başına kuyruk + thread
   services/                  6. Olay aboneleri
     history.py               CommLogger: mesajlaşma geçmişi (CSV)
-    errors.py                ErrorLog: UTS hataları, RX zaman aşımı (ayrı dosya)
+    errors.py                ErrorLog: UTS hataları, RX zaman aşımı, abone hataları (ayrı dosya)
 projects/
   example_project/           PROJEYE ÖZEL (ICD)
     header.py                ProjectBase (header, varsayılan kanal) ve aileler
@@ -99,6 +99,21 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
   `WireSent` (hatta giden paket). Abonelik: `comm.subscribe(WireReceived, handler)`.
 - Bir paket için önce hat seviyesi, sonra mesaj seviyesi olay yayınlanır.
 
+## Loglama
+- Genel log: her modül standart `logging` ile kendi logger'ına yazar (`logging.getLogger(__name__)`,
+  ör. `asl_testing.runtime.rx`). Altyapı handler eklemez; kayıtların nereye gideceğini test tarafı bir kez
+  ayarlar (ör. `logging.basicConfig(filename=...)`). Ayar yoksa WARNING ve üstü konsola düşer.
+- Altyapının yazdıkları: UTS send/poll hatası ERROR (traceback ile), abone exception'ı ERROR,
+  RX zaman aşımı / invalid / unknown paket WARNING, open/close, listen, periyodik başlat/durdur,
+  RX geri geldi INFO, her gönderilen/alınan mesaj DEBUG.
+- `Comm(..., logger=x)`: tüm parçalar (bus, RX, TX, dispatcher) `x`'e yazar. `x`'in `debug`, `info`, `warning`,
+  `error`, `exception` metotları olması yeterli (standart olmayan logger için küçük adaptör).
+  Alternatif: mevcut logger'a yönlendiren bir `logging.Handler` kök logger'a eklenir; o zaman her şey oraya gider.
+- Mesaj geçmişi (`CommLogger`, CSV) log değil veri; ayrı servis olarak kalır.
+- `ErrorLog` event tabanlı, ayrı dosya. Kendi logger'ı (`asl_testing.errors`) genel loga iletmez (tekrar olmasın);
+  abone hataları için bus logger'ına da handler ekler. Comm'a özel logger verilse de çalışır
+  (o durumda abone hataları o logger'a gider, bu dosyaya değil).
+
 ## Thread modeli
 - 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim tek kilit altında: counter, checksum, byte, UTS isteği.
@@ -137,4 +152,6 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `msg.on_receive` kalacak mı.
 - Aynı channel'ı paylaşan ailelerde bir paket iki ailenin signature'ıyla eşleşebilir (ilk aile kazanır).
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
+- Unknown paket WARNING olarak loglanıyor; `listen` edilen kanalda beklenen paketler için seviye düşürülebilir.
+- Her mesajın genel loga DEBUG yazılması (CSV ile tekrar) kalacak mı.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).
