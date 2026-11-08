@@ -151,7 +151,7 @@ Olay tipleri:
 | `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi |
 | `LinkError` | UTS hatası (gönderim veya alım) |
 
-Olayın içinde `ev.message`, `ev.raw` (tel üzerindeki paket), `ev.host_time`, `ev.image` ve `ev.snapshot()` bulunur. `snapshot()` olayın anındaki değerleri ayrı bir nesne olarak verir; sonraki paketlerden etkilenmez.
+Olayın içinde `ev.message`, `ev.raw` (envelope'suz mesaj baytları; tel üzerindeki hali için `WireReceived` / `WireSent`), `ev.host_time`, `ev.image` ve `ev.snapshot()` bulunur. `snapshot()` olayın anındaki değerleri ayrı bir nesne olarak verir; sonraki paketlerden etkilenmez.
 
 ---
 

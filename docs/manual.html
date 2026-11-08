@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>asl_testing: Kullanım Kılavuzu</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f7f9; --text: #1d2433; --muted: #5b6474; --line: #e2e5ea;
+    --accent: #2456c7; --accent-soft: #e8efff; --code-bg: #0f1420; --code-text: #e6ebf5;
+    --warn-bg: #fff6e0; --warn-line: #d89a00; --ok-bg: #e9f7ef; --ok-line: #2a9d5c;
+    --nav-w: 268px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1116; --panel: #161b23; --text: #e4e8ef; --muted: #9aa4b5; --line: #262d38;
+      --accent: #7ea6ff; --accent-soft: #1b2740; --code-bg: #090c12; --code-text: #dfe6f3;
+      --warn-bg: #2b2412; --warn-line: #e0a526; --ok-bg: #12261b; --ok-line: #3fbf7a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1116; --panel: #161b23; --text: #e4e8ef; --muted: #9aa4b5; --line: #262d38;
+    --accent: #7ea6ff; --accent-soft: #1b2740; --code-bg: #090c12; --code-text: #dfe6f3;
+    --warn-bg: #2b2412; --warn-line: #e0a526; --ok-bg: #12261b; --ok-line: #3fbf7a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+
+  .layout { display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); min-height: 100vh; }
+  nav { position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--panel);
+        border-right: 1px solid var(--line); padding: 20px 16px; }
+  nav .brand { font-weight: 700; font-size: 17px; margin: 0 0 2px; }
+  nav .sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+  nav h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+           margin: 18px 0 6px; }
+  nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none;
+          font-size: 14px; }
+  nav a:hover { background: var(--accent-soft); color: var(--accent); }
+
+  main { padding: 36px clamp(20px, 5vw, 64px) 96px; max-width: 920px; }
+  h1 { font-size: 32px; margin: 0 0 8px; letter-spacing: -.01em; }
+  h2 { font-size: 24px; margin: 56px 0 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 18px; margin: 28px 0 8px; }
+  h4 { font-size: 15px; margin: 18px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  p.lead { font-size: 18px; color: var(--muted); margin-top: 0; }
+  code { font: 13.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--panel);
+         padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  pre { background: var(--code-bg); color: var(--code-text); padding: 14px 16px; border-radius: 10px;
+        overflow-x: auto; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre code { background: none; border: 0; padding: 0; color: inherit; font-size: inherit; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 14.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+  td code { white-space: nowrap; }
+
+  .sig { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+         border-radius: 8px; padding: 10px 14px; margin: 14px 0 8px; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .sig .ret { color: var(--accent); }
+  .note, .warn, .ok { border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 15px; }
+  .note { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+  .warn { background: var(--warn-bg); border-left: 3px solid var(--warn-line); }
+  .ok { background: var(--ok-bg); border-left: 3px solid var(--ok-line); }
+  .note strong, .warn strong, .ok strong { display: block; margin-bottom: 2px; }
+  .hooks { display: grid; gap: 8px; margin: 10px 0 18px; }
+  .hook { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+  .hook b { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; color: var(--accent); }
+  .hook p { margin: 4px 0 0; font-size: 14.5px; color: var(--muted); }
+  .flow { font: 14px/1.7 ui-monospace, Menlo, Consolas, monospace; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; overflow-x: auto; }
+  .tag { display: inline-block; font-size: 11.5px; padding: 1px 7px; border-radius: 99px; background: var(--accent-soft);
+         color: var(--accent); margin-left: 6px; vertical-align: 2px; }
+  .muted { color: var(--muted); }
+
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    main { min-width: 0; }
+    nav { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+    h1 { font-size: 26px; }
+    main { padding: 24px 16px 72px; }
+    table { display: block; overflow-x: auto; }
+    td code { white-space: normal; word-break: break-word; }
+    .sig { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav>
+  <p class="brand">asl_testing</p>
+  <p class="sub">Kullanım kılavuzu, v2.1</p>
+  <h4>Başlangıç</h4>
+  <a href="#giris">Giriş ve kavramlar</a>
+  <a href="#import">Import</a>
+  <a href="#kurulum">Kurulum</a>
+  <h4>Nesneler</h4>
+  <a href="#comm">Comm</a>
+  <a href="#mesaj">Mesaj (BaseMessageStructure)</a>
+  <a href="#mesaj-tanim">&nbsp;&nbsp;Tanım ayarları</a>
+  <a href="#mesaj-nesne">&nbsp;&nbsp;Nesne API'si</a>
+  <a href="#mesaj-kanca">&nbsp;&nbsp;Kancalar (callout)</a>
+  <a href="#alanlar">Alan tipleri (FieldType)</a>
+  <a href="#alan-hook">&nbsp;&nbsp;Hook'lar</a>
+  <a href="#alan-length">&nbsp;&nbsp;LengthType</a>
+  <a href="#alan-counter">&nbsp;&nbsp;CounterType</a>
+  <a href="#alan-checksum">&nbsp;&nbsp;ChecksumType (CRC)</a>
+  <a href="#alan-ascii">&nbsp;&nbsp;AsciiType</a>
+  <a href="#alan-yeni">&nbsp;&nbsp;Yeni özel tip yazmak</a>
+  <a href="#kanal">Kanal (Channel, ChannelSet)</a>
+  <a href="#cerceve">Çerçeveleme (Envelope, Splitter)</a>
+  <a href="#olaylar">Olaylar</a>
+  <a href="#uts">UTS (istemci, simülasyon, yönetim)</a>
+  <a href="#servisler">Servisler</a>
+  <a href="#loglama">Loglama</a>
+  <h4>Bölüm</h4>
+  <a href="#tuzaklar">Sık yapılan hatalar</a>
+  <a href="#ref">Import tablosu</a>
+</nav>
+
+<main>
+
+<h1>asl_testing kullanım kılavuzu</h1>
+<p class="lead">Mesajları tanımlayın, bir kanal üzerinden gönderin ve alın, cihazı simüle edin ya da izleyin.
+Bu kılavuz bir test yazan kişinin ihtiyaç duyacağı her nesneyi, metodu ve hook'u anlatır.</p>
+
+<h2 id="giris">Giriş ve kavramlar</h2>
+<p>Dört kavram bütün kütüphaneyi taşır:</p>
+<table>
+  <tr><th>Kavram</th><th>Ne demek</th><th>Nerede tanımlanır</th></tr>
+  <tr><td><b>Proje</b></td><td>Bütün mesajların ortak tabanı: ortak başlık alanları, varsayılan kanal ve yön.</td><td>Doğrudan <code>BaseMessageStructure</code>'dan türetilir</td></tr>
+  <tr><td><b>Aile</b></td><td>İmzası olan (<code>_signature</code>) mesaj grubu. Gelen paketi hedef ve mesaj kimliğiyle eşleştirir.</td><td>Projeden türetilir, kendi <code>_signature</code>'ını verir</td></tr>
+  <tr><td><b>Mesaj</b></td><td>Bir paketin yapısı: alanlar, yön, zamanlama, varsayılan kanal.</td><td>Aileden türetilir, <code>_fields_</code> verir</td></tr>
+  <tr><td><b>Kanal</b></td><td>Fiziksel hat (protokol + interface) ve o hattaki çerçeveleme (başlık, akış bölücü).</td><td><code>ChannelSet</code> alt sınıfında</td></tr>
+</table>
+
+<pre><code>ProjectBase (BaseMessageStructure)        ortak alanlar, varsayılan kanal
+ ├ Family1 (_signature = ...)           aile: imza ile eşleşir
+ │   └ request (_fields_ = ...)         mesaj sınıfı
+ └ Serial2 (_signature = None)          aile: kanal ile eşleşir
+     └ ser_report                       mesaj sınıfı</code></pre>
+
+<h2 id="import">Import</h2>
+<p>Test kodu ve proje tanımları her şeyi tek satırdan alır. İç modül yolları bilmek gerekmez:</p>
+<pre><code>from asl_testing import Comm, FakeUtsClient, Timing, Direction, MessageReceived
+from asl_testing import BaseMessageStructure, Signature, FieldType  # proje tipleri (CRC16 vb.) projede tanımlanır</code></pre>
+<p>Tam liste için sayfanın sonundaki <a href="#ref">Import tablosuna</a> bakın.</p>
+
+<h2 id="kurulum">Kurulum</h2>
+<pre><code>from asl_testing import Comm, FakeUtsClient
+from projects.example_project.header import ProjectBase
+
+uts = FakeUtsClient()                 # gerçek hat için HttpUtsClient
+comm = Comm(uts, [ProjectBase])
+comm.open()                           # RX poller ve TX scheduler thread'leri başlar
+try:
+    ...
+finally:
+    comm.close()</code></pre>
+<p>Ya da <code>with Comm(uts, [ProjectBase]) as comm:</code> ile. <code>Comm</code> oluşturulurken proje listesi verilir;
+kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış olmalıdır.</p>
+
+<h2 id="comm">Comm</h2>
+<p>Test kodunun tek giriş noktası. Katmanları kurar, bağlar ve test kodunu onlara yönlendirir.</p>
+
+<h3>Yaşam döngüsü</h3>
+<div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
+<table>
+  <tr><th>Metod</th><th>Ne yapar</th></tr>
+  <tr><td><code>open()</code></td><td>RX poller ve TX scheduler thread'lerini başlatır.</td></tr>
+  <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır.</td></tr>
+  <tr><td><code>with comm:</code></td><td><code>open()</code> ve <code>close()</code> yerine geçer.</td></tr>
+</table>
+
+<h3>Gönderim</h3>
+<div class="sig">comm.send(msg) <span class="ret">-&gt; bool</span></div>
+<p>Mesajı bir kez gönderir. UTS hatası olursa <code>False</code> döner ve <code>LinkError</code> yayınlanır.</p>
+
+<div class="sig">comm.start(msg) <span class="ret">-&gt; None</span></div>
+<p>Periyodik göndermeyi başlatır. Mesajın <code>tx</code> zamanlaması periyodik olmalıdır; aksi halde <code>ValueError</code>.</p>
+
+<div class="sig">comm.stop(msg) <span class="ret">-&gt; None</span></div>
+<p>Periyodik göndermeyi durdurur.</p>
+
+<h3>Alım ve bekleme</h3>
+<div class="sig">comm.on_receive(msg, handler) <span class="ret">-&gt; Subscriber</span></div>
+<p><code>msg</code>'nin her geçerli paketinde <code>handler(event)</code> çağrılır. Handler kendi thread'inde çalışır.
+Döner değer aboneliktir; <code>comm.bus.unsubscribe(sub)</code> ile iptal edilir.</p>
+
+<div class="sig">comm.wait_new(msg, timeout=1.0, interval=0.005) <span class="ret">-&gt; int</span></div>
+<p><code>msg</code>'ye son <code>has_new()</code> çağrısından beri yeni geçerli paket gelene kadar bekler.
+Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında <code>0</code>.</p>
+
+<div class="sig">comm.wait_sent(msg, timeout=1.0, interval=0.005) <span class="ret">-&gt; int</span></div>
+<p>Aynısı gönderim için. Periyodik mesajda bir sonraki karenin gittiğini bekler. Başarısız UTS gönderimleri sayılmaz.</p>
+
+<div class="sig">comm.listen(channel) <span class="ret">-&gt; None</span></div>
+<p>Kayıtlı mesajı olmayan bir kanalı da yoklar. Böylece o kanaldaki bilinmeyen paketler de görünür.</p>
+
+<div class="sig">comm.unknown <span class="ret">-&gt; list[RxFrame]</span></div>
+<p>Hiçbir mesajla eşleşmeyen çerçevelerin listesi (en eski başta, son 1000 kayıt).</p>
+
+<h3>Olaylar ve yönetim</h3>
+<div class="sig">comm.subscribe(event_type, handler, where=None) <span class="ret">-&gt; Subscriber</span></div>
+<p>Herhangi bir olay tipine abone olur. <code>where</code> verilirse yalnızca o mesajın olayları gelir.</p>
+
+<div class="sig">comm.control <span class="ret">-&gt; UtsControl</span></div>
+<p>UTS yapılandırması ve filtreleri için. Bkz. <a href="#uts">UTS</a>.</p>
+
+<div class="sig">comm.bus <span class="ret">-&gt; EventBus</span></div>
+<p>Olay yolu. Şimdilik abonelik iptali için <code>comm.bus.unsubscribe(sub)</code> kullanılır.</p>
+
+<h2 id="mesaj">Mesaj (BaseMessageStructure)</h2>
+<p>Mesaj, <code>ctypes.Structure</code> alt sınıfıdır. Alanlar <code>_fields_</code> ile tanımlanır, ayarlar sınıf
+özellikleriyle (<code>_channel</code>, <code>_direction</code>, <code>_timing</code> ...) verilir.</p>
+
+<h3 id="mesaj-tanim">Tanım ayarları</h3>
+<table>
+  <tr><th>Ayar</th><th>Anlamı</th><th>Örnek</th></tr>
+  <tr><td><code>_fields_</code></td><td>Alanlar. Sıra paketteki sıradır. Checksum her zaman son alandır.</td><td><code>[("speed", c_int16), ("checksum", CRC16)]</code></td></tr>
+  <tr><td><code>_channel</code></td><td>Varsayılan kanal.</td><td><code>MyChannels.DIAG</code></td></tr>
+  <tr><td><code>_direction</code></td><td><code>Direction.RX</code>, <code>TX</code> veya <code>BOTH</code>.</td><td><code>Direction.TX</code></td></tr>
+  <tr><td><code>_timing</code></td><td>Varsayılan zamanlama. RX ve TX için ayrı verilebilir.</td><td><code>Timing(period=0.05, tolerance=3)</code></td></tr>
+  <tr><td><code>_signature</code></td><td>Aile imzası: <code>Signature("destinationId", "messageId")</code>. <code>None</code> yazılırsa mesaj kanalla tanınır.</td><td><code>_signature = None</code></td></tr>
+  <tr><td><code>_defaults</code></td><td>Yeni nesnenin başlangıç değerleri. İmza alanları burada olmamalı.</td><td><code>{"request": (0, 0xA1)}</code></td></tr>
+  <tr><td><code>_variable_size</code></td><td><code>True</code> ise gerçek boy uzunluk alanından okunur.</td><td><code>True</code></td></tr>
+</table>
+
+<h4>Değişken boy</h4>
+<pre><code>class diag_log(Family1):
+    _fields_ = [("count", c_uint16), ("entries", c_uint32 * 16), ("checksum", CRC16)]
+    _variable_size = True
+
+    def body_size(self) -> int:                # yalnızca gönderimde kullanılır
+        return diag_log.entries.offset + self.count * 4</code></pre>
+<p>RX tarafında boy, paketin uzunluk alanından okunur (<code>LengthType</code> bunu doğrular). TX tarafında
+<code>body_size()</code> hangi kısmının gönderileceğini belirler. ctypes düzeni en büyük boyu tutar.</p>
+
+<h3 id="mesaj-nesne">Nesne API'si</h3>
+<p>Nesne oluşturma: <code>Cls(*konumsal, channel=, direction=, rx=, tx=, **alanlar)</code>. Konumsal değerler proje
+<code>__init__</code>'inde tanımlanır (örnekte kaynak, hedef, mesaj kimliği).</p>
+
+<h4>Kimlik</h4>
+<table>
+  <tr><th>Özellik</th><th>Ne döner</th></tr>
+  <tr><td><code>msg.channel</code></td><td>Mesajın kanalı.</td></tr>
+  <tr><td><code>msg.direction</code></td><td>RX, TX veya BOTH.</td></tr>
+  <tr><td><code>msg.signature_id</code></td><td>İmza değeri; imzasızsa <code>None</code>.</td></tr>
+  <tr><td><code>msg.rx_state</code>, <code>msg.tx_state</code></td><td>Yön durumu nesneleri; <code>count</code>, <code>timestamp</code>, <code>last_time</code> gibi alanlar.</td></tr>
+</table>
+
+<h4>Alım</h4>
+<div class="sig">msg.has_new() <span class="ret">-&gt; int</span></div>
+<p>Son çağrıdan beri gelen geçerli paket sayısı. <strong>Sayacı temizler.</strong></p>
+<div class="sig">msg.peek_new() <span class="ret">-&gt; int</span></div>
+<p>Aynısı, sayacı temizlemeden.</p>
+<div class="sig">msg.rx_timestamp <span class="ret">-&gt; float | None</span></div>
+<p>UTS'in verdiği, son geçerli paketin zamanı.</p>
+<div class="sig">msg.rx_host_time <span class="ret">-&gt; float | None</span></div>
+<p>Bu makinenin saatine göre son geçerli paketin zamanı.</p>
+<div class="sig">msg.rx_age <span class="ret">-&gt; float | None</span></div>
+<p>Son geçerli paketten bu yana geçen süre (saniye). Hiç paket gelmediyse <code>None</code>.</p>
+
+<h4>Gönderim</h4>
+<div class="sig">msg.has_sent() <span class="ret">-&gt; int</span></div>
+<p>Son çağrıdan beri başarılı gönderim sayısı. <strong>Sayacı temizler.</strong></p>
+<div class="sig">msg.peek_sent() <span class="ret">-&gt; int</span></div>
+<p>Aynısı, sayacı temizlemeden.</p>
+<div class="sig">msg.pack() <span class="ret">-&gt; bytes</span></div>
+<p>Gönderilecek baytları üretir: kancalar, sonra özel alanların <code>on_send</code>'i, sonra baytlar.
+<strong>Gönderim değildir</strong>: sayaç artmaz, hat kullanılmaz. Test verisi üretmek için de kullanılabilir.</p>
+
+<h4>Ham baytlar</h4>
+<div class="sig">msg.validate(raw) <span class="ret">-&gt; bool</span></div>
+<p>Paketin boyunu ve özel alanlarını (<code>on_receive</code> hook'ları) denetler. Nesneyi değiştirmez.</p>
+<div class="sig">msg.decode(raw, timestamp=None) <span class="ret">-&gt; bool</span></div>
+<p>Geçerliyse paketi nesneye yazar, RX sayacını artırır ve alım kancalarını çağırır. Değilse hata sayacı artar.</p>
+<div class="sig">bytes(msg) <span class="ret">-&gt; bytes</span></div>
+<p>Nesnenin ctypes belleği. Olay görüntüsü (<code>ev.image</code>) bununla aynı biçimdedir.</p>
+
+<h4>Boy ve sıfırlama</h4>
+<div class="sig">msg.body_size() <span class="ret">-&gt; int</span> / msg.wire_size() <span class="ret">-&gt; int</span></div>
+<p>Checksum öncesi gönderilen bayt sayısı ve toplam tel boyu.</p>
+<div class="sig">msg.initialize() <span class="ret">-&gt; None</span></div>
+<p>Alanları varsayılana döndürür; uzunluk ve checksum yeniden hesaplanır.</p>
+
+<h4>Sınıf düzeyi</h4>
+<div class="sig">Cls.families(channel=None) <span class="ret">-&gt; list[Registry]</span></div>
+<p>Projenin aileleri. Kanalla filtrelenebilir.</p>
+<div class="sig">Cls.lookup_channel(channel) / Cls.lookup_signature(channel, raw) <span class="ret">-&gt; msg | None</span></div>
+<p>Paketi kanal ve imzaya göre eşleştirir. Dispatcher bunları kullanır; test kodu genelde gerekmez.</p>
+<div class="sig">Cls.clear_registry() <span class="ret">-&gt; None</span></div>
+<p>Projenin bütün kayıtlarını temizler. Testler arasında kullanılabilir.</p>
+
+<h3 id="mesaj-kanca">Kancalar (callout)</h3>
+<p>Bunlar nesne başına eklenen, mesajla ilgili kullanıcı kodlarıdır. Sınıf tanımındaki özel alan hook'larından ayrıdır.</p>
+<div class="sig">msg.on_send(fn) <span class="ret">-&gt; fn</span></div>
+<p><code>fn(msg)</code> her <code>pack()</code> çağrısında, <strong>sayaç ve checksum'dan önce</strong> çalışır. Yani değişiklikler
+checksum'a dahil edilir. Dekoratör olarak da kullanılabilir.</p>
+<pre><code>motor.on_send(lambda m: setattr(m, "speed", setpoint_now()))   # setpoint_now: test kodunun kendi fonksiyonu</code></pre>
+<div class="sig">msg.on_receive(fn) <span class="ret">-&gt; fn</span></div>
+<p><code>fn(msg)</code> her geçerli alımdan sonra, RX thread'inde çalışır. Ayrı thread gerekiyorsa <code>comm.on_receive</code> kullanın.</p>
+
+<h2 id="alanlar">Alan tipleri (FieldType)</h2>
+<p>Özel alan tipleri <code>FieldType</code>'tan türetilir. Yaşam döngüsünün belirli noktalarında otomatik çağrılan hook'ları vardır.
+Sıralama <code>_order</code> ile belirlenir (küçük önce). Checksum her zaman en sonda, <code>_order = 100</code>.</p>
+
+<h3 id="alan-hook">Hook'lar</h3>
+<div class="hooks">
+  <div class="hook"><b>on_init(msg)</b> <span class="tag">nesne oluşturulunca</span>
+    <p>Nesne oluşturulurken ve <code>initialize()</code> çağrıldığında. Dönüş değeri yok. Başlangıç değerini burada verin.</p></div>
+  <div class="hook"><b>on_send(msg)</b> <span class="tag">pack() içinde</span>
+    <p>Kullanıcı kancalarından sonra, paketleme sırasında. Dönüş değeri yok. Değeri hesaplayıp alana yazın (sayaç, boy).</p></div>
+  <div class="hook"><b>on_receive(msg, raw) -&gt; bool</b> <span class="tag">validate() içinde</span>
+    <p>Gelen paket doğrulanırken çağrılır. <code>True</code> kabul, <code>False</code> ret. Sıradaki hook'lara geçmeden ilk <code>False</code> ile durur.
+    <code>raw</code> gelen paketin tamamıdır; alan değerini <code>self.from_raw(msg, raw).val</code> ile okuyun.</p></div>
+  <div class="hook"><b>after_send(msg)</b> <span class="tag">başarılı gönderimden sonra</span>
+    <p>Yalnızca UTS gönderimi başarılı olursa çağrılır. Tek seferlik bayrakları temizlemek için kullanılır.</p></div>
+</div>
+
+<h4>Değer erişimi</h4>
+<table>
+  <tr><th>Üye</th><th>Ne yapar</th></tr>
+  <tr><td><code>val</code></td><td>Alanın değeri. Okurken <code>on_get</code>, yazarken <code>on_set</code> uygulanır.</td></tr>
+  <tr><td><code>on_get(v) -&gt; Any</code></td><td>Ham değeri kullanıcı değerine çevirir. Varsayılan: aynen.</td></tr>
+  <tr><td><code>on_set(v) -&gt; Any</code></td><td>Kullanıcı değerini ham değere çevirir. Varsayılan: aynen.</td></tr>
+  <tr><td><code>offset_in(msg) -&gt; int</code></td><td>Alanın mesajın başından itibaren bayt ofseti.</td></tr>
+  <tr><td><code>from_raw(msg, raw) -&gt; FieldType</code></td><td>Aynı alanı gelen paketten, kendi tipiyle okur. <code>on_receive</code> içinde kullanılır.</td></tr>
+</table>
+
+<h3 id="alan-length">LengthType</h3>
+<p>Paketin toplam tel boyunu tutar (başlık + gövde + checksum). Hazır sınıf: <code>asl_testing.LengthType</code>.</p>
+<table>
+  <tr><th>Hook</th><th>Davranış</th></tr>
+  <tr><td><code>on_init</code>, <code>on_send</code></td><td><code>msg.wire_size()</code> değerini yazar. Değişken boyda gövde değiştikçe güncellenir.</td></tr>
+  <tr><td><code>on_receive</code></td><td>Sabit boy: paket boyu <code>sizeof(msg)</code>'e eşit olmalı. Değişken boy: en fazla <code>sizeof(msg)</code>.</td></tr>
+</table>
+<pre><code>class Length16(LengthType):
+    _fields_ = [("value", c_uint16)]</code></pre>
+
+<h3 id="alan-counter">CounterType</h3>
+<p>Her gönderimde bir artar. Değer test tarafından da yazılabilir; sonraki gönderim <code>değer + 1</code> ile devam eder.</p>
+<table>
+  <tr><th>Hook</th><th>Davranış</th></tr>
+  <tr><td><code>on_send</code></td><td><code>val += 1</code>.</td></tr>
+</table>
+<pre><code>class Counter8(CounterType):
+    _fields_ = [("value", c_uint16)]
+
+    def on_set(self, v) -> int:      # 0..255 arasında sarar
+        return v % 256</code></pre>
+
+<h3 id="alan-checksum">ChecksumType (CRC)</h3>
+<p>Mesajın son alanıdır. Gövdenin (checksum'dan önceki baytlar) hesabını tutar. Algoritma <code>compute</code> ile verilir.</p>
+<div class="sig">compute(self, data: bytes) <span class="ret">-&gt; int</span></div>
+<p><code>data</code> gönderilecek gövdenin baytlarıdır. Dönüş değeri alanın ham değeri olur.</p>
+<table>
+  <tr><th>Hook</th><th>Davranış</th></tr>
+  <tr><td><code>on_init</code></td><td><code>on_send</code>'i çağırır, yani başlangıç checksum'ı hesaplanır.</td></tr>
+  <tr><td><code>on_send</code></td><td><code>compute(bytes(msg)[:msg.body_size()])</code> değerini yazar.</td></tr>
+  <tr><td><code>on_receive</code></td><td>Gelen gövdeden yeniden hesaplar ve paketteki değerle karşılaştırır.</td></tr>
+</table>
+<pre><code>class CRC16(ChecksumType):
+    _fields_ = [("value", c_uint16)]
+
+    def compute(self, data: bytes) -> int:
+        crc = 0xFFFF
+        for b in data:
+            crc ^= b &lt;&lt; 8
+            for _ in range(8):
+                crc = ((crc &lt;&lt; 1) ^ 0x1021) if crc &amp; 0x8000 else (crc &lt;&lt; 1)
+                crc &amp;= 0xFFFF
+        return crc</code></pre>
+<div class="note"><strong>Performans notu</strong>
+Saf Python CRC'si 46 bayt için yaklaşık 33 µs sürer. <code>binascii.crc_hqx(data, 0xFFFF)</code> aynı sonucu yaklaşık 0,18 µs'de verir.
+Yüksek frekanslı mesajlarda <code>compute</code> içinde <code>binascii</code> kullanılması önerilir.</div>
+
+<h3 id="alan-ascii">AsciiType</h3>
+<p>Metin alanı. Kullanıcı değeri <code>str</code>, ham değer <code>bytes</code>.</p>
+<pre><code>class Ascii4(AsciiType):
+    _fields_ = [("value", c_char * 4)]
+
+msg.label = "ABCD"          # ham: b"ABCD"
+print(msg.label)            # ABCD</code></pre>
+
+<h3 id="alan-yeni">Yeni özel tip yazmak</h3>
+<p>Bir bayt içindeki bitleri birlikte yönetmek için bit alanları kullanılır. Örnek <code>CmdByte</code>: başlangıç değerleri
+<code>on_init</code>'te, tek seferlik bit <code>after_send</code>'de temizlenir.</p>
+<pre><code>class CmdByte(FieldType):
+    _fields_ = [
+        ("startReq", c_uint8, 1),
+        ("mode",     c_uint8, 3),
+        ("reserved", c_uint8, 4),
+    ]
+
+    def on_init(self, msg) -> None:
+        self.startReq = 0
+        self.mode = 1
+
+    def after_send(self, msg) -> None:       # yalnızca başarılı gönderimden sonra
+        self.startReq = 0
+
+msg.cmd.startReq = 1     # bir sonraki gönderimde gider, sonra kendiliğinden temizlenir</code></pre>
+<div class="warn"><strong>Dikkat</strong>
+Bit alanlı tiplerin tek bir <code>val</code> değeri yoktur; alanlara tek tek erişilir. Bu, <code>msg.cmd.mode</code> gibi yazılır.</div>
+
+<div class="ok"><strong>Yeni tip ne zaman?</strong>
+Bir alanın değeri gönderim veya alımla birlikte kendiliğinden değişiyorsa (sayaç, boy, checksum, tek seferlik bayrak) özel tip yazın.
+Yalnızca bir sabit değer değişiyorsa <code>_defaults</code> yeterlidir.</div>
+
+<h2 id="kanal">Kanal (Channel, ChannelSet)</h2>
+<p>Kanal, bir hattın (protokol + interface) ve o hattaki çerçeveleme ayarlarının adıdır. Kanallar bir <code>ChannelSet</code>
+içinde, proje düzeyinde tanımlanır.</p>
+<pre><code>from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Framing
+
+class MyChannels(ChannelSet):
+    CONTROL = Rs422Channel(0)
+    DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
+    RAW     = EthernetChannel(1)
+    SER2    = Rs422Channel(2)</code></pre>
+
+<table>
+  <tr><th>Üye</th><th>Anlamı</th></tr>
+  <tr><td><code>ch.name</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi).</td></tr>
+  <tr><td><code>ch.protocol</code></td><td><code>ProtocolType.ETHERNET</code>, <code>RS422</code> veya <code>CAN</code>.</td></tr>
+  <tr><td><code>ch.interface</code></td><td>Hattın numarası.</td></tr>
+  <tr><td><code>ch.address</code></td><td><code>(protokol, interface)</code> çifti. Aynı adresi paylaşan kanallar aynı UTS okumasını kullanır.</td></tr>
+  <tr><td><code>ch.framing</code></td><td><code>Framing(splitter, envelope)</code>.</td></tr>
+  <tr><td><code>ch.has_envelope</code>, <code>ch.has_splitter</code></td><td>Çerçeveleme tanımlı mı.</td></tr>
+  <tr><td><code>ChannelSet.all()</code></td><td>Setin bütün kanalları.</td></tr>
+</table>
+
+<div class="warn"><strong>Kurallar (tanım sırasında denetlenir)</strong>
+Bir adreste en fazla bir başlıksız (envelope'u olmayan) kanal olabilir; çünkü başlıksız kanal her paketi kabul eder.
+Bir adreste en fazla bir splitter olabilir. İhlalde <code>ValueError</code>.</div>
+
+<h3>Kanal nasıl seçilir?</h3>
+<ul>
+  <li><b>Gönderim:</b> Mesajın <code>_channel</code> değeri belirler. Başka seçim yapılmaz; kanalın envelope'u varsa gönderimde başlık eklenir.</li>
+  <li><b>Alım:</b> Paket, adresin kanallarına sırayla sorulur. Envelope'lu kanallar önce gelir, başlıksız kanal en sonda. İlk kabul eden kanalın kanalı olur.</li>
+</ul>
+
+<h2 id="cerceve">Çerçeveleme (Envelope, Splitter)</h2>
+<p>Çerçeveleme, mesaj baytları ile tel üzerindeki baytlar arasındaki dönüşümdür. İki parçası var.</p>
+
+<h3>Envelope: paket başına başlık</h3>
+<table>
+  <tr><th>Üye</th><th>Ne yapar</th></tr>
+  <tr><td><code>on_send(data) -&gt; bytes</code></td><td>Mesaj baytlarını tel baytlarına çevirir. Başlık buraya eklenir.</td></tr>
+  <tr><td><code>on_receive(wire) -&gt; bytes | None</code></td><td>Paket bu kanala aitse mesaj baytlarını döner. Değilse <code>None</code>: sıradaki kanal denenir.</td></tr>
+  <tr><td><code>offset</code></td><td>Başlık boyu. UTS filtresi bayt konumlarını bununla hesaplar.</td></tr>
+</table>
+<pre><code>class EthHeader(Envelope):
+    MAGIC = b"\x55\xAA"
+    SIZE = 8
+    offset = SIZE
+
+    def on_send(self, data: bytes) -> bytes:
+        return self.MAGIC + struct.pack("&lt;H", self.SIZE + len(data)) + bytes(4) + data
+
+    def on_receive(self, wire: bytes) -> Optional[bytes]:
+        if len(wire) &lt; self.SIZE or wire[:2] != self.MAGIC:
+            return None                       # bu kanala ait değil
+        if struct.unpack_from("&lt;H", wire, 2)[0] != len(wire):
+            return None
+        return wire[self.SIZE:]</code></pre>
+<div class="warn"><strong>Kritik kural</strong>
+<code>on_receive</code> yalnızca kendi paketini kabul etmeli, diğerlerinde <code>None</code> dönmelidir. Her paketi kabul eden bir envelope,
+aynı adresteki başka kanalın paketlerini sessizce yutar.</div>
+
+<h3>Splitter: akıştan çerçeve çıkarma</h3>
+<p>RS-422 gibi akış protokollerinde UTS bir okumada birden fazla paket ya da yarım paket döndürebilir. Splitter bunları ayırır.</p>
+<table>
+  <tr><th>Üye</th><th>Ne yapar</th></tr>
+  <tr><td><code>split(data) -&gt; list[bytes]</code></td><td>Gelen veriyi tam paketlere böler. Varsayılan: veri tek paket.</td></tr>
+  <tr><td><code>reset()</code></td><td>Yarım kalmış paketi atar.</td></tr>
+</table>
+<div class="note"><strong>Not</strong>
+Splitter adres düzeyinde çalışır, kanal seçiminden önce. Bu yüzden bir adreste en fazla bir tane olabilir.</div>
+
+<h3>Framing</h3>
+<pre><code>Framing(splitter=Splitter(), envelope=Envelope())    # varsayılanlar: hiçbir şey yapmaz</code></pre>
+
+<h2 id="olaylar">Olaylar</h2>
+<p>Her paket ve her hata bir olay olarak yayınlanır. Abone olmak için <code>comm.subscribe(Tip, handler, where=None)</code>
+ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
+
+<h3>Ortak alanlar</h3>
+<p><code>MessageEvent</code> (<code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code> bunun türevleridir):</p>
+<table>
+  <tr><th>Alan</th><th>Anlamı</th></tr>
+  <tr><td><code>ev.message</code></td><td>Mesaj nesnesi.</td></tr>
+  <tr><td><code>ev.raw</code></td><td>Mesaj baytları, başlık olmadan (<code>pack()</code> çıktısı ya da alınan paketin gövdesi). Tel üzerindeki hali için <code>WireReceived</code> / <code>WireSent</code>.</td></tr>
+  <tr><td><code>ev.host_time</code></td><td>Bu makinenin saati.</td></tr>
+  <tr><td><code>ev.image</code></td><td>Mesajın ctypes görüntüsü (bozuk pakette boş).</td></tr>
+  <tr><td><code>ev.channel</code></td><td>Mesajın kanalı.</td></tr>
+  <tr><td><code>ev.snapshot()</code></td><td>Olayın anındaki değerleri taşıyan ayrı bir nesne. Sonraki paketlerden etkilenmez.</td></tr>
+</table>
+
+<h3>Olay tipleri</h3>
+<table>
+  <tr><th>Olay</th><th>Ne zaman</th><th>Ek alanlar</th></tr>
+  <tr><td><code>MessageReceived</code></td><td>Geçerli paket alındı.</td><td>Ortak alanlar, <code>timestamp</code> (UTS zamanı).</td></tr>
+  <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar.</td></tr>
+  <tr><td><code>InvalidReceived</code></td><td>Paket geldi ama doğrulanamadı.</td><td>Ortak alanlar, <code>timestamp</code>. <code>image</code> boştur.</td></tr>
+  <tr><td><code>UnknownReceived</code></td><td>Hiçbir mesajla eşleşmedi.</td><td><code>channel</code> (eşleşen kanal, yoksa <code>None</code>), <code>raw</code>, <code>host_time</code>, <code>timestamp</code>.</td></tr>
+  <tr><td><code>WireReceived</code></td><td>Tel üzerinde bir paket alındı.</td><td><code>channel</code>, <code>protocol</code>, <code>interface</code>, <code>wire</code>, <code>timestamp</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>WireSent</code></td><td>Tel üzerine bir paket gönderildi.</td><td><code>channel</code>, <code>message</code>, <code>wire</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>RxTimeout</code></td><td>Periyodik RX mesajı zaman aşımına uğradı.</td><td><code>message</code>, <code>age</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>RxRestored</code></td><td>Periyodik RX mesajı yeniden geldi.</td><td><code>message</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim veya yoklama).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code>, <code>host_time</code>.</td></tr>
+</table>
+<p class="muted">Alan adları ve sırası <code>asl_testing/events/types.py</code> ile aynıdır. Her paket önce <code>WireReceived</code>, sonra alım sonucu olayını üretir.</p>
+
+<pre><code>comm.subscribe(InvalidReceived, lambda ev: print("bozuk:", ev.raw.hex()))
+sub = comm.on_receive(status, lambda ev: samples.append(ev.snapshot()))
+comm.bus.unsubscribe(sub)</code></pre>
+
+<h2 id="uts">UTS (istemci, simülasyon, yönetim)</h2>
+
+<h3>UtsClient: gerçek hat</h3>
+<p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot vardır:</p>
+<div class="sig">transfer(protocol, interface, data) <span class="ret">-&gt; None</span></div>
+<p>Baytları hatta gönderir. Hata olursa <code>UtsError</code> fırlatır.</p>
+<div class="sig">fetch(protocol, interface) <span class="ret">-&gt; list[UtsFrame]</span></div>
+<p>Son çağrıdan beri gelen paketleri döner. <code>UtsFrame(data, timestamp)</code>.</p>
+<p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
+<code>NotImplementedError</code> fırlatır; istemci yine de çalışır.</p>
+<div class="note"><strong>Durum</strong>
+<code>HttpUtsClient</code> şu an taslaktır. <code>transfer</code> ve <code>fetch</code> bilerek <code>NotImplementedError</code> fırlatır.</div>
+
+<h3>FakeUtsClient: simülasyon</h3>
+<p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
+<div class="sig">uts.inject(protocol, interface, data, timestamp=None) <span class="ret">-&gt; None</span></div>
+<p>Verilen baytları, cihazdan gelmiş gibi alım kuyruğuna koyar. Gönderim değildir: RX poller bir sonraki yoklamada alır.</p>
+<pre><code>ch = status.channel
+wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
+uts.inject(ch.protocol, ch.interface, wire)           # cihaz bu paketi gönderdi
+
+bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
+uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived</code></pre>
+
+<h3>comm.control: UTS yönetimi</h3>
+<p>Hedef olarak bir kanal veya bir mesaj verilebilir.</p>
+<table>
+  <tr><th>Metot</th><th>Dönüş</th><th>Ne yapar</th></tr>
+  <tr><td><code>get_config(hedef)</code></td><td><code>dict</code></td><td>Arayüzün ayarları.</td></tr>
+  <tr><td><code>set_config(hedef, **ayarlar)</code></td><td><code>None</code></td><td>Ayarları yazar.</td></tr>
+  <tr><td><code>get_filter(hedef)</code></td><td><code>(tür, gruplar)</code></td><td>Alım filtresi. Tür <code>"NONE"</code> ise filtre yok.</td></tr>
+  <tr><td><code>set_filter(hedef, gruplar, tür="INCLUSIVE")</code></td><td><code>None</code></td><td>Filtreyi yazar.</td></tr>
+  <tr><td><code>clear_filter(hedef)</code></td><td><code>None</code></td><td>Filtreyi kaldırır.</td></tr>
+  <tr><td><code>add_filter(msg)</code></td><td><code>None</code></td><td>Mesajın imza bayt konumlarını filtreye ekler (mevcut filtre okunur, eklenir, yazılır).</td></tr>
+  <tr><td><code>remove_filter(msg)</code></td><td><code>None</code></td><td>Mesajın grubunu filtreden çıkarır. Filtre boşalırsa <code>"NONE"</code>.</td></tr>
+</table>
+<div class="note"><strong>Filtre konumları</strong>
+<code>add_filter</code> imza bayt konumlarını <code>kanal.framing.envelope.offset</code> kadar kaydırır. Böylece başlıklı paketlerde konumlar doğru olur.</div>
+
+<h3>Hatalar</h3>
+<pre><code>from asl_testing import UtsError
+try:
+    comm.control.set_config(channel, rate=115200)
+except UtsError:
+    ...</code></pre>
+
+<h2 id="servisler">Servisler</h2>
+<p>Servisler olay aboneleridir. Test kodunun gözlemleme için kullandığı hazır araçlardır.</p>
+
+<h3>CommLogger: CSV kaydı</h3>
+<pre><code>history = CommLogger(comm, "run.csv")     # gönderilen ve alınan paketler
+...
+history.close()</code></pre>
+
+<h3>ErrorLog: hata dosyası</h3>
+<pre><code>errors = ErrorLog(comm, "errors.log")    # UTS hataları, zaman aşımları, bozuk paketler
+...
+errors.close()</code></pre>
+
+<h3>MonitorService: tarayıcıda izleme</h3>
+<div class="sig">MonitorService(comm=None, projects=(), port=8050, host="127.0.0.1")</div>
+<table>
+  <tr><th>Metot / özellik</th><th>Ne yapar</th></tr>
+  <tr><td><code>start()</code> / <code>stop()</code></td><td>Web sunucusunu başlatır / durdurur. Kayıt başlatılmaz.</td></tr>
+  <tr><td><code>listen()</code> / <code>unlisten()</code></td><td>Canlı kaydı başlatır / durdurur. Gerekli <code>comm</code>.</td></tr>
+  <tr><td><code>url</code></td><td>Sayfanın adresi.</td></tr>
+  <tr><td><code>state()</code></td><td>Kaynak, kayıt durumu ve mesaj listesi.</td></tr>
+</table>
+<pre><code>monitor = MonitorService(comm, [ProjectBase], port=8050)
+monitor.start()          # http://127.0.0.1:8050
+...
+monitor.stop()</code></pre>
+<p>CSV ile testsiz açmak için:</p>
+<pre><code>python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages</code></pre>
+
+<h2 id="loglama">Loglama</h2>
+<p>Her katman standart <code>logging</code> ile kendi logger'ına yazar: <code>asl_testing.comm</code>, <code>asl_testing.runtime.rx</code> ...</p>
+<table>
+  <tr><th>Seviye</th><th>Ne zaman</th></tr>
+  <tr><td>ERROR (traceback ile)</td><td>UTS gönderim veya yoklama hatası.</td></tr>
+  <tr><td>WARNING</td><td>Periyodik zaman aşımı, bozuk paket, bilinmeyen paket.</td></tr>
+  <tr><td>INFO</td><td>Açılış, kapanış, periyodik başlama ve durma, RX'in geri gelmesi.</td></tr>
+  <tr><td>DEBUG</td><td>Her geçerli paket.</td></tr>
+</table>
+<pre><code>import logging
+logging.basicConfig(filename="comm.log", level=logging.INFO)
+
+comm = Comm(uts, [ProjectBase], logger=my_logger)     # tüm katmanları tek logger'a yönlendir</code></pre>
+
+<h2 id="tuzaklar">Sık yapılan hatalar</h2>
+
+<div class="warn"><strong>has_new() ve has_sent() sayacı temizler</strong>
+Aynı mesajı iki yerde kontrol ediyorsanız biri diğerinin sayacını tüketir. Kontrol için <code>peek_new()</code> / <code>peek_sent()</code> kullanın,
+ya da tek bir yerde <code>has_new()</code> çağırıp sonucu paylaşın.</div>
+
+<div class="warn"><strong>Gönderimden önce has_new() çağırın</strong>
+Önceden gelmiş bir paket, cevap olarak sayılır. İstek göndermeden hemen önce <code>has_new()</code> çağırın.</div>
+
+<div class="warn"><strong>pack() bir gönderim değildir</strong>
+<code>pack()</code> sayaç artırmaz ve hat kullanmaz. Test verisi üretirken güvenle kullanılabilir.</div>
+
+<div class="warn"><strong>Kancalar checksum'dan önce çalışır</strong>
+<code>msg.on_send</code> içinde checksum'a dokunmayın; <code>pack()</code> onu sonra hesaplar.</div>
+
+<div class="warn"><strong>İmza alanları _defaults içinde olmamalı</strong>
+<code>initialize()</code> bunları yeniden yazar ve kayıt anahtarı bozulur.</div>
+
+<div class="warn"><strong>Başlıksız kanal sona</strong>
+Aynı adreste iki başlıksız kanal tanımlanamaz. Başlıklı kanalların envelope'u yalnızca kendi paketini kabul etmelidir.</div>
+
+<div class="warn"><strong>Değişken boyda iki alan</strong>
+Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu oradan okur. TX boyu <code>body_size()</code> ile belirlenir.</div>
+
+<h2 id="ref">Import tablosu</h2>
+<p>Hepsi <code>from asl_testing import ...</code> ile alınır:</p>
+<table>
+  <tr><th>Grup</th><th>İsimler</th></tr>
+  <tr><td>Giriş</td><td><code>Comm</code></td></tr>
+  <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code></td></tr>
+  <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
+  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>ProtocolType</code></td></tr>
+  <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
+  <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
+  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
+</table>
+<p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>
+
+</main>
+</div>
+</body>
+</html>
