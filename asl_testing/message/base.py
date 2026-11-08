@@ -156,6 +156,10 @@ class BaseMessageStructure(Structure):
         """
         return self._rx.check_new() if self._rx is not None else 0
 
+    def peek_new(self) -> int:
+        """Like has_new(), but does not clear the count."""
+        return self._rx.peek_new() if self._rx is not None else 0
+
     def has_sent(self) -> int:
         """Number of successful sends since the last call (0: none); the call clears it.
 
@@ -163,6 +167,10 @@ class BaseMessageStructure(Structure):
             if motor.has_sent(): ...        # periodic: one more frame went out
         """
         return self._tx.check_sent() if self._tx is not None else 0
+
+    def peek_sent(self) -> int:
+        """Like has_sent(), but does not clear the count."""
+        return self._tx.peek_sent() if self._tx is not None else 0
 
     # ---------------------------------------------------------------- defaults
 

@@ -37,6 +37,10 @@ class RxState:
         self._seen = count
         return new
 
+    def peek_new(self) -> int:
+        """Like check_new(), but does not clear: the next check_new() still sees these packets."""
+        return self.count - self._seen
+
     def on_error(self) -> None:
         self.errors += 1
 
@@ -74,3 +78,7 @@ class TxState:
         new = count - self._seen
         self._seen = count
         return new
+
+    def peek_sent(self) -> int:
+        """Like check_sent(), but does not clear: the next check_sent() still sees these sends."""
+        return self.count - self._seen
