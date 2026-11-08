@@ -8,7 +8,7 @@ Replace it with the real header of the project.
 import struct
 from typing import Optional
 
-from asl_testing.channel.framing import Envelope
+from asl_testing import Envelope
 
 
 class EthHeader(Envelope):

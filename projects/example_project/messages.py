@@ -1,7 +1,7 @@
 """Message definitions (ICD). A message class defines its payload fields and ends with the checksum."""
 from ctypes import c_int16, c_uint16, c_uint32
 
-from asl_testing.message.timing import Direction
+from asl_testing import Direction
 from projects.example_project.header import Family1, Family2, Serial2
 from projects.example_project.types import CRC16, CmdByte
 

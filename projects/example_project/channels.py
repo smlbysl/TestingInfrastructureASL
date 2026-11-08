@@ -1,6 +1,5 @@
 """Channels of the project. Messages get them as class defaults (_channel)."""
-from asl_testing.channel.channel import ChannelSet, EthernetChannel, Rs422Channel
-from asl_testing.channel.framing import Framing
+from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Framing
 from projects.example_project.framing import EthHeader
 
 

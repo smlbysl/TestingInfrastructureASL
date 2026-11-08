@@ -11,9 +11,7 @@ import math
 import threading
 import time
 
-from asl_testing import Comm, Direction, FakeUtsClient, Timing
-from asl_testing.services import CommLogger
-from asl_testing.services.monitor import MonitorService
+from asl_testing import Comm, Direction, FakeUtsClient, Timing, CommLogger, MonitorService
 from projects.example_project.header import ProjectBase
 from projects.example_project.messages import bambaşka, comut, motor_cmd, request
 

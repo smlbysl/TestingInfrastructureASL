@@ -9,10 +9,7 @@ The checksum is not part of the header: every message adds it as its last field.
 """
 from ctypes import LittleEndianStructure, c_uint32
 
-from asl_testing.message.base import BaseMessageStructure
-from asl_testing.message.timing import Direction
-from asl_testing.message.signature import Signature
-from asl_testing.message.timing import Timing
+from asl_testing import BaseMessageStructure, Direction, Signature, Timing
 from projects.example_project.channels import MyChannels
 from projects.example_project.types import Counter8, Length16
 

@@ -7,9 +7,7 @@ Run from the repository root:  python -m examples.example_send_receive
 """
 import time
 
-from asl_testing import Comm, FakeUtsClient
-from asl_testing.events import MessageReceived, MessageSent
-from asl_testing.message.timing import Direction
+from asl_testing import Comm, FakeUtsClient, MessageReceived, MessageSent, Direction
 from projects.example_project.messages import comut, request
 from projects.example_project.header import ProjectBase
 

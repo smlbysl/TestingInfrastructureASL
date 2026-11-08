@@ -1,7 +1,7 @@
 """Project-specific field types (derived from asl_testing.message.fields)."""
 from ctypes import c_char, c_uint8, c_uint16
 
-from asl_testing.message.fields import AsciiType, ChecksumType, CounterType, FieldType, LengthType
+from asl_testing import AsciiType, ChecksumType, CounterType, FieldType, LengthType
 
 
 class Length16(LengthType):

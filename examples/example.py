@@ -10,14 +10,10 @@ import ctypes
 import logging
 import time
 
-from asl_testing import Comm, FakeUtsClient
-from asl_testing.events import WireReceived, WireSent
-from asl_testing.message.timing import Direction
-from asl_testing.message.timing import Timing
+from asl_testing import Comm, FakeUtsClient, WireReceived, WireSent, Direction, Timing, CommLogger, ErrorLog
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut, diag_log, motor_cmd, request, ser_cmd, ser_report
 from projects.example_project.header import ProjectBase
-from asl_testing.services import CommLogger, ErrorLog
 
 SRC, DEST = 0x0001, 0x0002
 
