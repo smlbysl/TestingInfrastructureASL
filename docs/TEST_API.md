@@ -1,305 +1,166 @@
-# Kullanım kılavuzu
+# Test arayüzü: neye, nasıl erişilir
 
-Test yazarken bütün isimler tek bir yerden gelir:
+Bu belge arayüzlerin referansı ve açık tasarım soruları. Nasıl kullanılacağı için `docs/USAGE.md`'ye bak.
 
-```python
-from asl_testing import Comm, FakeUtsClient, Timing, Direction, MessageReceived
-```
+Bu belge test yazan kişinin kullanabileceği yüzeyi listeler. Her madde için iki şeye bakıldı:
+- **Test için anlamlı mı?** Test kodu bunu kullanmalı mı?
+- **Tasarım kararı:** Bu parçayı biz bilerek mi ekledik, yoksa ayrıntıdan mı ibaret?
 
-Kütüphanenin iç modüllerine (`asl_testing.runtime`, `asl_testing.message.state` ...) test kodunda gerek yoktur. Mesaj tanımları (`comut`, `request` gibi) ve kanallar proje tarafında tanımlanır ve proje modülünden import edilir. Örnek proje `projects/example_project/` altındadır.
-
-Bu belge, sık yapılan işler için ne yazacağını gösterir. Tam isim listesi için `asl_testing/__init__.py` içindeki `__all__` listesine bak.
+Erişilebilen ama test için tavsiye edilmeyen parçalar "iç" olarak işaretlendi. Bunlara ulaşmak mümkün, ama testlerin bağımlı olmaması gerekir.
 
 ---
 
-## 1. Kurulum
+## 1. Comm (giriş noktası)
 
-```python
-from asl_testing import Comm, FakeUtsClient
-from projects.example_project.header import ProjectBase
+Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağlar.
 
-uts = FakeUtsClient()                  # gerçek cihazda HttpUtsClient
-comm = Comm(uts, [ProjectBase])
-comm.open()                            # RX ve TX thread'leri başlar
-...
-comm.close()
-```
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `Comm(uts, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
+| `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur | Evet | Evet |
+| `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
+| `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
+| `on_receive(msg, handler)` | Mesaj alındığında handler (kendi thread'inde) | Evet | Evet |
+| `wait_new(msg, timeout)` | Yeni geçerli paket gelene kadar bekler | Evet | Evet |
+| `wait_sent(msg, timeout)` | Yeni başarılı gönderim olana kadar bekler | Evet | Evet |
+| `listen(channel)` | Kayıtlı mesajı olmayan kanalı da yoklar | Evet | Evet |
+| `unknown` | Hiçbir mesajla eşleşmeyen çerçevelerin listesi | Evet | Evet |
+| `subscribe(event_type, handler, where)` | Herhangi bir olaya abone ol | Evet | Evet |
+| `control` (`UtsControl`) | UTS yapılandırması ve filtreler | Evet | Evet |
+| `bus`, `transport`, `dispatcher`, `rx`, `tx` | Katman nesneleri | Hayır | İç |
+| `log` | Logger | Hayır | İç |
 
-`with` ile de kullanılabilir:
+## 2. Mesaj nesnesi (`BaseMessageStructure`)
 
-```python
-with Comm(uts, [ProjectBase]) as comm:
-    ...
-```
+Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 
-`Comm`, test kodunun konuştuğu tek nesnedir. Gönderim, alım, olay aboneliği, UTS yönetimi ve izleme servisleri bu nesneden bağlanır.
+### Değer ve kimlik
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `msg.<alan>` | Alan değeri (okuma / yazma) | Evet | Evet |
+| `msg.channel` | Mesajın kanalı | Evet | Evet |
+| `msg.direction` | RX / TX / BOTH | Evet | Evet |
+| `msg.signature_id` | İmza değeri | Evet (hata ayıklama) | Evet |
+| `bytes(msg)` | Yapının ham belleği | Sınırlı | Evet, ama ara temsil |
+| `msg.pack()` | Gönderilecek baytlar (sayaç ve CRC dahil, sayılmaz) | Evet (test verisi üretmek için) | Evet |
+| `msg.body_size()` / `msg.wire_size()` | Değişken boy bilgisi | Evet | Evet |
+| `msg.validate(raw)` / `msg.decode(raw, ts)` | Ham baytı doğrula / yükle | Hayır (dispatcher kullanır) | İç |
 
----
+### Alım durumu (RX)
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `msg.has_new()` | Yeni geçerli paket sayısı, sayacı sıfırlar | Evet | Evet |
+| `msg.peek_new()` | Aynısı, sıfırlamadan | Evet | Evet |
+| `msg.rx_timestamp` | UTS'ten gelen son paketin zamanı | Evet | Evet |
+| `msg.rx_host_time` | Bu makinenin saatinde son paket zamanı | Evet | Evet |
+| `msg.rx_age` | Son paketten bu yana geçen süre | Evet | Evet |
+| `msg.rx_state` | `RxState` (count, errors, timing ...) | Sınırlı | Evet |
 
-## 2. Mesajı göndermek
+### Gönderim durumu (TX)
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `msg.has_sent()` | Başarılı gönderim sayısı, sayacı sıfırlar | Evet | Evet |
+| `msg.peek_sent()` | Aynısı, sıfırlamadan | Evet | Evet |
+| `msg.tx_state` | `TxState` (count, last_time, timing) | Sınırlı | Evet |
 
-Mesajlar proje tanımından oluşturulur. Gönderim yönü ve periyot tanımda ya da oluşturma sırasında verilir.
+### Kancalar (callout)
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `msg.on_send(fn)` | Her gönderimde `fn(msg)`, paketlemeden önce | Evet (periyodik değer üretmek için) | Evet |
+| `msg.on_receive(fn)` | Her alımda `fn(msg)` | Evet | Evet |
 
-```python
-req = request(SRC, DEST, 0x10, direction=Direction.TX)
-comm.send(req)                  # bir kez; başarılıysa True
-```
+### Sınıf düzeyi (tanım, genelde test yazmaz)
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `families()`, `lookup*()`, `clear_registry()` | Registry sorguları | Hayır | İç |
+| `initialize()` | Varsayılanlara döndürür | Evet (testler arası sıfırlama) | Evet |
+| `_channel`, `_direction`, `_timing`, `_signature` | Sınıf varsayılanları | Tanımda kullanılır | Evet |
+| `_rx`, `_tx`, `_registered`, `_trailer_offset()` ... | Özel alanlar | Hayır | İç |
 
-Periyodik gönderim:
+## 3. Alanlar (`FieldType` ve özel tipler)
 
-```python
-motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.05))
-comm.start(motor)               # 50 ms'de bir
-...
-comm.stop(motor)
-```
+| Tip | Test için | Tasarım |
+|---|---|---|
+| Normal ctypes alanı (`c_uint16` vb.) | Değer okuma / yazma | Evet |
+| Bit alanları | `msg.cmd.startReq` gibi | Evet |
+| `FieldType.val` | Özel tiplerin değeri | Evet |
+| `LengthType` | Paketlemede otomatik hesaplanır; test yanlış boy üretmek isterse el ile yazamaz | Evet, ama fault için yetersiz |
+| `CounterType` | Gönderimde artar; test değeri set edebilir | Evet |
+| `ChecksumType` | Paketlemede hesaplanır | Evet, ama bozuk CRC için fault gerekir |
+| `AsciiType` | Metin alanı | Evet |
+| `CmdByte` (örnek) | `on_init` + `after_send` ile tek seferlik bit | Evet, tasarım örneği |
 
-Alanları gönderimden önce değiştirmek:
+Özel tiplerin hook'ları: `on_init`, `on_send` (paketlemede), `on_receive` (doğrulama), `after_send` (başarılı gönderimden sonra).
 
-```python
-motor.speed = 120
-motor.cmd.startReq = 1          # bit alanı
-req.request[1] = 50             # dizi elemanı
-```
+## 4. Kanal (`Channel`, `ChannelSet`)
 
-Her gönderimde değer hesaplamak için kanca (değer test kodunda hesaplanır):
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `ch.name`, `ch.interface`, `ch.protocol` | Kimlik | Evet | Evet |
+| `ch.address` | (protokol, interface) | Evet (adres bazlı kontrol için) | Evet |
+| `ch.framing` | Splitter ve envelope | Evet (özel çerçeve için) | Evet |
+| `ch.has_envelope`, `ch.has_splitter` | Bayraklar | Sınırlı | Evet |
+| `ChannelSet.all()` | Projedeki tüm kanallar | Evet | Evet |
+| `ChannelSet` kuralları (`check_channels`) | Tanım sırasında doğrulama | Evet (hata mesajı) | Evet |
 
-```python
-motor.on_send(lambda m: setattr(m, "speed", setpoint_now()))   # setpoint_now: test kodunun kendi fonksiyonu
-```
+## 5. Çerçeveleme (`Framing`, `Splitter`, `Envelope`)
 
-Kanca gönderimden hemen önce çalışır. Sayaç ve CRC gibi alanlar kancadan sonra hesaplanır.
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `Envelope.on_send(data)` | Gönderimde başlık ekler | Evet (yanıt üretirken) | Evet |
+| `Envelope.on_receive(wire)` | Kabul ederse mesaj baytlarını, etmezse `None` | Evet (kendi envelope'unu test ederken) | Evet |
+| `Envelope.offset` | Başlık boyu (UTS filtresi için) | Evet | Evet |
+| `Splitter.split(data)` | UTS'ten gelen veriyi çerçevelere böler | Evet (akış protokolleri için) | Evet |
+| `Splitter.reset()` | Yarım paketi atar | Sınırlı | Evet |
 
----
+## 6. Olaylar (`events`)
 
-## 3. Cevap beklemek
+Test, paket akışını olaylardan izleyebilir.
 
-Tipik istek-cevap testi:
+| Olay | İçerik | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `MessageReceived` / `MessageSent` | Mesaj nesnesi, gönderilen/alınan görüntü | Evet | Evet |
+| `InvalidReceived` | Bozuk paket | Evet | Evet |
+| `UnknownReceived` | Eşleşmeyen çerçeve, kanal bilgisiyle | Evet | Evet |
+| `WireReceived` / `WireSent` | Tel üzerindeki bayt, UTS zamanı | Evet (framing testi) | Evet |
+| `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi | Evet | Evet |
+| `LinkError` | UTS hatası (gönderim veya alım) | Evet | Evet |
+| `event.snapshot()` | Olayın görüntüsünü kopyalar | Sınırlı | Evet |
 
-```python
-status.has_new()                # önce eski paketleri temizle
-comm.send(req)
-if comm.wait_new(status, timeout=0.5):
-    assert status.comut[0] == expected
-else:
-    raise AssertionError("cevap gelmedi")
-```
+Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla sınırlar. Abonelik `comm.bus.unsubscribe(sub)` ile biter.
 
-- `has_new()` sayacı okur ve sıfırlar. Gönderimden **önce** çağrılması, eski bir paketin cevap sayılmasını önler.
-- `wait_new(msg, timeout)` yeni geçerli paket gelene kadar bekler. Dönüş değeri yeni paket sayısıdır, zaman aşımında `0`.
-- `peek_new()` aynı sayıyı verir ama sayacı sıfırlamaz. Bir kontrolü tekrarlamak için kullan.
+## 7. UTS
 
-Gönderim tarafı için aynı yapı:
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `FakeUtsClient.inject(protocol, interface, bytes)` | Simülasyonda RX baytı üretir | Evet (sahte cihaz) | Evet |
+| `comm.control.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
+| `comm.control.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |
+| `comm.control.get_filter / set_filter / clear_filter` | Ham filtre yönetimi | Sınırlı | Evet |
+| `UtsError` | UTS hata tipi | Evet | Evet |
+| `HttpUtsClient` | Gerçek HTTP istemcisi (henüz taslak) | Hayır (şu an) | Taslak |
 
-```python
-motor.has_sent()
-comm.wait_sent(motor, timeout=0.2)   # periyodik mesajın bir sonraki karesi
-motor.peek_sent()                    # sıfırlamadan bak
-```
+## 8. Servisler
 
-`wait_sent` yalnızca başarılı UTS gönderimlerini sayar. Hedefin paketi aldığını doğrulamaz; bunun için cevabı `wait_new` ile beklemek gerekir.
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `CommLogger(comm, path)` | Paketleri CSV'ye yazar | Evet | Evet |
+| `ErrorLog` | Hataları olay olarak toplar | Evet | Evet |
+| `MonitorService(comm, projects, port)` | Tarayıcıda canlı / CSV izleme | Evet | Evet |
 
-Zamanla ilgili bilgiler:
+## 9. Zamanlama ve yön
 
-```python
-status.rx_age          # son geçerli paketten bu yana saniye (yoksa None)
-status.rx_timestamp    # UTS'in verdiği zaman
-status.rx_host_time    # bu makinenin saatine göre zaman
-```
-
-Periyodik RX mesajı kesilirse `RxTimeout` olayı gelir; geri gelirse `RxRestored`.
-
----
-
-## 4. Olaylarla izlemek
-
-Her paket bir olay olarak yayınlanır. Olayı kendi thread'inde işleyen bir handler yazabilirsin.
-
-```python
-def on_status(ev: MessageReceived):
-    print(ev.host_time, ev.message.comut[0], ev.raw.hex())
-
-sub = comm.on_receive(status, on_status)     # yalnızca bu mesaj
-```
-
-Her mesaja değil, bir olay tipinin tamamına abone olmak:
-
-```python
-from asl_testing import WireReceived, InvalidReceived
-
-comm.subscribe(InvalidReceived, lambda ev: print("bozuk:", ev.raw.hex()))
-comm.subscribe(WireReceived, lambda ev: wires.append(ev.wire))
-```
-
-Abonelik bitince:
-
-```python
-comm.bus.unsubscribe(sub)
-```
-
-Olay tipleri:
-
-| Olay | Ne zaman |
-|---|---|
-| `MessageReceived` | Geçerli paket alındı |
-| `MessageSent` | Mesaj gönderildi |
-| `InvalidReceived` | Paket geldi ama doğrulanamadı (bozuk CRC, yanlış boy ...) |
-| `UnknownReceived` | Hiçbir mesajla eşleşmeyen paket (`ev.channel` ile kanalı belli) |
-| `WireReceived` / `WireSent` | Tel üzerindeki ham bayt |
-| `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi |
-| `LinkError` | UTS hatası (gönderim veya alım) |
-
-Olayın içinde `ev.message`, `ev.raw` (tel üzerindeki paket), `ev.host_time`, `ev.image` ve `ev.snapshot()` bulunur. `snapshot()` olayın anındaki değerleri ayrı bir nesne olarak verir; sonraki paketlerden etkilenmez.
-
----
-
-## 5. Hedefi taklit etmek (simülasyon)
-
-`FakeUtsClient` gerçek cihazın yerine geçer. Cihazın ürettiği paketi `inject` ile verirsin:
-
-Cihazın gönderdiği paket, kanalın başlığıyla birlikte enjekte edilir:
-
-```python
-ch = status.channel
-wire = ch.framing.envelope.on_send(status.pack())      # başlık varsa eklenir, yoksa değişmez
-uts.inject(ch.protocol, ch.interface, wire)
-```
-
-Bozuk paket göndermek için baytları değiştirip enjekte edersin:
-
-```python
-bad = bytearray(wire)
-bad[-1] ^= 0xFF                                        # son bayt (CRC) bozuk
-uts.inject(ch.protocol, ch.interface, bytes(bad))
-```
-
-Sonuç `InvalidReceived` olarak görülür.
-
-Periyodik cihaz davranışı için bir thread yazıp `inject` çağırmak yeterlidir. `examples/monitor_demo.py` bunun örneğidir.
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `Timing(period, tolerance)` | Periyot ve tolerans | Evet | Evet |
+| `Direction.RX / TX / BOTH` | Yön | Evet | Evet |
+| `Signature(offset, mask, endian)` | Mesaj imzası | Evet | Evet |
 
 ---
 
-## 6. UTS yapılandırması ve filtreler
+## Açık tasarım soruları
 
-`comm.control` UTS'in ayarlarına ve filtrelerine doğrudan erişir:
-
-```python
-comm.control.set_config(channel, ...)        # hedefin yapılandırması (alan adları örnekte)
-comm.control.get_config(channel)
-comm.control.add_filter(status)              # mesajın imzası UTS filtresine eklenir
-comm.control.remove_filter(status)
-comm.control.get_filter(channel)
-comm.control.clear_filter(channel)
-```
-
-Hedef olarak kanal ya da mesaj verilebilir.
-
-Hatalar `UtsError` olarak fırlatılır:
-
-```python
-from asl_testing import UtsError
-try:
-    comm.control.set_config(channel, ...)
-except UtsError as e:
-    ...
-```
-
----
-
-## 7. Kayıt ve izleme
-
-CSV'ye kayıt (sonradan analiz veya izleme için):
-
-```python
-from asl_testing import CommLogger
-history = CommLogger(comm, "run.csv")
-...
-history.close()
-```
-
-Hataları ayrı dosyaya yazmak:
-
-```python
-from asl_testing import ErrorLog
-errors = ErrorLog(comm, "errors.log")
-```
-
-Tarayıcıda canlı izleme (`http://127.0.0.1:8050`):
-
-```python
-from asl_testing import MonitorService
-monitor = MonitorService(comm, [ProjectBase], port=8050)
-monitor.start()
-...
-monitor.stop()
-```
-
-Kayıtlı bir CSV'yi testsiz açmak:
-
-```
-python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages
-```
-
-Logging standart `logging` modülüyle yapılır: `asl_testing.*` logger'ları. `Comm(..., logger=x)` ile hepsini tek bir logger'a yönlendirebilirsin.
-
----
-
-## 8. Çerçeveleme (özel başlık, akış)
-
-Bu bölüm yalnızca kanal tanımında kullanılır, test kodunda değil. Proje tanımında:
-
-```python
-from asl_testing import Envelope, Framing, Splitter, EthernetChannel, Rs422Channel, ChannelSet
-
-class MyChannels(ChannelSet):
-    CONTROL = Rs422Channel(0)
-    DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))   # başlığı olan
-    RAW     = EthernetChannel(1)                                   # başlıksız
-```
-
-- `Envelope.on_send` gönderimde başlık ekler.
-- `Envelope.on_receive` yalnızca kendi paketini kabul eder, diğerlerinde `None` döner. Böylece paket sıradaki kanala geçer.
-- `Splitter` UTS'ten gelen akışı paketlere böler. Bir adreste en fazla bir tane olabilir.
-
-Kanal kuralları tanım sırasında kontrol edilir: bir adreste en fazla bir başlıksız kanal olabilir.
-
----
-
-## 9. Sık yapılan işler
-
-**Periyodik cihaz, komut tepkisi:**
-```python
-comm.start(motor)
-status.has_new()
-assert comm.wait_new(status, timeout=0.3) > 0
-assert status.comut[0] > 0
-comm.stop(motor)
-```
-
-**Cevap gelmeyince hata:**
-```python
-status.has_new()
-comm.send(req)
-assert comm.wait_new(status, timeout=0.5), "cevap yok"
-```
-
-**Bozuk cevabı görmek:**
-```python
-invalid = []
-comm.subscribe(InvalidReceived, lambda ev: invalid.append(ev))
-...
-assert len(invalid) == 1
-```
-
-**Bilinmeyen paketleri saymak:**
-```python
-assert len(comm.unknown) == 0
-```
-
----
-
-## Henüz olmayanlar
-
-- **Hata enjeksiyonu** (CRC, uzunluk, bit bozma): tasarlandı, henüz eklenmedi. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Gönderim sırası `pack()` → fault → envelope → UTS.
-- **`comm.unsubscribe`** kısayolu: şimdilik `comm.bus.unsubscribe(sub)`.
-- **Gerçek HTTP UTS istemcisi:** `HttpUtsClient` henüz taslak.
+- **Fault enjeksiyonu** henüz yok. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Bozuk CRC ve uzunluk için alan değeri set etmek yetmediği için gerekli.
+- **`CommLogger` ve `Comm.log`** ayrımı: logger seçimi test tarafına bırakıldı.
+- **Frame tipleri:** `RxFrame` iç tip. Testlerin olay (`WireReceived`) üzerinden çalışması önerilir.
+- **Üst düzey dışa aktarım:** Çözüldü. Test kodu ve proje tanımları her şeyi `from asl_testing import ...` ile alır (`asl_testing/__init__.py`, `__all__`). Dahili tipler (`RxFrame`, `Transport`, `Dispatcher`, `RxPoller`, `TxScheduler`) dışa açılmadı.
