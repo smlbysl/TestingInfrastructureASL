@@ -31,6 +31,16 @@ from asl_testing.message.base import BaseMessageStructure
 from asl_testing.channel.channel import Channel
 
 
+def _wait(check: Callable[[], int], timeout: float, interval: float) -> int:
+    """Calls check() (has_new / has_sent: returns the count and clears it) until it is non-zero or time is up."""
+    deadline = time.monotonic() + timeout
+    while True:
+        new = check()
+        if new or time.monotonic() >= deadline:
+            return new
+        time.sleep(interval)
+
+
 class Comm:
     def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
                  poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
@@ -90,12 +100,15 @@ class Comm:
         Returns the number of new packets (cleared, as with has_new()), or 0 on timeout.
         Call msg.has_new() before sending a request, so an earlier packet is not taken as the answer.
         """
-        deadline = time.monotonic() + timeout
-        while True:
-            new = msg.has_new()
-            if new or time.monotonic() >= deadline:
-                return new
-            time.sleep(interval)
+        return _wait(msg.has_new, timeout, interval)
+
+    def wait_sent(self, msg: BaseMessageStructure, timeout: float = 1.0, interval: float = 0.005) -> int:
+        """Waits until msg has been sent successfully since its last has_sent() call.
+
+        Returns the number of sends (cleared, as with has_sent()), or 0 on timeout. For a periodic
+        message this waits for its next frame; a failed UTS send is not counted.
+        """
+        return _wait(msg.has_sent, timeout, interval)
 
     def listen(self, channel: Channel) -> None:
         """Polls a channel even if no RX message is registered on it."""

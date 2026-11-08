@@ -57,9 +57,20 @@ class RxState:
 @dataclass
 class TxState:
     timing: Timing
-    last_time: Optional[float] = None    # host time of the last send (time.monotonic)
-    count: int = 0
+    last_time: Optional[float] = None    # host time of the last successful send (time.monotonic)
+    count: int = 0                       # number of successful sends (UTS transfer returned)
+    _seen: int = 0                       # count at the last check_sent() call
 
     def on_send(self) -> None:
         self.last_time = time.monotonic()
         self.count += 1
+
+    def check_sent(self) -> int:
+        """Number of successful sends since the last call (0: none); the call clears it.
+
+        Same rule as RxState.check_new: count is only written by the TX path, so no lock is needed.
+        """
+        count = self.count
+        new = count - self._seen
+        self._seen = count
+        return new

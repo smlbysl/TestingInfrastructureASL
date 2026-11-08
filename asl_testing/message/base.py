@@ -156,6 +156,14 @@ class BaseMessageStructure(Structure):
         """
         return self._rx.check_new() if self._rx is not None else 0
 
+    def has_sent(self) -> int:
+        """Number of successful sends since the last call (0: none); the call clears it.
+
+            comm.send(request)
+            if motor.has_sent(): ...        # periodic: one more frame went out
+        """
+        return self._tx.check_sent() if self._tx is not None else 0
+
     # ---------------------------------------------------------------- defaults
 
     def initialize(self) -> None:
@@ -280,13 +288,13 @@ class BaseMessageStructure(Structure):
             callout(self)
         for field in self._special_fields():
             field.on_send(self)
-        if self._tx is not None:
-            self._tx.on_send()
         data = bytes(self)
         return data[:self.body_size()] + data[self._trailer_offset():]
 
     def _sent(self) -> None:
-        """Called by the TX layer after a successful send: after_send hooks of the special fields."""
+        """Called by the TX layer after a successful send: counts it and runs the after_send hooks."""
+        if self._tx is not None:
+            self._tx.on_send()
         for field in self._special_fields():
             field.after_send(self)
 
