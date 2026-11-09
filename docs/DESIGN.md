@@ -212,4 +212,11 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
   tutabilir). Bu boylar çakışmamalı ya da signature'a ayırt edici başka bir alan eklenmeli.
 - Periyodik gönderimde `after_send` yarışı: test thread'i istek bitini pack ile after_send arasında yazarsa
   sıfırlama bu değeri siler (istek gitmez). Koruma yok; gerekirse "bir sonraki gönderimde bir kez" yardımcısı.
+- **RX doğrulamada kilitlenme (sonra dönülecek):** değişken boylu mesajda uzunluk alanı checksum boyundan küçük
+  gelirse (0 veya 1) `ChecksumType.on_receive` negatif ofsetle `from_buffer_copy` çağırır, `ValueError` fırlar,
+  yakalanmadığı için RxPoller thread'i ölür ve sonraki hiçbir paket alınmaz (InvalidReceived de gelmez).
+  Önerilen düzeltme: (1) `LengthType.on_receive` değişken boyda alt sınırı da kontrol etsin (uzunluk alanının
+  bittiği yer + checksum boyu); (2) `validate()` bir hook istisna fırlatırsa paketi geçersiz saysın; (3) RX döngüsü
+  tek paketteki hatayı loglayıp devam etsin; (4) karar bekliyor: paketin sonundaki fazla baytlar (paket boyu >
+  uzunluk alanı / sizeof) şu an kabul ediliyor, reddedilsin mi. Bu durumlar için testler de eklenecek.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).
