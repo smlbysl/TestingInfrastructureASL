@@ -6,13 +6,13 @@ Ayrıntılı analiz için kaynak belgeler:
 - `docs/DESIGN.md` → "Açık konular" (tasarım gereği esnek bırakılanlar)
 
 Önem: **Kritik** (veri kaybı / thread ölümü / yanlış veri hatta), **Yüksek**, **Orta**, **Düşük**.
-Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle gösterildi).
+Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle gösterildi), **Çözüldü**.
 
 ---
 
 ## Öncelik sırası (önerilen)
 
-1. K1: Uzunluk alanı RX thread'ini öldürüyor
+1. ~~K1: Uzunluk alanı RX thread'ini öldürüyor~~ (çözüldü)
 2. B1: `decode` okuyuculara yarım değer gösteriyor
 3. K3: Özel alan tipleri projenin endian'ını takip etmiyor
 4. B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor
@@ -23,15 +23,21 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 ## RX doğrulama
 
-### K1 — Değişken boyda küçük uzunluk değeri RX thread'ini öldürüyor
-- **Önem:** Kritik — **Durum:** Doğrulandı
-- **Nerede:** `ChecksumType.on_receive` (`asl_testing/message/fields.py`), `RxPoller`
-- **Ne oluyor:** Uzunluk alanı checksum boyundan küçükse (0 veya 1) `_rx_body` negatif döner,
-  `from_buffer_copy(raw, negatif)` `ValueError` fırlatır. İstisna yakalanmadığı için RxPoller thread'i ölür.
-  Sonraki hiçbir paket alınmaz, `InvalidReceived` da gelmez.
-- **Düzeltme:** (1) `LengthType.on_receive` değişken boyda alt sınırı da kontrol etsin (uzunluk alanının bittiği
-  yer + checksum boyu); (2) `validate()` bir hook istisna fırlatırsa paketi geçersiz saysın; (3) RX döngüsü tek
-  paketteki hatayı loglayıp devam etsin. Testleri eklenecek.
+### K1 — Değişken boyda küçük uzunluk değeri RX thread'ini öldürüyordu
+- **Önem:** Kritik — **Durum:** Çözüldü
+- **Nerede:** `LengthType.on_receive` (`asl_testing/message/fields.py`), `validate()` (`message/base.py`),
+  `RxPoller.poll_once()` (`runtime/rx.py`)
+- **Ne oluyordu:** Uzunluk alanı checksum boyundan küçükse (0 veya 1) `_rx_body` negatif dönüyordu,
+  `from_buffer_copy(raw, negatif)` `ValueError` fırlatıyordu. İstisna yakalanmadığı için RxPoller thread'i ölüyordu.
+- **Düzeltme:**
+  1. `LengthType.on_receive` değişken boyda alt sınırı da kontrol ediyor: `min_length(msg)` = uzunluk alanının
+     bittiği yer + checksum boyu.
+  2. `validate()` bir hook istisna fırlatırsa (ör. paket uzunluk alanını okuyacak kadar uzun değil) hatayı
+     loglayıp `False` döner; paket `InvalidReceived` olarak raporlanır.
+  3. `RxPoller.poll_once()` tek paketin dispatch hatasını loglayıp sonraki paketle devam eder.
+- **Testler:** `tests/test_messages.py` (küçük uzunluk, kısa paket, geçerli değişken boy) ve
+  `tests/test_comm.py::test_too_small_length_does_not_stop_the_receiver` (bozuk paketten sonra gelen geçerli paket
+  hâlâ alınıyor). Düzeltme geri çekildiğinde bu testler kırılıyor.
 
 ### K2 — Paketin sonundaki fazla baytlar kabul ediliyor
 - **Önem:** Orta — **Durum:** Karar bekliyor

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 from ctypes import Structure
 from typing import Callable, ClassVar, Optional
 
@@ -11,6 +12,8 @@ from asl_testing.message.registry import Registry
 from asl_testing.message.signature import Signature
 from asl_testing.message.state import RxState, TxState
 from asl_testing.message.timing import Timing
+
+_log = logging.getLogger(__name__)
 
 Callout = Callable[["BaseMessageStructure"], None]
 
@@ -261,10 +264,18 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- RX side
 
     def validate(self, raw: bytes) -> bool:
-        """Do the size and the special fields (length, checksum ...) of the packet match?"""
-        if len(raw) < self._rx_size(raw):
+        """Do the size and the special fields (length, checksum ...) of the packet match?
+
+        A packet that makes a field hook raise (e.g. too short to read its length field) is invalid;
+        the error is logged and the caller sees False, so one bad packet cannot stop the receiver.
+        """
+        try:
+            if len(raw) < self._rx_size(raw):
+                return False
+            return all(field.on_receive(self, raw) for field in self._special_fields())
+        except Exception:
+            _log.exception("validate of %s failed on a %d byte packet", type(self).__name__, len(raw))
             return False
-        return all(field.on_receive(self, raw) for field in self._special_fields())
 
     def decode(self, raw: bytes, timestamp: Optional[float] = None) -> bool:
         """Writes the packet into the object's ctypes buffer in place, if it is valid.

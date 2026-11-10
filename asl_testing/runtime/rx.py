@@ -6,6 +6,7 @@ Every cycle:
 2. publishes WireReceived for every packet and hands it to the dispatcher
 3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
 A failed poll is published as LinkError, logged as ERROR (with traceback) and polling continues.
+An exception while dispatching one packet is logged as ERROR and the next packet is handled.
 Timeouts are logged as WARNING, recoveries as INFO.
 """
 import logging
@@ -67,7 +68,10 @@ class RxPoller:
                 self.clock.update(frame.timestamp)
                 self.bus.publish(WireReceived(frame.channel, frame.protocol, frame.interface, frame.wire,
                                               frame.timestamp, frame.host_time))
-                self.dispatcher.dispatch(frame)
+                try:
+                    self.dispatcher.dispatch(frame)
+                except Exception:                   # one bad packet must not stop the receiver
+                    self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), address)
         self._check_timeouts()
 
     # ---------------------------------------------------------------- timeouts

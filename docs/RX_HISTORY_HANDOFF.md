@@ -236,7 +236,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 #### Referans: DESIGN.md'de zaten kayıtlı ilgili açıklar
 - Değişken boyda length alanı checksum boyundan küçük gelirse `ChecksumType.on_receive` negatif ofsetle
   `ValueError` fırlatıyor, yakalanmadığı için **RxPoller thread'i ölüyor**. History eklendiğinde bu daha görünür olur;
-  öncelikli düzeltilmeli (DESIGN.md'deki 4 maddelik öneri).
+  öncelikli düzeltilmeli (DESIGN.md'deki 4 maddelik öneri). **Çözüldü (K1, KNOWN_ISSUES.md).**
 - Paket sonundaki fazla baytlar şu an kabul ediliyor (`validate` sadece `len(raw) < size` kontrol ediyor).
 
 ---
