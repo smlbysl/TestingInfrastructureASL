@@ -1,7 +1,7 @@
 """End-to-end example with a fake UTS.
 
 Shows: periodic and one-shot TX, RX dispatch, listeners, unknown / invalid packets,
-channels sharing an interface (envelope), line-level events, RX timeout and recovery,
+channels sharing an interface (header), line-level events, RX timeout and recovery,
 a re-created message replacing the old one, UTS errors and the logs.
 
 Run from the repository root:  python -m examples.example
@@ -19,9 +19,8 @@ SRC, DEST = 0x0001, 0x0002
 
 
 def device_sends(uts: FakeUtsClient, msg) -> None:
-    """Plays the device: the packet, with the channel's envelope, appears in the UTS receive buffer."""
-    ch = msg.channel
-    uts.inject(ch.protocol, ch.interface, ch.framing.envelope.on_send(msg.pack()))
+    """Plays the device: the packet, with the channel's header, appears in the UTS receive buffer."""
+    uts.device_sends(msg)
 
 
 def main() -> None:
@@ -71,9 +70,9 @@ def main() -> None:
 
     bad = bytearray(remote.pack())
     bad[comut.checksum.offset] ^= 0xFF                                   # broken CRC
-    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(bad))
-    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(16))                # matches no message
-    uts.inject(MyChannels.RAW.protocol, 1, b"\x01\x02\x03")               # no header on ETHERNET:1 -> RAW
+    uts.device_sends_bytes(MyChannels.CONTROL, bytes(bad))
+    uts.device_sends_bytes(MyChannels.CONTROL, bytes(16))               # matches no message
+    uts.device_sends_bytes(MyChannels.RAW, b"\x01\x02\x03")              # no header on ethernet:1 -> RAW
     time.sleep(0.05)
 
     print(f"  status.comut[0] = 0x{status.comut[0]:X}, uts time = {status.rx_state.timestamp:.3f}")
@@ -112,7 +111,7 @@ def main() -> None:
               f"values={list(report.values[:report.count])}")
     bad = bytearray(remote_report.pack())
     bad[-1] ^= 0xFF
-    uts.inject(MyChannels.SER2.protocol, 2, bytes(bad))
+    uts.device_sends_bytes(MyChannels.SER2, bytes(bad))
     time.sleep(0.05)
     print(f"  broken CRC -> invalid (not unknown): errors={report.rx_state.errors}")
 
@@ -145,13 +144,13 @@ def main() -> None:
     time.sleep(0.1)
     comm.stop(motor)
     offset = motor_cmd.cmd.offset
-    bits = [data[offset] & 1 for _, _, data in uts.sent[first:]]
+    bits = [body["message"][offset] & 1 for _, _, body in uts.sent[first:]]
     print(f"  startReq in sent packets: {bits}, now: {motor.cmd.startReq}, mode kept: {motor.cmd.mode}")
 
     # --- UTS control: configuration and filters (direct calls) ------------------
     print("\nUTS control")
     comm.control.set_config(status, baudRate=115200)                      # message or channel
-    comm.control.add_filter(status)                                      # CONTROL, no envelope
+    comm.control.add_filter(status)                                      # CONTROL, no header
     comm.control.add_filter(diag)                                        # DIAG, after the 8-byte header
     comm.control.add_filter(diag)                                        # second time: no change
     print(f"  config CONTROL: {comm.control.get_config(MyChannels.CONTROL)}")
@@ -166,12 +165,12 @@ def main() -> None:
     def unreachable(*args):
         raise ConnectionError("UTS unreachable")
 
-    uts.transfer = unreachable
+    uts.post = unreachable
     print(f"\nUTS error: send returned {comm.send(sw_req2)}")
     motor.cmd.startReq = 1
     comm.send(motor)
     print(f"  startReq after a failed send (kept for the next send): {motor.cmd.startReq}")
-    del uts.transfer
+    del uts.post
 
     comm.close()
     print(f"\nline level: {len(wire_tx)} WireSent, {len(wire_rx)} WireReceived")

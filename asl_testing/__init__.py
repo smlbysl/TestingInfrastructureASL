@@ -9,11 +9,12 @@ The sub-packages are the library's internals (layers, each importing only the on
     services/    event subscribers (message history, error log, monitor)
     runtime/     transport, RX poller, dispatcher, TX scheduler
     events/      event types and the event bus
-    uts/         UTS client (HTTP, fake) and UTS control
-    channel/     channel definition and framing
-    message/     message model (base class, fields, signature, registry, timing, state)
+    uts/         UTS client (HTTP, fake), gateway adapters (PDU <-> UTS JSON), UTS control
+    channel/     channel = interface + protocol + its message registry
+    protocol/    PDU model (PCI + SDU) and the bus types (Ethernet, serial ...)
+    message/     message model (base class, fields, signature, timing, state)
 """
-__version__ = "2.1.dev3"
+__version__ = "2.1.dev4"
 
 # comm first: it pulls in the layers below, the rest only re-exports names
 from asl_testing.comm import Comm
@@ -24,9 +25,11 @@ from asl_testing.message.fields import (AsciiType, ChecksumType, CounterType, Fi
 from asl_testing.message.signature import Signature
 from asl_testing.message.timing import Direction, Timing
 
-# channels and framing
-from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, ProtocolType, Rs422Channel
-from asl_testing.channel.framing import Envelope, Framing, Splitter
+# protocols and channels
+from asl_testing.protocol.pdu import NO_PCI, NoPci, Pci, Pdu
+from asl_testing.protocol.base import Protocol
+from asl_testing.protocol.stream import ByteStream, Ethernet, Header, Serial, Splitter
+from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, Rs422Channel
 
 # events
 from asl_testing.events.bus import EventBus, Subscriber
@@ -34,7 +37,8 @@ from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, 
                                       RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
 
 # UTS
-from asl_testing.uts.client import UtsClient, UtsError, UtsFrame
+from asl_testing.uts.client import UtsClient, UtsError
+from asl_testing.uts.adapters import ByteListAdapter, UtsAdapter, UtsFormatError, register_adapter
 from asl_testing.uts.control import UtsControl
 from asl_testing.uts.fake import FakeUtsClient
 from asl_testing.uts.http import HttpUtsClient
@@ -47,10 +51,11 @@ from asl_testing.services.monitor import MonitorService
 __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
     "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType",
-    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "ProtocolType",
-    "Framing", "Envelope", "Splitter",
+    "Pci", "NoPci", "NO_PCI", "Pdu", "Protocol", "ByteStream", "Ethernet", "Serial", "Header", "Splitter",
+    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
-    "UtsClient", "UtsError", "UtsFrame", "UtsControl", "FakeUtsClient", "HttpUtsClient",
+    "UtsClient", "UtsError", "UtsFormatError", "UtsAdapter", "ByteListAdapter", "register_adapter",
+    "UtsControl", "FakeUtsClient", "HttpUtsClient",
     "ErrorLog", "CommLogger", "MonitorService",
 ]

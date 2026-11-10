@@ -8,33 +8,32 @@ from typing import Callable, ClassVar, Optional
 from asl_testing.channel.channel import Channel
 from asl_testing.message.timing import Direction
 from asl_testing.message.fields import ChecksumType, FieldType, LengthType
-from asl_testing.message.registry import Registry
 from asl_testing.message.signature import Signature
 from asl_testing.message.state import RxState, TxState
 from asl_testing.message.timing import Timing
+from asl_testing.protocol.pdu import Pci
 
 Callout = Callable[["BaseMessageStructure"], None]
 log = logging.getLogger(__name__)
 
 
-def _explicit_none(cls) -> bool:
-    """True when the class writes `_signature = None` itself: its RX messages are identified by the channel."""
-    return "_signature" in cls.__dict__ and cls.__dict__["_signature"] is None
-
-
 class BaseMessageStructure(Structure):
-    """Base of all messages.
+    """Base of all messages: the SDU (payload) of a PDU.
 
     Hierarchy:  BaseMessageStructure -> Project -> Family -> message class -> object
     - Project: a class that derives DIRECTLY from BaseMessageStructure. Endianness (ctypes base),
-      header fields, default channel/direction/timing. Holds the list of its families (_families).
-    - Family: a class that defines its own _signature. Opens its own Registry.
-      The project also opens a registry (for messages that belong to no family).
+      header fields, default channel/direction/timing. Remembers the channels its messages use.
+    - Family: a class that defines its own _signature (fields inside the SDU that tell messages
+      apart under the same PCI).
     - Message class: payload via _fields_.
-    - Object: channel, direction and timing per object (class defaults otherwise).
+    - Object: channel, PCI (the protocol's address fields), direction and timing per object.
+
+    The PCI comes from the channel's protocol: its fields are mandatory keywords when an object is
+    created (1553: node=, subnet=; CAN: can_id=), or class defaults in _address. Plain Ethernet /
+    RS422 need none. The object registers on its channel; see ChannelRegistry for identification.
 
     Naming: _x_ belongs to ctypes only (_fields_, _pack_); class settings are _x;
-    public information is exposed as properties (channel, direction, signature_id, rx_state, tx_state).
+    public information is exposed as properties (channel, pci, direction, signature_id, rx_state, tx_state).
     """
     _pack_ = 1
 
@@ -48,8 +47,10 @@ class BaseMessageStructure(Structure):
 
     # Project / family
     _signature: ClassVar[Optional[Signature]] = None
-    _families: ClassVar[list[Registry]]          # defined on the project
-    _registry: ClassVar[Registry]                # defined on the project or the family
+    _channels: ClassVar[list[Channel]]           # defined on the project: channels its objects registered on
+
+    # Default PCI (address on the channel's protocol), completed / overridden by keywords per object
+    _address: ClassVar[dict[str, object]] = {}
 
     # Variable size: the real packet size is in the length field (the ctypes layout is the maximum).
     # On the wire the checksum (last field) follows the used body directly.
@@ -72,12 +73,7 @@ class BaseMessageStructure(Structure):
         cls._all_defaults = merged
 
         if BaseMessageStructure in cls.__bases__:       # project
-            cls._families = []
-            cls._registry = Registry(cls.__dict__.get("_signature"), _explicit_none(cls))
-            cls._families.append(cls._registry)
-        elif "_signature" in cls.__dict__:              # family
-            cls._registry = Registry(cls._signature, _explicit_none(cls))
-            cls._families.append(cls._registry)         # the project's list, via inheritance
+            cls._channels = []
 
     def __init__(self, *args,
                  channel: Optional[Channel] = None,
@@ -85,16 +81,22 @@ class BaseMessageStructure(Structure):
                  rx: Optional[Timing] = None,
                  tx: Optional[Timing] = None,
                  **kw):
-        # Defaults first; values given to the constructor override them
-        self._apply_defaults()
-        # Metadata comes as keywords; ctypes fields go to super()
-        super().__init__(*args, **kw)
-
         # Object information is stored with an underscore: no clash with an ICD field of the same name
         self._channel = channel if channel is not None else type(self)._channel
         if self._channel is None:
             raise AttributeError(f"{type(self).__name__}: no channel "
                                  f"(pass channel= or define _channel on the class)")
+        # PCI: the protocol's address fields come as keywords (or class defaults), not as ctypes fields
+        protocol = self._channel.protocol
+        address = dict(self._address)
+        address.update({name: kw.pop(name) for name in protocol.pci_type.names() if name in kw})
+        self._pci: Pci = protocol.make_pci(**address)
+
+        # Defaults first; values given to the constructor override them
+        self._apply_defaults()
+        # ctypes fields go to super()
+        super().__init__(*args, **kw)
+
         self._direction = direction if direction is not None else type(self)._direction
         self._rx = RxState(rx or self._timing) if Direction.RX in self._direction else None
         self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
@@ -109,13 +111,20 @@ class BaseMessageStructure(Structure):
             self._signature.bind(type(self))            # the layout is ready here
             self._signature_id = self._signature.compute(bytes(self))
 
-        self._registry.add(self)
+        self._channel.registry.add(self)
+        if self._channel not in self._channels:
+            self._channels.append(self._channel)        # the project's list, via inheritance
 
     # ---------------------------------------------------------------- public information
 
     @property
     def channel(self) -> Channel:
         return self._channel
+
+    @property
+    def pci(self) -> Pci:
+        """The address of this object on its channel's protocol (e.g. node / subnet on 1553)."""
+        return self._pci
 
     @property
     def direction(self) -> Direction:
@@ -203,45 +212,15 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- project
 
     @classmethod
-    def families(cls, channel: Optional[Channel] = None) -> list[Registry]:
-        """The project's family registries; with a channel, only those receiving on it."""
-        if channel is None:
-            return list(cls._families)
-        return [reg for reg in cls._families if channel in reg.channels]
-
-    @classmethod
-    def lookup(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        """Finds the message object in this project that a raw packet belongs to.
-
-        Families with a signature are tried first; a family without one (identified by the channel)
-        takes the packet only if no signature matched.
-        """
-        msg = cls.lookup_signature(channel, raw)
-        return msg if msg is not None else cls.lookup_channel(channel)
-
-    @classmethod
-    def lookup_signature(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        for reg in cls.families(channel):
-            if reg.signature is not None:
-                msg = reg.lookup(channel, raw)
-                if msg is not None:
-                    return msg
-        return None
-
-    @classmethod
-    def lookup_channel(cls, channel: Channel) -> Optional[BaseMessageStructure]:
-        for reg in cls.families(channel):
-            if reg.by_channel:
-                msg = reg.dispatch.get((channel, None))
-                if msg is not None:
-                    return msg
-        return None
+    def channels(cls) -> list[Channel]:
+        """Channels on which objects of this project have registered."""
+        return list(cls._channels)
 
     @classmethod
     def clear_registry(cls) -> None:
-        """Clears all records of the project (between tests)."""
-        for reg in cls._families:
-            reg.clear()
+        """Removes this project's objects from every channel (between tests)."""
+        for channel in cls._channels:
+            channel.registry.clear(cls)
 
     # ---------------------------------------------------------------- wire layout
     #

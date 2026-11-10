@@ -1,6 +1,7 @@
 """Comm: the single entry point for test code.
 
-Builds and connects the layers:  UtsClient -> Transport -> RxPoller / Dispatcher / TxScheduler -> EventBus.
+Builds and connects the layers:
+    UtsClient -> adapters -> Transport -> RxPoller / Dispatcher / TxScheduler -> EventBus.
 Test code works with message objects and this class only.
 
     comm = Comm(FakeUtsClient(), [ProjectBase])
@@ -23,6 +24,7 @@ from asl_testing.runtime.dispatcher import Dispatcher
 from asl_testing.runtime.rx import RxPoller
 from asl_testing.runtime.transport import RxFrame, Transport
 from asl_testing.runtime.tx import TxScheduler
+from asl_testing.uts.adapters import UtsAdapter
 from asl_testing.uts.client import UtsClient
 from asl_testing.uts.control import UtsControl
 from asl_testing.events.bus import EventBus, Subscriber
@@ -43,11 +45,14 @@ def _wait(check: Callable[[], int], timeout: float, interval: float) -> int:
 
 class Comm:
     def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
-                 poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
+                 poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None,
+                 adapters: Optional[dict[type, UtsAdapter]] = None, time_unit: float = 1.0):
+        """adapters: gateway adapters per protocol type, replacing the defaults;
+        time_unit: seconds per UTS timestamp unit for the default adapters."""
         self.log = logger or logging.getLogger(__name__)
         self.bus = EventBus(log=logger)
-        self.transport = Transport(uts)
-        self.dispatcher = Dispatcher(self.bus, projects, log=logger)
+        self.transport = Transport(uts, adapters, time_unit)
+        self.dispatcher = Dispatcher(self.bus, log=logger)
         self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
         self.tx = TxScheduler(self.transport, self.bus, log=logger)
         self.control = UtsControl(uts, log=logger)          # UTS configuration and filters (direct calls)

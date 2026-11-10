@@ -1,27 +1,27 @@
 """Project-specific framing.
 
-EthHeader is an example envelope: an 8-byte header in front of every message on a channel,
-computed from the length and not part of the message's length field or checksum.
-Layout of the example: 55 AA | total length (uint16, little endian) | 4 reserved bytes.
+EthHeader is an example header (in-band PCI of a byte stream): 8 bytes in front of every message on
+a channel, computed from the length and not part of the message's length field or checksum.
+It carries no address, so its PCI is NoPci. Layout: 55 AA | total length (uint16, little endian) | 4 reserved.
 Replace it with the real header of the project.
 """
 import struct
 from typing import Optional
 
-from asl_testing import Envelope
+from asl_testing import NO_PCI, Header, Pci
 
 
-class EthHeader(Envelope):
+class EthHeader(Header):
     MAGIC = b"\x55\xAA"
     SIZE = 8
     offset = SIZE                                       # the message starts after the header
 
-    def on_send(self, data: bytes) -> bytes:
-        return self.MAGIC + struct.pack("<H", self.SIZE + len(data)) + bytes(4) + data
+    def encode(self, pci: Pci, sdu: bytes) -> bytes:
+        return self.MAGIC + struct.pack("<H", self.SIZE + len(sdu)) + bytes(4) + sdu
 
-    def on_receive(self, wire: bytes) -> Optional[bytes]:
-        if len(wire) < self.SIZE or wire[:2] != self.MAGIC:
+    def decode(self, data: bytes) -> Optional[tuple[Pci, bytes]]:
+        if len(data) < self.SIZE or data[:2] != self.MAGIC:
             return None                                 # not a packet of this channel
-        if struct.unpack_from("<H", wire, 2)[0] != len(wire):
+        if struct.unpack_from("<H", data, 2)[0] != len(data):
             return None
-        return wire[self.SIZE:]
+        return NO_PCI, data[self.SIZE:]

@@ -2,10 +2,11 @@
 
 Every cycle:
 1. polls each RX address once: the addresses of channels with registered RX messages
-   and of channels added with listen(); channels sharing an address are told apart by their envelope
+   and of channels added with listen(); channels sharing an address are told apart by their protocol
 2. publishes WireReceived for every packet and hands it to the dispatcher
 3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
-A failed poll is published as LinkError, logged as ERROR (with traceback) and polling continues.
+A failed poll (or a malformed UTS item) is published as LinkError, logged as ERROR (with traceback)
+and polling continues.
 Timeouts are logged as WARNING, recoveries as INFO.
 """
 import logging
@@ -33,7 +34,7 @@ class RxPoller:
         self.log = log or logging.getLogger(__name__)
         self.interval = interval                    # seconds between two poll cycles
         self.clock = UtsClock()
-        self._extra = set(channels)                 # channels polled even without RX messages
+        self._extra = list(channels)                # channels polled even without RX messages
         self._late: set[int] = set()                # id() of timed-out messages (ctypes objects are not hashable)
         self._started: Optional[float] = None
         self._stop = threading.Event()
@@ -41,14 +42,16 @@ class RxPoller:
 
     def listen(self, channel: Channel) -> None:
         """Also polls a channel that has no registered RX message (to see unknown packets)."""
-        self._extra.add(channel)
+        if channel not in self._extra:
+            self._extra.append(channel)
         self.log.info("listening on %s", channel)
 
-    def channels(self) -> set[Channel]:
-        found = set(self._extra)
+    def channels(self) -> list[Channel]:
+        found = list(self._extra)
         for project in self.projects:
-            for reg in project.families():
-                found |= reg.channels
+            for channel in project.channels():
+                if channel.registry.has_rx and channel not in found:
+                    found.append(channel)
         return found
 
     def addresses(self) -> dict[Address, list[Channel]]:
@@ -64,6 +67,11 @@ class RxPoller:
                 self.bus.publish(LinkError(channels[0], "poll", error, time.time()))
                 continue
             for frame in frames:
+                if frame.error is not None:             # malformed UTS item: a gateway problem
+                    self.log.error("UTS item on %s:%s not understood: %s", frame.protocol, frame.interface,
+                                   frame.error)
+                    self.bus.publish(LinkError(channels[0], "poll", frame.error, frame.host_time))
+                    continue
                 self.clock.update(frame.timestamp)
                 self.bus.publish(WireReceived(frame.channel, frame.protocol, frame.interface, frame.wire,
                                               frame.timestamp, frame.host_time))
@@ -76,10 +84,9 @@ class RxPoller:
     # ---------------------------------------------------------------- timeouts
 
     def _check_timeouts(self) -> None:
-        for project in self.projects:
-            for reg in project.families():
-                for msg in list(reg.periodic_rx):
-                    self._check(msg)
+        for channel in self.channels():
+            for msg in list(channel.registry.periodic_rx):
+                self._check(msg)
 
     def _check(self, msg: BaseMessageStructure) -> None:
         rx = msg._rx

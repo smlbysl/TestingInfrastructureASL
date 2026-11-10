@@ -1,7 +1,7 @@
 """Event types published on the event bus.
 
 Events are small, immutable records. Events about a message carry copies:
-- raw:   the packet as it was on the wire (logged as is)
+- raw:   the message bytes (SDU); the line form is in WireReceived / WireSent
 - image: the ctypes layout of the message right after decode / pack
 The RX poller may overwrite the message object while a subscriber is still working,
 so subscribers read consistent values with event.snapshot().
@@ -13,13 +13,13 @@ from typing import Optional
 
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.channel.channel import Channel
-from asl_testing.channel.channel import ProtocolType
+from asl_testing.protocol.pdu import Pci
 
 
 @dataclass(frozen=True)
 class MessageEvent:
     message: BaseMessageStructure
-    raw: bytes                          # the packet on the wire
+    raw: bytes                          # the message bytes (SDU, without the protocol header)
     host_time: float                    # wall clock of this host (time.time)
     image: bytes = b""                  # ctypes layout of the message (empty for an invalid packet)
 
@@ -53,11 +53,12 @@ class InvalidReceived(MessageEvent):
 
 @dataclass(frozen=True)
 class UnknownReceived:
-    """The packet matched no registered message (channel is None if no envelope accepted it)."""
+    """The packet matched no registered message (channel is None if no channel's protocol accepted it)."""
     channel: Optional[Channel]
     raw: bytes
     host_time: float
     timestamp: Optional[float] = None
+    pci: Optional[Pci] = None           # its address on the protocol, if a channel accepted it
 
 
 @dataclass(frozen=True)
@@ -85,15 +86,15 @@ class LinkError:
 
 
 # ---------------------------------------------------------------- line level
-# Every packet as it is on the line (envelope included). A received packet gives WireReceived
+# Every packet as it is on the line (protocol header included). A received packet gives WireReceived
 # first, then one of MessageReceived / InvalidReceived / UnknownReceived; a sent message gives
 # WireSent, then MessageSent.
 
 @dataclass(frozen=True)
 class WireReceived:
     """A packet as it came from the line, before it is matched to a message."""
-    channel: Optional[Channel]          # None: no envelope on the address accepted it
-    protocol: ProtocolType
+    channel: Optional[Channel]          # None: no channel's protocol on the address accepted it
+    protocol: str                       # UTS path ("ethernet", "serials", "1553", "can")
     interface: int
     wire: bytes
     timestamp: Optional[float]          # UTS arrival time in seconds

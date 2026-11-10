@@ -1,65 +1,61 @@
-"""Channel: the logical channel a message travels on.
+"""Channel: one line a message travels on = an interface + a protocol object + its registry.
 
-A channel is an interface number of a protocol plus its framing. Several channels may share one
-address (protocol + interface), e.g. one with an Ethernet header and one without; on RX the
-envelope tells them apart. Equality is identity: every channel is defined once, in the project.
+The protocol knows the bus (PCI, header, splitter); the channel adds the interface number and the
+messages registered on it. Several channels may share one address (UTS path + interface), e.g. one
+with an Ethernet header and one without; on RX the protocol (its header) tells them apart.
+Equality is identity: every channel is defined once, in the project.
 
     class MyChannels(ChannelSet):
         CONTROL = Rs422Channel(0)
-        DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
+        DIAG    = EthernetChannel(1, header=EthHeader())
         RAW     = EthernetChannel(1)
 
-The channel is given to messages as a class default (_channel); physical settings
-(IP, port, baud rate ...) are not part of it.
+Messages get the channel as a class default (_channel). Physical settings (IP, port, baud rate ...)
+are not part of it.
 """
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import ClassVar, Iterable, Iterator
+from typing import Iterable, Iterator, Optional
 
-from asl_testing.channel.framing import Envelope, Framing, Splitter
+from asl_testing.channel.registry import ChannelRegistry
+from asl_testing.protocol.base import Protocol
+from asl_testing.protocol.stream import Ethernet, Header, Serial, Splitter
 
-
-class ProtocolType(Enum):
-    ETHERNET = "ethernet"
-    RS422 = "rs422"
-    CAN = "can"
+Address = tuple[str, int]                   # (UTS path, interface)
 
 
-Address = tuple[ProtocolType, int]
-
-
-@dataclass(eq=False)
 class Channel:
-    interface: int
-    framing: Framing = field(default_factory=Framing)
-    name: str = ""                              # set by ChannelSet
-
-    protocol: ClassVar[ProtocolType]
+    def __init__(self, interface: int, protocol: Protocol, name: str = ""):
+        self.interface = interface
+        self.protocol = protocol
+        self.name = name                    # set by ChannelSet
+        self.registry = ChannelRegistry(self)
 
     @property
     def address(self) -> Address:
-        return (self.protocol, self.interface)
+        return (self.protocol.path, self.interface)
 
     @property
-    def has_envelope(self) -> bool:
-        return type(self.framing.envelope) is not Envelope
+    def has_header(self) -> bool:
+        return getattr(self.protocol, "has_header", False)
 
     @property
-    def has_splitter(self) -> bool:
-        return type(self.framing.splitter) is not Splitter
+    def splitter(self) -> Optional[Splitter]:
+        return getattr(self.protocol, "splitter", None)
 
     def __str__(self) -> str:
-        return self.name or f"{self.protocol.name}:{self.interface}"
+        return self.name or f"{self.protocol.path}:{self.interface}"
+
+    def __repr__(self) -> str:
+        return f"<{type(self).__name__} {self}>"
 
 
-@dataclass(eq=False)
 class EthernetChannel(Channel):
-    protocol = ProtocolType.ETHERNET
+    def __init__(self, interface: int, header: Optional[Header] = None, splitter: Optional[Splitter] = None):
+        super().__init__(interface, Ethernet(header, splitter))
 
 
-@dataclass(eq=False)
 class Rs422Channel(Channel):
-    protocol = ProtocolType.RS422
+    def __init__(self, interface: int, header: Optional[Header] = None, splitter: Optional[Splitter] = None):
+        super().__init__(interface, Serial(header, splitter))
 
 
 class ChannelSet:
@@ -81,25 +77,32 @@ class ChannelSet:
 
 
 def check_channels(channels: Iterable[Channel]) -> None:
-    """On one address: at most one splitter and at most one channel without an envelope."""
-    plain: dict[Address, Channel] = {}
+    """On one address: one protocol type, at most one splitter and at most one channel whose protocol
+    accepts every packet (no header), since their packets could not be told apart."""
+    first: dict[Address, Channel] = {}
+    takes_all: dict[Address, Channel] = {}
     split: dict[Address, Channel] = {}
     for ch in channels:
-        if not ch.has_envelope:
-            if ch.address in plain:
-                raise ValueError(f"{plain[ch.address]} and {ch} share {ch.protocol.name}:{ch.interface} "
-                                 f"without an envelope; their packets could not be told apart")
-            plain[ch.address] = ch
-        if ch.has_splitter:
+        other = first.setdefault(ch.address, ch)
+        if type(other.protocol) is not type(ch.protocol):
+            raise ValueError(f"{other} and {ch} share {ch.protocol.path}:{ch.interface} "
+                             f"with different protocols ({other.protocol!r}, {ch.protocol!r})")
+        if ch.protocol.accepts_all:
+            if ch.address in takes_all:
+                raise ValueError(f"{takes_all[ch.address]} and {ch} share {ch.protocol.path}:{ch.interface} "
+                                 f"without a header; their packets could not be told apart")
+            takes_all[ch.address] = ch
+        if ch.splitter is not None:
             if ch.address in split:
                 raise ValueError(f"{split[ch.address]} and {ch} both define a splitter for "
-                                 f"{ch.protocol.name}:{ch.interface}; an address has one splitter")
+                                 f"{ch.protocol.path}:{ch.interface}; an address has one splitter")
             split[ch.address] = ch
 
 
 def by_address(channels: Iterable[Channel]) -> dict[Address, list[Channel]]:
-    """Groups channels by address, in the order they are tried on RX: with an envelope first, plain last."""
+    """Groups channels by address, in the order they are tried on RX: with a header first, the one
+    that accepts every packet last."""
     groups: dict[Address, list[Channel]] = {}
     for ch in channels:
         groups.setdefault(ch.address, []).append(ch)
-    return {address: sorted(chans, key=lambda ch: not ch.has_envelope) for address, chans in groups.items()}
+    return {address: sorted(chans, key=lambda ch: ch.protocol.accepts_all) for address, chans in groups.items()}

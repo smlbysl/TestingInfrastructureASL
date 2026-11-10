@@ -27,8 +27,7 @@ device_answer = comut(DEST, SRC, 0x20, direction=Direction.TX)   # the device's 
 
 def device(event: MessageSent) -> None:
     device_answer.comut[0] = event.snapshot().request[0] + 1
-    ch = device_answer.channel
-    uts.inject(ch.protocol, ch.interface, device_answer.pack())   # appears in the UTS receive buffer
+    uts.device_sends(device_answer)                               # appears in the UTS receive buffer
 
 
 comm.subscribe(MessageSent, device, where=req)
@@ -52,6 +51,6 @@ with comm:                                        # open(): RX poller + TX sched
     comm.send(req)
     time.sleep(0.1)                               # give the poller time to fetch the answer
 
-print(f"\nsent to UTS     : {len(uts.sent)} packet(s), first on {uts.sent[0][0].name}:{uts.sent[0][1]}")
+print(f"\nsent to UTS     : {len(uts.sent)} packet(s), first on {uts.sent[0][0]}:{uts.sent[0][1]}")
 print(f"status.comut[0] : {status.comut[0]}")
 print(f"status rx_state : count={status.rx_state.count}, uts time={status.rx_state.timestamp:.3f}")

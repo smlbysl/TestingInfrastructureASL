@@ -3,7 +3,7 @@
 ProjectBase (project)  : endianness, header, default channel/direction/timing
  ├ Family1 (family)    : signature = destinationId + messageId
  ├ Family2 (family)    : signature = destinationId + sourceId
- └ Serial2 (family)    : no signature -> identified by its channel (one RX message per channel)
+ └ Serial2 (family)    : no signature -> its RX message takes every packet of the channel (alone there)
 
 The checksum is not part of the header: every message adds it as its last field.
 """
@@ -46,9 +46,7 @@ class Family2(ProjectBase):
 
 
 class Serial2(ProjectBase):
-    """A device on SER2 whose packets carry no identifying field: the channel identifies the RX message.
-
-    _signature = None opens a family of its own without a signature (key: channel, None).
-    """
+    """A device on SER2 whose packets carry no identifying field: its RX message has no signature,
+    so it takes every packet of the channel and must be the only RX message there."""
     _signature = None
     _channel = MyChannels.SER2

@@ -1,6 +1,6 @@
 """TxScheduler: one-shot sends and one thread for all periodic messages.
 
-- send(msg): counter, checksum, bytes, envelope and the UTS request happen under one lock, so the
+- send(msg): counter, checksum, bytes, PCI / header and the UTS request happen under one lock, so the
   scheduler and the test sending the same message at the same time cannot mix up the counter.
   Publishes WireSent (bytes on the line) and MessageSent. After a successful send the after_send
   hooks of the special fields run (still under the lock); the events carry the values that were sent.
@@ -40,7 +40,7 @@ class TxScheduler:
             raw = msg.pack()
             image = bytes(msg)
             try:
-                wire = self.transport.send(msg._channel, raw)
+                wire = self.transport.send(msg._channel, msg._pci, raw)
             except Exception as error:
                 self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))

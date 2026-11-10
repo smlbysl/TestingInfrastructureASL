@@ -21,7 +21,7 @@ class CommTests(CommTestCase):
         bad = bytearray(wire)
         bad[-1] ^= 0xFF
         ch = comut(DEST, SRC, 0x20).channel
-        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.uts.device_sends_bytes(ch, bytes(bad))
         deadline = time.monotonic() + 0.5
         while not invalid and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -36,12 +36,27 @@ class CommTests(CommTestCase):
         tx.count = 2
         bad = bytearray(tx.pack())
         struct.pack_into("<H", bad, ser_report.messageLength.offset, 1)
-        ch = report.channel
         report.has_new()
-        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.uts.device_sends_bytes(report.channel, bytes(bad))
         self.device_sends(tx)
         self.assertEqual(self.comm.wait_new(report, timeout=0.5), 1)
         self.assertEqual(report.rx_state.errors, 1)
+
+    def test_malformed_uts_item_is_a_link_error_and_others_still_arrive(self):
+        from asl_testing import LinkError
+        errors = []
+        self.comm.subscribe(LinkError, errors.append)
+        status = comut(DEST, SRC, 0x20)
+        ch = status.channel
+        status.has_new()
+        self.uts.inject(ch.protocol.path, ch.interface, {"message": [1, 999, 3]})   # 999 is not a byte
+        self.device_sends(comut(DEST, SRC, 0x20, direction=Direction.TX))
+        self.assertEqual(self.comm.wait_new(status, timeout=0.5), 1)
+        deadline = time.monotonic() + 0.5
+        while not errors and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].operation, "poll")
 
     def test_missing_periodic_message_times_out(self):
         status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=2))
