@@ -16,12 +16,25 @@ The sub-packages are the library's internals (layers, each importing only the on
 """
 __version__ = "2.1.dev4"
 
+import sys as _sys
+
+
+def _check_gil() -> None:
+    """Consistent reads rely on the GIL (one-copy decode / snapshot); refuse a free-threaded build."""
+    if hasattr(_sys, "_is_gil_enabled") and not _sys._is_gil_enabled():
+        raise RuntimeError("asl_testing relies on the GIL for consistent message reads; "
+                           "run it on a standard (GIL-enabled) CPython build")
+
+
+_check_gil()
+
 # comm first: it pulls in the layers below, the rest only re-exports names
 from asl_testing.comm import Comm
 
 # message model
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.message.fields import (AsciiType, ChecksumType, CounterType, FieldType, LengthType)
+from asl_testing.message.history import MessageHistory, Record
 from asl_testing.message.signature import Signature
 from asl_testing.message.timing import Direction, Timing
 
@@ -50,7 +63,7 @@ from asl_testing.services.monitor import MonitorService
 
 __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
-    "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType",
+    "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType", "MessageHistory", "Record",
     "Pci", "NoPci", "NO_PCI", "Pdu", "Protocol", "ByteStream", "Ethernet", "Serial", "Header", "Splitter",
     "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",

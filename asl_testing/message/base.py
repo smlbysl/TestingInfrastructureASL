@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import time
 from ctypes import Structure
 from typing import Callable, ClassVar, Optional
 
 from asl_testing.channel.channel import Channel
 from asl_testing.message.timing import Direction
 from asl_testing.message.fields import ChecksumType, FieldType, LengthType
+from asl_testing.message.history import MessageHistory, Record, next_seq
 from asl_testing.message.signature import Signature
 from asl_testing.message.state import RxState, TxState
 from asl_testing.message.timing import Timing
@@ -60,6 +62,7 @@ class BaseMessageStructure(Structure):
     _channel: ClassVar[Optional[Channel]] = None
     _direction: ClassVar[Direction] = Direction.RX
     _timing: ClassVar[Timing] = Timing()
+    _history: ClassVar[int] = 64                 # records kept per direction (rx_history / tx_history)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -80,6 +83,7 @@ class BaseMessageStructure(Structure):
                  direction: Optional[Direction] = None,
                  rx: Optional[Timing] = None,
                  tx: Optional[Timing] = None,
+                 history: Optional[int] = None,
                  **kw):
         # Object information is stored with an underscore: no clash with an ICD field of the same name
         self._channel = channel if channel is not None else type(self)._channel
@@ -98,10 +102,14 @@ class BaseMessageStructure(Structure):
         super().__init__(*args, **kw)
 
         self._direction = direction if direction is not None else type(self)._direction
-        self._rx = RxState(rx or self._timing) if Direction.RX in self._direction else None
-        self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
+        capacity = history if history is not None else self._history
+        self._rx = (RxState(rx or self._timing, history=MessageHistory(capacity))
+                    if Direction.RX in self._direction else None)
+        self._tx = (TxState(tx or self._timing, history=MessageHistory(capacity))
+                    if Direction.TX in self._direction else None)
         self._on_receive: list[Callout] = []
         self._on_send: list[Callout] = []
+        self._last_rx_image = b""                      # image of the last valid packet (events use it)
 
         for field in self._special_fields():
             field.on_init(self)
@@ -158,6 +166,24 @@ class BaseMessageStructure(Structure):
     def rx_age(self) -> Optional[float]:
         """Seconds since the last valid packet, on this host's clock; None if nothing has arrived."""
         return self._rx.age() if self._rx is not None else None
+
+    @property
+    def rx_history(self) -> Optional[MessageHistory]:
+        """Every valid packet received (last `_history` of them), with its time. None without RX."""
+        return self._rx.history if self._rx is not None else None
+
+    @property
+    def tx_history(self) -> Optional[MessageHistory]:
+        """Every packet sent successfully (last `_history` of them). None without TX."""
+        return self._tx.history if self._tx is not None else None
+
+    def snapshot(self):
+        """A consistent copy of the current values (taken with one copy), not registered.
+
+        Use it to read several fields of the same packet: s = status.snapshot(); s.speed, s.mode.
+        It has no object information (channel, PCI, states): read field values only.
+        """
+        return type(self).from_buffer_copy(bytes(self))
 
     def has_new(self) -> int:
         """Number of valid packets received since the last call (0: none); the call clears it.
@@ -269,9 +295,12 @@ class BaseMessageStructure(Structure):
             if self._rx is not None:
                 self._rx.on_error()
             return False
-        memoryview(self).cast("B")[:] = self._image(raw)
+        image = self._image(raw)
+        memoryview(self).cast("B")[:] = image
+        self._last_rx_image = image                     # the packet itself, before any callout
         if self._rx is not None:
             self._rx.on_receive(timestamp)
+            self._rx.history.push(Record(next_seq(), timestamp, self._rx.host_time, image, type(self)))
         for callout in self._on_receive:
             callout(self)
         return True
@@ -279,18 +308,30 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- TX side
 
     def pack(self) -> bytes:
-        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes."""
+        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes.
+
+        The special fields are computed on one copy of the values, and the bytes come from that copy,
+        so a field written by another thread meanwhile cannot end up next to an old checksum.
+        The new length / counter / checksum values are written back to the object.
+        """
+        return self._pack()[0]
+
+    def _pack(self) -> tuple[bytes, bytes]:
+        """(wire bytes, image): both from the same copy (MessageSent carries the image)."""
         for callout in self._on_send:
             callout(self)
-        for field in self._special_fields():
-            field.on_send(self)
-        data = bytes(self)
-        return data[:self.body_size()] + data[self._trailer_offset():]
+        copy = self.snapshot()
+        for field in copy._special_fields():
+            field.on_send(copy)
+        image = bytes(copy)
+        self._write_special_fields(image)
+        return image[:copy.body_size()] + image[copy._trailer_offset():], image
 
-    def _sent(self) -> None:
-        """Called by the TX layer after a successful send: counts it and runs the after_send hooks."""
+    def _sent(self, image: bytes) -> None:
+        """Called by the TX layer after a successful send: counts it, records it, runs the after_send hooks."""
         if self._tx is not None:
             self._tx.on_send()
+            self._tx.history.push(Record(next_seq(), None, time.time(), image, type(self)))
         for field in self._special_fields():
             field.after_send(self)
 
@@ -307,6 +348,14 @@ class BaseMessageStructure(Structure):
     def _special_fields(self) -> list[FieldType]:
         """Views of the special fields on this object, in _order (they share the buffer)."""
         return [getattr(self, name) for _, name in self._special]
+
+    def _write_special_fields(self, image: bytes) -> None:
+        """Copies the bytes of the special fields from image into this object (other fields untouched)."""
+        view = memoryview(self).cast("B")
+        for _, name in self._special:
+            descriptor = getattr(type(self), name)
+            start, end = descriptor.offset, descriptor.offset + descriptor.size
+            view[start:end] = image[start:end]
 
     def _find_field(self, kind: type) -> Optional[FieldType]:
         for field in self._special_fields():

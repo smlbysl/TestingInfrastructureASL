@@ -1,12 +1,15 @@
 """Direction-specific state attached to a message object.
 
 A message with RX has rx_state, a message with TX has tx_state; a bidirectional message has both.
-The setting (Timing) is fixed; only changing values are kept here.
+The setting (Timing) is fixed; only changing values are kept here, plus the packet history.
+The counters and times are updated one after the other: read them as approximate values; the value
+and time of one packet belong together only in a history record.
 """
 import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+from asl_testing.message.history import MessageHistory
 from asl_testing.message.timing import Timing
 
 
@@ -19,6 +22,7 @@ class RxState:
     count: int = 0                       # number of valid packets
     errors: int = 0                      # number of packets that failed validation
     created: float = field(default_factory=time.monotonic)   # host time the object was created
+    history: MessageHistory = field(default_factory=MessageHistory)   # valid packets, oldest first
     _seen: int = 0                       # count at the last check_new() call
 
     def on_receive(self, timestamp: Optional[float] = None) -> None:
@@ -63,6 +67,7 @@ class TxState:
     timing: Timing
     last_time: Optional[float] = None    # host time of the last successful send (time.monotonic)
     count: int = 0                       # number of successful sends (UTS transfer returned)
+    history: MessageHistory = field(default_factory=MessageHistory)   # sent packets, oldest first
     _seen: int = 0                       # count at the last check_sent() call
 
     def on_send(self) -> None:

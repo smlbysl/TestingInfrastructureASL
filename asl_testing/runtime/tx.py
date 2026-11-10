@@ -2,8 +2,9 @@
 
 - send(msg): counter, checksum, bytes, PCI / header and the UTS request happen under one lock, so the
   scheduler and the test sending the same message at the same time cannot mix up the counter.
-  Publishes WireSent (bytes on the line) and MessageSent. After a successful send the after_send
-  hooks of the special fields run (still under the lock); the events carry the values that were sent.
+  Publishes WireSent (bytes on the line) and MessageSent. After a successful send the packet is
+  recorded in tx_history and the after_send hooks of the special fields run (still under the lock);
+  the events and the record carry the values that were sent.
 - start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
   the period (not now + period), so the delay does not accumulate.
 - A message that is no longer registered (replaced by a new object) is dropped from the table.
@@ -37,15 +38,14 @@ class TxScheduler:
     def send(self, msg: BaseMessageStructure) -> bool:
         """Sends a message once. Returns False if the UTS request failed (LinkError is published)."""
         with self._send_lock:
-            raw = msg.pack()
-            image = bytes(msg)
+            raw, image = msg._pack()                    # bytes and image from one copy of the values
             try:
                 wire = self.transport.send(msg._channel, msg._pci, raw)
             except Exception as error:
                 self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return False
-            msg._sent()
+            msg._sent(image)
         self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))

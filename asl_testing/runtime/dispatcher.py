@@ -3,7 +3,7 @@
 frame -> channel registry (PCI, then signature) -> msg.decode(sdu, timestamp) -> event
 - no channel accepted it, or no message on the channel matches -> UnknownReceived, frame kept in `unknown`
 - matches but fails validate  -> InvalidReceived
-- matches and valid           -> MessageReceived
+- matches and valid           -> MessageReceived (its image is the packet itself, also in rx_history)
 Logs: unknown and invalid packets as WARNING, every valid packet as DEBUG.
 """
 import logging
@@ -36,5 +36,6 @@ class Dispatcher:
             self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, b"", frame.timestamp))
             return None
         self.log.debug("RX %s on %s (%d bytes)", type(msg).__name__, frame.channel, len(frame.data))
-        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, bytes(msg), frame.timestamp))
+        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, msg._last_rx_image,
+                                         frame.timestamp))
         return msg

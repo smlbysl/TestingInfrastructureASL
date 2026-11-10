@@ -9,6 +9,7 @@ Test code works with message objects and this class only.
     comm.send(req)                  # one-shot
     comm.start(cmd)                 # periodic, until comm.stop(cmd)
     comm.on_receive(status, handler)
+    rec = comm.wait_for(status, lambda s: s.speed == 10, after=mark)   # history: every packet counts
     comm.control.add_filter(status)   # UTS management: config, filters
     comm.close()
 
@@ -30,6 +31,7 @@ from asl_testing.uts.control import UtsControl
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import MessageReceived
 from asl_testing.message.base import BaseMessageStructure
+from asl_testing.message.history import Record
 from asl_testing.channel.channel import Channel
 
 
@@ -114,6 +116,21 @@ class Comm:
         message this waits for its next frame; a failed UTS send is not counted.
         """
         return _wait(msg.has_sent, timeout, interval)
+
+    def wait_for(self, msg: BaseMessageStructure, predicate: Callable[[BaseMessageStructure], bool],
+                 timeout: float = 1.0, after: Optional[int] = None) -> Optional[Record]:
+        """Waits for a received packet of msg whose values satisfy predicate.
+
+        predicate gets a snapshot of each packet:  lambda s: s.speed == 10
+        after: a position from msg.rx_history.mark(); by default only packets from now on count.
+        Every packet counts, also one in the middle of a poll that the object itself never showed.
+        Returns the history Record (record.snapshot() gives the values) or None on timeout.
+        """
+        history = msg.rx_history
+        if history is None:
+            raise ValueError(f"{type(msg).__name__} has no RX direction")
+        start = history.mark() if after is None else after
+        return history.wait_for(predicate, start, timeout)
 
     def listen(self, channel: Channel) -> None:
         """Polls a channel even if no RX message is registered on it."""
