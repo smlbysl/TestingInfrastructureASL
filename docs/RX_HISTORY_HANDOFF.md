@@ -114,7 +114,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 
 ### 4.1 RX tarafı
 
-#### B1 — `decode` okuyuculara yarım/sıfır durum gösteriyor  *(KRİTİK, ölçüldü)*
+#### B1 — `decode` okuyuculara yarım/sıfır durum gösteriyor  *(KRİTİK, ölçüldü — çözüldü, KNOWN_ISSUES.md)*
 - **Nerede:** `asl_testing/message/base.py` → `decode()`
   ```python
   ctypes.memset(address, 0, ctypes.sizeof(self))

@@ -13,7 +13,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 ## Öncelik sırası (önerilen)
 
 1. ~~K1: Uzunluk alanı RX thread'ini öldürüyor~~ (çözüldü)
-2. B1: `decode` okuyuculara yarım değer gösteriyor
+2. ~~B1: `decode` okuyuculara yarım değer gösteriyor~~ (çözüldü)
 3. K3: Özel alan tipleri projenin endian'ını takip etmiyor
 4. B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor
 5. B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç
@@ -67,9 +67,9 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 | No | Konu | Önem | Durum | Özet |
 |---|---|---|---|---|
-| B1 | `decode` yarım/sıfır durum gösteriyor | Kritik | Doğrulandı | `memset` + iki `memmove` GIL'i bırakıyor. Bu oturumda ölçüldü: mevcut decode 4.602.009 tutarsız okuma, tek kopyalı yazım 0. Düzeltme: görüntüyü hazırlayıp tek `memoryview` atamasıyla yaz. |
+| B1 | `decode` yarım/sıfır durum gösteriyordu | Kritik | Çözüldü | `memset` + iki `memmove` GIL'i bırakıyordu. Artık yeni görüntü ayrı bir `bytearray`'de hazırlanıp tek `memoryview` atamasıyla yazılıyor. Test: `tests/test_threading.py` (eski kodda 0,3 sn'de binlerce bozuk okuma, yenisinde 0). |
 | B2 | Aynı poll'deki paketlerin ara değerleri kayboluyor | Yüksek | Açık | Test yalnızca son paketi görüyor. Düzeltme: mesaj başına history (ring buffer) + `comm.wait_for`. |
-| B3 | Gömülü alanlar ve diziler kilit tabanlı korumayı boşa çıkarır | Tasarım | Açık | `msg.cmd` aynı belleği paylaşan alt nesne. B1'in tek kopyalı yazımı ile çözülür; mutex yaklaşımı reddedildi. |
+| B3 | Gömülü alanlar ve diziler kilit tabanlı korumayı boşa çıkarır | Tasarım | Çözüldü (B1 ile) | `msg.cmd` aynı belleği paylaşan alt nesne. B1'in tek kopyalı yazımı ile çözüldü; tek alan okuması tutarlı; mutex yaklaşımı reddedildi. |
 | B4 | Canlı nesneden çok alanlı okuma tutarsız | Tasarım | Açık | `s = msg.snapshot()` ile oku; dokümana kural olarak yazılmalı. |
 | B5 | `RxState` güncellemesi veriyle atomik değil | Düşük | Açık | Değer + zaman birlikte gerekiyorsa history kaydı kullanılmalı. |
 | B6 | `has_new()` paylaşılan tek imleç | Orta | Kısmen | `peek_new` / `peek_sent` eklendi. Asıl çözüm: çağırana ait `mark` / `since`. |

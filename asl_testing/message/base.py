@@ -282,6 +282,8 @@ class BaseMessageStructure(Structure):
 
         Body bytes go to the start of the buffer, trailer bytes to the checksum field;
         the unused part of a variable-size message is cleared.
+        The new state is built in a separate buffer and written with a single copy that holds the GIL,
+        so another thread reading a field never sees a half-written or cleared object (B1).
         timestamp: arrival time reported by UTS (seconds), stored in rx_state.timestamp.
         """
         if not self.validate(raw):
@@ -289,10 +291,10 @@ class BaseMessageStructure(Structure):
                 self._rx.on_error()
             return False
         body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
-        address = ctypes.addressof(self)
-        ctypes.memset(address, 0, ctypes.sizeof(self))
-        ctypes.memmove(address, raw, body)
-        ctypes.memmove(address + offset, raw[body:body + size], size)
+        image = bytearray(ctypes.sizeof(self))              # the new state, prepared off the object
+        image[:body] = raw[:body]
+        image[offset:offset + size] = raw[body:body + size]
+        memoryview(self).cast("B")[:] = image               # one copy: readers see the old or the new packet
         if self._rx is not None:
             self._rx.on_receive(timestamp)
         for callout in self._on_receive:
