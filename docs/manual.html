@@ -92,7 +92,7 @@
 
 <nav>
   <p class="brand">asl_testing</p>
-  <p class="sub">Kullanım kılavuzu, v2.1</p>
+  <p class="sub">Kullanım kılavuzu, v2.1 (çok protokol)</p>
   <h4>Başlangıç</h4>
   <a href="#giris">Giriş ve kavramlar</a>
   <a href="#import">Import</a>
@@ -111,7 +111,12 @@
   <a href="#alan-ascii">&nbsp;&nbsp;AsciiType</a>
   <a href="#alan-yeni">&nbsp;&nbsp;Yeni özel tip yazmak</a>
   <a href="#kanal">Kanal (Channel, ChannelSet)</a>
-  <a href="#cerceve">Çerçeveleme (Envelope, Splitter)</a>
+  <a href="#protokol">Protokoller (PDU, PCI)</a>
+  <a href="#protokol-stream">&nbsp;&nbsp;Ethernet / RS422</a>
+  <a href="#protokol-1553">&nbsp;&nbsp;MIL-STD-1553</a>
+  <a href="#protokol-can">&nbsp;&nbsp;CAN</a>
+  <a href="#protokol-yeni">&nbsp;&nbsp;Yeni protokol</a>
+  <a href="#gecmis">Geçmiş ve snapshot</a>
   <a href="#olaylar">Olaylar</a>
   <a href="#uts">UTS (istemci, simülasyon, yönetim)</a>
   <a href="#servisler">Servisler</a>
@@ -124,24 +129,31 @@
 <main>
 
 <h1>asl_testing kullanım kılavuzu</h1>
-<p class="lead">Mesajları tanımlayın, bir kanal üzerinden gönderin ve alın, cihazı simüle edin ya da izleyin.
+<p class="lead">Mesajları tanımlayın; Ethernet, RS422, MIL-STD-1553 ya da CAN üzerinden gönderin ve alın; cihazı simüle edin ya da izleyin.
 Bu kılavuz bir test yazan kişinin ihtiyaç duyacağı her nesneyi, metodu ve hook'u anlatır.</p>
 
 <h2 id="giris">Giriş ve kavramlar</h2>
-<p>Dört kavram bütün kütüphaneyi taşır:</p>
+<p>Beş kavram bütün kütüphaneyi taşır:</p>
 <table>
   <tr><th>Kavram</th><th>Ne demek</th><th>Nerede tanımlanır</th></tr>
   <tr><td><b>Proje</b></td><td>Bütün mesajların ortak tabanı: ortak başlık alanları, varsayılan kanal ve yön.</td><td>Doğrudan <code>BaseMessageStructure</code>'dan türetilir</td></tr>
   <tr><td><b>Aile</b></td><td>İmzası olan (<code>_signature</code>) mesaj grubu. Gelen paketi hedef ve mesaj kimliğiyle eşleştirir.</td><td>Projeden türetilir, kendi <code>_signature</code>'ını verir</td></tr>
   <tr><td><b>Mesaj</b></td><td>Bir paketin yapısı: alanlar, yön, zamanlama, varsayılan kanal.</td><td>Aileden türetilir, <code>_fields_</code> verir</td></tr>
-  <tr><td><b>Kanal</b></td><td>Fiziksel hat (protokol + interface) ve o hattaki çerçeveleme (başlık, akış bölücü).</td><td><code>ChannelSet</code> alt sınıfında</td></tr>
+  <tr><td><b>Protokol</b></td><td>Bir bus türü: mesajın o bus'taki adresi (PCI: 1553 node/subnet, CAN id, Ethernet başlığı) ve kuralları.</td><td>Kanalın içinde (<code>Mil1553Channel</code> ...)</td></tr>
+  <tr><td><b>Kanal</b></td><td>Bir hat: interface + protokol nesnesi + o hatta kayıtlı mesajlar.</td><td><code>ChannelSet</code> alt sınıfında</td></tr>
 </table>
 
-<pre><code>ProjectBase (BaseMessageStructure)        ortak alanlar, varsayılan kanal
+<p>Katmanlar AUTOSAR'daki gibi adlandırılır: <b>SDU</b> mesajın baytları, <b>PCI</b> protokolün eklediği alanlar,
+<b>PDU</b> = PCI + SDU. UTS'e nasıl yazılacağı ise protokol başına bir <b>adaptörün</b> işidir.</p>
+<pre><code>Mesaj (SDU) ──► Protokol (+PCI) ──► Kanal ──► UTS adaptörü (JSON) ──► UTS</code></pre>
+
+<pre><code>ProjectBase (BaseMessageStructure)        ortak alanlar, varsayılan kanal (Ethernet / RS422)
  ├ Family1 (_signature = ...)           aile: imza ile eşleşir
  │   └ request (_fields_ = ...)         mesaj sınıfı
- └ Serial2 (_signature = None)          aile: kanal ile eşleşir
-     └ ser_report                       mesaj sınıfı</code></pre>
+ └ Serial2 (_signature = None)          imzasız: kanalında tek RX mesajı
+     └ ser_report                       mesaj sınıfı
+Mil1553Base (BaseMessageStructure)        ayrı proje: 1553 bus'ı, adres node + subnet
+ └ bit_report                           bit_report(node=5, subnet=3)</code></pre>
 
 <h2 id="import">Import</h2>
 <p>Test kodu ve proje tanımları her şeyi tek satırdan alır. İç modül yolları bilmek gerekmez:</p>
@@ -154,7 +166,7 @@ from asl_testing import BaseMessageStructure, Signature, FieldType  # proje tipl
 from projects.example_project.header import ProjectBase
 
 uts = FakeUtsClient()                 # gerçek hat için HttpUtsClient
-comm = Comm(uts, [ProjectBase])
+comm = Comm(uts, [ProjectBase])       # birden fazla bus: [ProjectBase, Mil1553Base, CanBase]
 comm.open()                           # RX poller ve TX scheduler thread'leri başlar
 try:
     ...
@@ -167,7 +179,8 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <p>Test kodunun tek giriş noktası. Katmanları kurar, bağlar ve test kodunu onlara yönlendirir.</p>
 
 <h3>Yaşam döngüsü</h3>
-<div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
+<div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None, adapters=None, time_unit=1.0)</div>
+<p><code>adapters</code>: protokol türü başına UTS adaptörü (varsayılanların yerine); <code>time_unit</code>: UTS zaman biriminin saniye karşılığı.</p>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
   <tr><td><code>open()</code></td><td>RX poller ve TX scheduler thread'lerini başlatır.</td></tr>
@@ -197,6 +210,14 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <div class="sig">comm.wait_sent(msg, timeout=1.0, interval=0.005) <span class="ret">-&gt; int</span></div>
 <p>Aynısı gönderim için. Periyodik mesajda bir sonraki karenin gittiğini bekler. Başarısız UTS gönderimleri sayılmaz.</p>
 
+<div class="sig">comm.wait_for(msg, predicate, timeout=1.0, after=None) <span class="ret">-&gt; Record | None</span></div>
+<p>Mesajın geçmişinde <code>predicate(snapshot)</code>'ı tutan ilk paketi bekler. <code>after</code> bir
+<code>msg.rx_history.mark()</code> değeridir; verilmezse yalnızca bundan sonraki paketler sayılır. Aynı poll'ün ortasındaki
+bir paket de bulunur. Bkz. <a href="#gecmis">Geçmiş</a>.</p>
+<pre><code>mark = status.rx_history.mark()
+comm.send(req)
+rec = comm.wait_for(status, lambda s: s.speed == 10, timeout=1.0, after=mark)</code></pre>
+
 <div class="sig">comm.listen(channel) <span class="ret">-&gt; None</span></div>
 <p>Kayıtlı mesajı olmayan bir kanalı da yoklar. Böylece o kanaldaki bilinmeyen paketler de görünür.</p>
 
@@ -211,7 +232,7 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <p>UTS yapılandırması ve filtreleri için. Bkz. <a href="#uts">UTS</a>.</p>
 
 <div class="sig">comm.bus <span class="ret">-&gt; EventBus</span></div>
-<p>Olay yolu. Şimdilik abonelik iptali için <code>comm.bus.unsubscribe(sub)</code> kullanılır.</p>
+<p>Olay yolu. Şimdilik abonelik iptali için <code>comm.bus.unsubscribe(sub)</code> kullanılır (tekrar çağrılabilir).</p>
 
 <h2 id="mesaj">Mesaj (BaseMessageStructure)</h2>
 <p>Mesaj, <code>ctypes.Structure</code> alt sınıfıdır. Alanlar <code>_fields_</code> ile tanımlanır, ayarlar sınıf
@@ -224,7 +245,9 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
   <tr><td><code>_channel</code></td><td>Varsayılan kanal.</td><td><code>MyChannels.DIAG</code></td></tr>
   <tr><td><code>_direction</code></td><td><code>Direction.RX</code>, <code>TX</code> veya <code>BOTH</code>.</td><td><code>Direction.TX</code></td></tr>
   <tr><td><code>_timing</code></td><td>Varsayılan zamanlama. RX ve TX için ayrı verilebilir.</td><td><code>Timing(period=0.05, tolerance=3)</code></td></tr>
-  <tr><td><code>_signature</code></td><td>Aile imzası: <code>Signature("destinationId", "messageId")</code>. <code>None</code> yazılırsa mesaj kanalla tanınır.</td><td><code>_signature = None</code></td></tr>
+  <tr><td><code>_signature</code></td><td>Aile imzası, mesaj baytlarındaki alanlardan: <code>Signature("destinationId", "messageId")</code>. İmzasız bir RX mesajı, adresindeki bütün paketleri alır ve orada tek başına olmalıdır.</td><td><code>Signature("kind")</code></td></tr>
+  <tr><td><code>_address</code></td><td>Varsayılan PCI (protokoldeki adres); nesnede anahtar kelimeyle değişir.</td><td><code>{"can_id": 0x123}</code></td></tr>
+  <tr><td><code>_history</code></td><td>Yön başına geçmiş kapasitesi (varsayılan 64).</td><td><code>256</code></td></tr>
   <tr><td><code>_defaults</code></td><td>Yeni nesnenin başlangıç değerleri. İmza alanları burada olmamalı.</td><td><code>{"request": (0, 0xA1)}</code></td></tr>
   <tr><td><code>_variable_size</code></td><td><code>True</code> ise gerçek boy uzunluk alanından okunur.</td><td><code>True</code></td></tr>
 </table>
@@ -240,13 +263,18 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <code>body_size()</code> hangi kısmının gönderileceğini belirler. ctypes düzeni en büyük boyu tutar.</p>
 
 <h3 id="mesaj-nesne">Nesne API'si</h3>
-<p>Nesne oluşturma: <code>Cls(*konumsal, channel=, direction=, rx=, tx=, **alanlar)</code>. Konumsal değerler proje
-<code>__init__</code>'inde tanımlanır (örnekte kaynak, hedef, mesaj kimliği).</p>
+<p>Nesne oluşturma: <code>Cls(*konumsal, channel=, direction=, rx=, tx=, history=, **pci_alanları, **alanlar)</code>.
+Konumsal değerler proje <code>__init__</code>'inde tanımlanır (örnekte kaynak, hedef, mesaj kimliği). Kanalın protokolü bir
+adres istiyorsa (1553 <code>node=</code>, <code>subnet=</code>; CAN <code>can_id=</code>) zorunludur: eksikse <code>TypeError</code>,
+aralık dışındaysa <code>ValueError</code>. Sabit boylu bir mesaj protokole sığmıyorsa (CAN'da 8 bayttan büyük) de <code>ValueError</code>.</p>
+<pre><code>report = bit_report(node=5, subnet=3)
+report.pci                     # node=5 subnet=3</code></pre>
 
 <h4>Kimlik</h4>
 <table>
   <tr><th>Özellik</th><th>Ne döner</th></tr>
   <tr><td><code>msg.channel</code></td><td>Mesajın kanalı.</td></tr>
+  <tr><td><code>msg.pci</code></td><td>Protokoldeki adresi (<code>Mil1553Pci</code>, <code>CanPci</code>, <code>NoPci</code>).</td></tr>
   <tr><td><code>msg.direction</code></td><td>RX, TX veya BOTH.</td></tr>
   <tr><td><code>msg.signature_id</code></td><td>İmza değeri; imzasızsa <code>None</code>.</td></tr>
   <tr><td><code>msg.rx_state</code>, <code>msg.tx_state</code></td><td>Yön durumu nesneleri; <code>count</code>, <code>timestamp</code>, <code>last_time</code> gibi alanlar.</td></tr>
@@ -257,6 +285,10 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <p>Son çağrıdan beri gelen geçerli paket sayısı. <strong>Sayacı temizler.</strong></p>
 <div class="sig">msg.peek_new() <span class="ret">-&gt; int</span></div>
 <p>Aynısı, sayacı temizlemeden.</p>
+<div class="sig">msg.rx_history <span class="ret">-&gt; MessageHistory | None</span></div>
+<p>Her geçerli paket, zamanıyla. Bkz. <a href="#gecmis">Geçmiş</a>.</p>
+<div class="sig">msg.snapshot() <span class="ret">-&gt; msg kopyası</span></div>
+<p>O anki değerlerin tek seferde alınmış kopyası. Birden fazla alanı aynı paketten okumak için.</p>
 <div class="sig">msg.rx_timestamp <span class="ret">-&gt; float | None</span></div>
 <p>UTS'in verdiği, son geçerli paketin zamanı.</p>
 <div class="sig">msg.rx_host_time <span class="ret">-&gt; float | None</span></div>
@@ -269,15 +301,20 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <p>Son çağrıdan beri başarılı gönderim sayısı. <strong>Sayacı temizler.</strong></p>
 <div class="sig">msg.peek_sent() <span class="ret">-&gt; int</span></div>
 <p>Aynısı, sayacı temizlemeden.</p>
+<div class="sig">msg.tx_history <span class="ret">-&gt; MessageHistory | None</span></div>
+<p>Başarıyla gönderilen paketler.</p>
 <div class="sig">msg.pack() <span class="ret">-&gt; bytes</span></div>
-<p>Gönderilecek baytları üretir: kancalar, sonra özel alanların <code>on_send</code>'i, sonra baytlar.
-<strong>Gönderim değildir</strong>: sayaç artmaz, hat kullanılmaz. Test verisi üretmek için de kullanılabilir.</p>
+<p>Gönderilecek baytları üretir: kancalar canlı nesnede çalışır, sonra değerlerin tek bir kopyası alınır, özel alanların
+<code>on_send</code>'i o kopyada çalışır, baytlar o kopyadan gelir ve yeni sayaç / uzunluk / checksum nesneye geri yazılır.
+Böylece başka bir thread'in yazdığı alan eski checksum ile gitmez. <strong>Gönderim değildir</strong>: gönderim sayacı artmaz,
+hat kullanılmaz. Test verisi üretmek için de kullanılabilir.</p>
 
 <h4>Ham baytlar</h4>
 <div class="sig">msg.validate(raw) <span class="ret">-&gt; bool</span></div>
 <p>Paketin boyunu ve özel alanlarını (<code>on_receive</code> hook'ları) denetler. Nesneyi değiştirmez.</p>
 <div class="sig">msg.decode(raw, timestamp=None) <span class="ret">-&gt; bool</span></div>
-<p>Geçerliyse paketi nesneye yazar, RX sayacını artırır ve alım kancalarını çağırır. Değilse hata sayacı artar.</p>
+<p>Geçerliyse paketi tek bir kopyayla nesneye yazar (okuyan thread yarım değer görmez), geçmişe ekler, RX sayacını artırır
+ve alım kancalarını çağırır. Değilse hata sayacı artar. Bir doğrulama hook'u istisna fırlatırsa paket geçersiz sayılır.</p>
 <div class="sig">bytes(msg) <span class="ret">-&gt; bytes</span></div>
 <p>Nesnenin ctypes belleği. Olay görüntüsü (<code>ev.image</code>) bununla aynı biçimdedir.</p>
 
@@ -288,12 +325,10 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <p>Alanları varsayılana döndürür; uzunluk ve checksum yeniden hesaplanır.</p>
 
 <h4>Sınıf düzeyi</h4>
-<div class="sig">Cls.families(channel=None) <span class="ret">-&gt; list[Registry]</span></div>
-<p>Projenin aileleri. Kanalla filtrelenebilir.</p>
-<div class="sig">Cls.lookup_channel(channel) / Cls.lookup_signature(channel, raw) <span class="ret">-&gt; msg | None</span></div>
-<p>Paketi kanal ve imzaya göre eşleştirir. Dispatcher bunları kullanır; test kodu genelde gerekmez.</p>
+<div class="sig">Cls.channels() <span class="ret">-&gt; list[Channel]</span></div>
+<p>Projenin nesnelerinin kaydolduğu kanallar.</p>
 <div class="sig">Cls.clear_registry() <span class="ret">-&gt; None</span></div>
-<p>Projenin bütün kayıtlarını temizler. Testler arasında kullanılabilir.</p>
+<p>Projenin nesnelerini bütün kanallardan çıkarır. Testler arasında kullanılır (<code>CommTestCase</code> bunu yapar).</p>
 
 <h3 id="mesaj-kanca">Kancalar (callout)</h3>
 <p>Bunlar nesne başına eklenen, mesajla ilgili kullanıcı kodlarıdır. Sınıf tanımındaki özel alan hook'larından ayrıdır.</p>
@@ -412,77 +447,155 @@ Bir alanın değeri gönderim veya alımla birlikte kendiliğinden değişiyorsa
 Yalnızca bir sabit değer değişiyorsa <code>_defaults</code> yeterlidir.</div>
 
 <h2 id="kanal">Kanal (Channel, ChannelSet)</h2>
-<p>Kanal, bir hattın (protokol + interface) ve o hattaki çerçeveleme ayarlarının adıdır. Kanallar bir <code>ChannelSet</code>
-içinde, proje düzeyinde tanımlanır.</p>
-<pre><code>from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Framing
+<p>Kanal bir hattır: interface numarası + bir protokol nesnesi + o hatta kayıtlı mesajlar. Kanallar bir
+<code>ChannelSet</code> içinde, proje düzeyinde tanımlanır.</p>
+<pre><code>from asl_testing import CanChannel, ChannelSet, EthernetChannel, Mil1553Channel, Rs422Channel
 
 class MyChannels(ChannelSet):
     CONTROL = Rs422Channel(0)
-    DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
-    RAW     = EthernetChannel(1)
-    SER2    = Rs422Channel(2)</code></pre>
+    DIAG    = EthernetChannel(1, header=EthHeader())   # aynı interface, başlıklı
+    RAW     = EthernetChannel(1)                       # aynı interface, başlıksız
+    SER2    = Rs422Channel(2)
+    BUS_A   = Mil1553Channel(1)                        # adres: node + subnet
+    CAN0    = CanChannel(0)                            # adres: can_id</code></pre>
 
 <table>
   <tr><th>Üye</th><th>Anlamı</th></tr>
-  <tr><td><code>ch.name</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi).</td></tr>
-  <tr><td><code>ch.protocol</code></td><td><code>ProtocolType.ETHERNET</code>, <code>RS422</code> veya <code>CAN</code>.</td></tr>
-  <tr><td><code>ch.interface</code></td><td>Hattın numarası.</td></tr>
-  <tr><td><code>ch.address</code></td><td><code>(protokol, interface)</code> çifti. Aynı adresi paylaşan kanallar aynı UTS okumasını kullanır.</td></tr>
-  <tr><td><code>ch.framing</code></td><td><code>Framing(splitter, envelope)</code>.</td></tr>
-  <tr><td><code>ch.has_envelope</code>, <code>ch.has_splitter</code></td><td>Çerçeveleme tanımlı mı.</td></tr>
+  <tr><td><code>EthernetChannel(i, header=, splitter=)</code>, <code>Rs422Channel(...)</code></td><td>Bayt akışı kanalları.</td></tr>
+  <tr><td><code>Mil1553Channel(i, byteorder="big")</code></td><td>1553 bus'ı; mesaj baytlarının word'lere nasıl çevrileceği.</td></tr>
+  <tr><td><code>CanChannel(i, extended=False)</code></td><td>CAN bus'ı; <code>extended=True</code> ile 29 bit id.</td></tr>
+  <tr><td><code>ch.name</code>, <code>ch.interface</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi) ve hattın numarası.</td></tr>
+  <tr><td><code>ch.protocol</code></td><td>Protokol nesnesi (<code>Ethernet</code>, <code>Serial</code>, <code>Mil1553</code>, <code>Can</code>). Bkz. <a href="#protokol">Protokoller</a>.</td></tr>
+  <tr><td><code>ch.address</code></td><td><code>(UTS path, interface)</code>, ör. <code>("1553", 1)</code>. Aynı adresi paylaşan kanallar aynı UTS okumasını kullanır.</td></tr>
+  <tr><td><code>ch.has_header</code>, <code>ch.splitter</code></td><td>Bayt akışı ayarları.</td></tr>
+  <tr><td><code>ch.registry</code></td><td>Kanala kayıtlı mesajlar (iç kullanım; hata ayıklamada <code>identify(pdu)</code>).</td></tr>
   <tr><td><code>ChannelSet.all()</code></td><td>Setin bütün kanalları.</td></tr>
 </table>
 
 <div class="warn"><strong>Kurallar (tanım sırasında denetlenir)</strong>
-Bir adreste en fazla bir başlıksız (envelope'u olmayan) kanal olabilir; çünkü başlıksız kanal her paketi kabul eder.
-Bir adreste en fazla bir splitter olabilir. İhlalde <code>ValueError</code>.</div>
+Bir adreste tek protokol türü, en fazla bir splitter ve her paketi kabul eden (başlıksız) en fazla bir kanal olabilir.
+İhlalde <code>ValueError</code>.</div>
 
-<h3>Kanal nasıl seçilir?</h3>
+<h3>Kanal ve mesaj nasıl seçilir?</h3>
 <ul>
-  <li><b>Gönderim:</b> Mesajın <code>_channel</code> değeri belirler. Başka seçim yapılmaz; kanalın envelope'u varsa gönderimde başlık eklenir.</li>
-  <li><b>Alım:</b> Paket, adresin kanallarına sırayla sorulur. Envelope'lu kanallar önce gelir, başlıksız kanal en sonda. İlk kabul eden kanalın kanalı olur.</li>
+  <li><b>Gönderim:</b> mesajın <code>_channel</code> değeri belirler; protokol PCI'ını ve başlığını ekler.</li>
+  <li><b>Alım, kanal:</b> UTS'ten gelen öğe, adresin kanallarına sırayla verilir (başlıklılar önce, başlıksız en sonda).
+  Protokolü paketi kabul eden ilk kanal seçilir; hiçbiri kabul etmezse paket unknown olur.</li>
+  <li><b>Alım, mesaj:</b> kanalın registry'sinde önce adres (PCI) bakılır. O adreste imzasız tek bir mesaj varsa paket onundur;
+  değilse mesaj baytlarındaki imzayı tutan mesaj. Hiçbiri: <code>UnknownReceived</code>.</li>
 </ul>
+<div class="note"><strong>Kayıt kuralları</strong>
+Mesajlar kendi kanalına kaydolur. Aynı adreste imzasız bir mesajın yanına başka RX mesajı tanımlanamaz, aynı imza iki mesajda
+olamaz; belirsizlik nesne oluşturulurken <code>ValueError</code> verir. Aynı sınıf + adres + imza + yön ile yeniden oluşturulan
+nesne eskisinin yerini alır.</div>
 
-<h2 id="cerceve">Çerçeveleme (Envelope, Splitter)</h2>
-<p>Çerçeveleme, mesaj baytları ile tel üzerindeki baytlar arasındaki dönüşümdür. İki parçası var.</p>
-
-<h3>Envelope: paket başına başlık</h3>
+<h2 id="protokol">Protokoller (PDU, PCI)</h2>
+<p>Protokol bir bus türüdür ve UTS'ten habersizdir. Mesajın o bus'taki adresini (PCI), kurallarını ve kendi paketini
+tanımayı bilir. UTS'e yazılış biçimi protokol başına bir <a href="#uts">adaptörün</a> işidir.</p>
 <table>
   <tr><th>Üye</th><th>Ne yapar</th></tr>
-  <tr><td><code>on_send(data) -&gt; bytes</code></td><td>Mesaj baytlarını tel baytlarına çevirir. Başlık buraya eklenir.</td></tr>
-  <tr><td><code>on_receive(wire) -&gt; bytes | None</code></td><td>Paket bu kanala aitse mesaj baytlarını döner. Değilse <code>None</code>: sıradaki kanal denenir.</td></tr>
-  <tr><td><code>offset</code></td><td>Başlık boyu. UTS filtresi bayt konumlarını bununla hesaplar.</td></tr>
+  <tr><td><code>pci_type</code></td><td>Adres tipi; alanları nesne oluştururken zorunludur.</td></tr>
+  <tr><td><code>make_pci(**adres) -&gt; Pci</code></td><td>Adres üretir. Eksik ya da fazla alan <code>TypeError</code>, aralık dışı <code>ValueError</code>.</td></tr>
+  <tr><td><code>check_sdu(sdu)</code></td><td>Boy kuralları (gönderimde ve sabit boylu mesajda tanımda).</td></tr>
+  <tr><td><code>offset</code></td><td>Hatta mesajın önündeki bayt sayısı (UTS filtre konumları için).</td></tr>
+  <tr><td><code>receive(birim, ts) -&gt; Pdu | None</code></td><td>Bu kanalın PDU'su ya da <code>None</code> (sıradaki kanal denenir).</td></tr>
+  <tr><td><code>wire(pdu) -&gt; bytes</code></td><td>PDU'nun hattaki bayt hali (loglar ve hat olayları için).</td></tr>
 </table>
-<pre><code>class EthHeader(Envelope):
+<p><code>Pdu(pci, sdu, timestamp)</code> sadece veri taşır; kontrol içermez. Kontrolü kuralı bilen katman yapar: UTS biçimini
+adaptör, kanala aitliği protokol, adres ve imzayı registry, boy ve CRC'yi mesaj.</p>
+
+<h3 id="protokol-stream">Ethernet / RS422 (bayt akışı)</h3>
+<p>Hat yalnızca bayt taşır. Adres yoksa mesajlar imzayla ayrılır. İki isteğe bağlı parça vardır.</p>
+<p><b>Header</b>: paketin önündeki başlık (hat içi PCI).</p>
+<table>
+  <tr><th>Üye</th><th>Ne yapar</th></tr>
+  <tr><td><code>encode(pci, sdu) -&gt; bytes</code></td><td>Gönderim: başlık + mesaj.</td></tr>
+  <tr><td><code>decode(data) -&gt; (pci, sdu) | None</code></td><td>Alım: paket bu kanalınsa adres ve mesaj; değilse <code>None</code>.</td></tr>
+  <tr><td><code>pci_type</code>, <code>offset</code></td><td>Başlıktaki adres tipi (adres yoksa <code>NoPci</code>) ve başlık boyu.</td></tr>
+</table>
+<pre><code>class EthHeader(Header):
     MAGIC = b"\x55\xAA"
     SIZE = 8
     offset = SIZE
 
-    def on_send(self, data: bytes) -> bytes:
-        return self.MAGIC + struct.pack("&lt;H", self.SIZE + len(data)) + bytes(4) + data
+    def encode(self, pci, sdu: bytes) -> bytes:
+        return self.MAGIC + struct.pack("&lt;H", self.SIZE + len(sdu)) + bytes(4) + sdu
 
-    def on_receive(self, wire: bytes) -> Optional[bytes]:
-        if len(wire) &lt; self.SIZE or wire[:2] != self.MAGIC:
+    def decode(self, data: bytes):
+        if len(data) &lt; self.SIZE or data[:2] != self.MAGIC:
             return None                       # bu kanala ait değil
-        if struct.unpack_from("&lt;H", wire, 2)[0] != len(wire):
+        if struct.unpack_from("&lt;H", data, 2)[0] != len(data):
             return None
-        return wire[self.SIZE:]</code></pre>
+        return NO_PCI, data[self.SIZE:]</code></pre>
 <div class="warn"><strong>Kritik kural</strong>
-<code>on_receive</code> yalnızca kendi paketini kabul etmeli, diğerlerinde <code>None</code> dönmelidir. Her paketi kabul eden bir envelope,
-aynı adresteki başka kanalın paketlerini sessizce yutar.</div>
+<code>decode</code> yalnızca kendi paketini kabul etmeli, diğerlerinde <code>None</code> dönmelidir. Her paketi kabul eden bir başlık,
+aynı adresteki başlıksız kanalın paketlerini sessizce yutar.</div>
+<p><b>Splitter</b>: RS-422 gibi akışlarda UTS bir okumada birden fazla ya da yarım paket döndürebilir. <code>split(data) -&gt; list[bytes]</code>
+paketleri ayırır, <code>reset()</code> yarım paketi atar. Kanal seçiminden önce, adres düzeyinde çalışır; bir adreste en fazla bir tane olur.</p>
 
-<h3>Splitter: akıştan çerçeve çıkarma</h3>
-<p>RS-422 gibi akış protokollerinde UTS bir okumada birden fazla paket ya da yarım paket döndürebilir. Splitter bunları ayırır.</p>
+<h3 id="protokol-1553">MIL-STD-1553</h3>
+<p>Adres <code>Mil1553Pci(node, subnet)</code>: ikisi de zorunlu, 1..32. Mesaj baytları 1..32 adet 16 bitlik word'e çevrilir
+(<code>byteorder</code>, varsayılan big). Bu yüzden 1553 projesi <code>BigEndianStructure</code> olur: bir <code>c_uint16</code> alanı bir word'dür.</p>
+<pre><code>class Mil1553Base(BaseMessageStructure, BigEndianStructure):
+    _channel = MyChannels.BUS_A
+
+class bit_report(Mil1553Base):
+    _fields_ = [("status", c_uint16), ("temperature", c_int16)]
+
+class ModeFamily(Mil1553Base):          # aynı subnet'te birden fazla mesaj: ilk word hangisi olduğunu söyler
+    _signature = Signature("kind")
+
+report = bit_report(node=5, subnet=3)   # UTS gövdesi: {"message": [5, 3, 2, w0, w1]}</code></pre>
+
+<h3 id="protokol-can">CAN</h3>
+<p>Adres <code>CanPci(can_id)</code>: 11 bit (<code>extended=True</code> ile 29 bit). En fazla 8 bayt veri; daha büyük sabit boylu
+bir mesaj tanımda <code>ValueError</code> verir. İd sınıfta varsayılan olarak ya da nesnede verilebilir.</p>
+<pre><code>class wheel_speed(CanBase):
+    _address = {"can_id": 0x123}
+    _fields_ = [("rpm", c_uint16), ("valid", c_uint8)]
+
+wheel = wheel_speed()                   # UTS gövdesi (varsayım): {"id": 0x123, "message": [...]}</code></pre>
+
+<h3 id="protokol-yeni">Yeni protokol eklemek</h3>
+<ol>
+  <li><code>Pci</code> alt sınıfı (frozen dataclass): adres alanları.</li>
+  <li><code>Protocol</code> alt sınıfı: <code>path</code> (UTS'teki bus adı), <code>pci_type</code>, <code>check_pci</code>, <code>check_sdu</code>.</li>
+  <li><code>UtsAdapter</code> alt sınıfı: <code>to_uts</code>, <code>from_uts</code>; <code>register_adapter(Protokol, Adaptör)</code>.</li>
+  <li>İsteğe bağlı bir <code>Channel</code> alt sınıfı (<code>Mil1553Channel</code> gibi).</li>
+</ol>
+
+<h2 id="gecmis">Geçmiş ve snapshot</h2>
+<p>Canlı nesne son geçerli paketin görünümüdür ve tek alan okuması her zaman tutarlıdır: <code>decode</code> yeni paketi tek bir
+kopyayla yazar, okuyan thread yarım ya da sıfır değer görmez. İki durumda daha fazlası gerekir.</p>
+
+<h3>Birden fazla alan aynı paketten</h3>
+<div class="sig">msg.snapshot() <span class="ret">-&gt; kopya</span></div>
+<p>O anki değerlerin tek seferde alınmış kopyası. Kayıtlı değildir ve nesne bilgisi (kanal, adres, durum) taşımaz; sadece alan okunur.</p>
+<pre><code>s = status.snapshot()
+assert s.speed == 10 and s.mode == 2    # iki alan da aynı paketten</code></pre>
+
+<h3>Aynı poll'de gelen bütün paketler</h3>
+<p>UTS bir sorguda aynı mesajdan birden fazla paket döndürebilir; canlı nesne sadece sonuncuyu gösterir. Her geçerli paket
+<code>msg.rx_history</code>'ye, her başarılı gönderim <code>msg.tx_history</code>'ye kaydedilir.</p>
 <table>
   <tr><th>Üye</th><th>Ne yapar</th></tr>
-  <tr><td><code>split(data) -&gt; list[bytes]</code></td><td>Gelen veriyi tam paketlere böler. Varsayılan: veri tek paket.</td></tr>
-  <tr><td><code>reset()</code></td><td>Yarım kalmış paketi atar.</td></tr>
+  <tr><td><code>mark() -&gt; int</code></td><td>Okuyanın konumu; sonraki kayıtlar sayılır. Bir isteği göndermeden önce alınır.</td></tr>
+  <tr><td><code>since(mark) -&gt; list[Record]</code></td><td>Konumdan sonraki kayıtlar, eskiden yeniye.</td></tr>
+  <tr><td><code>last()</code>, <code>len(h)</code>, <code>capacity</code></td><td>Son kayıt, kayıt sayısı, kapasite (<code>_history</code> ya da <code>history=</code>, varsayılan 64).</td></tr>
+  <tr><td><code>dropped</code></td><td>Kapasite dolduğu için düşen kayıt sayısı.</td></tr>
+  <tr><td><code>Record.seq</code>, <code>.timestamp</code>, <code>.host_time</code>, <code>.snapshot()</code></td><td>Global sıra, UTS zamanı, host zamanı, paketin değerleri.</td></tr>
 </table>
-<div class="note"><strong>Not</strong>
-Splitter adres düzeyinde çalışır, kanal seçiminden önce. Bu yüzden bir adreste en fazla bir tane olabilir.</div>
+<pre><code>mark = status.rx_history.mark()
+comm.send(request)
+rec = comm.wait_for(status, lambda s: s.speed == 10, timeout=1.0, after=mark)
+assert rec is not None                  # 10 bir poll'ün ortasında gelse de bulunur
 
-<h3>Framing</h3>
-<pre><code>Framing(splitter=Splitter(), envelope=Envelope())    # varsayılanlar: hiçbir şey yapmaz</code></pre>
+for r in status.rx_history.since(mark):
+    print(r.seq, r.timestamp, r.snapshot().speed)
+assert status.rx_history.dropped == 0</code></pre>
+<div class="note"><strong>has_new ile farkı</strong>
+<code>has_new()</code> paylaşılan bir sayaçtır ve okuyan onu tüketir. <code>mark()</code> ise okuyana aittir: iki yer aynı mesajı
+okusa da birbirinin verisini kaybetmez. Mesaj yeniden oluşturulursa geçmiş boş başlar.</div>
 
 <h2 id="olaylar">Olaylar</h2>
 <p>Her paket ve her hata bir olay olarak yayınlanır. Abone olmak için <code>comm.subscribe(Tip, handler, where=None)</code>
@@ -493,9 +606,9 @@ ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
 <table>
   <tr><th>Alan</th><th>Anlamı</th></tr>
   <tr><td><code>ev.message</code></td><td>Mesaj nesnesi.</td></tr>
-  <tr><td><code>ev.raw</code></td><td>Mesaj baytları, başlık olmadan (<code>pack()</code> çıktısı ya da alınan paketin gövdesi). Tel üzerindeki hali için <code>WireReceived</code> / <code>WireSent</code>.</td></tr>
+  <tr><td><code>ev.raw</code></td><td>Mesaj baytları (SDU), protokol başlığı olmadan. Hattaki hali için <code>WireReceived</code> / <code>WireSent</code>.</td></tr>
   <tr><td><code>ev.host_time</code></td><td>Bu makinenin saati.</td></tr>
-  <tr><td><code>ev.image</code></td><td>Mesajın ctypes görüntüsü (bozuk pakette boş).</td></tr>
+  <tr><td><code>ev.image</code></td><td>Paketin ctypes görüntüsü, <code>on_receive</code> kancalarından önce; geçmişteki kayıtla aynı (bozuk pakette boş).</td></tr>
   <tr><td><code>ev.channel</code></td><td>Mesajın kanalı.</td></tr>
   <tr><td><code>ev.snapshot()</code></td><td>Olayın anındaki değerleri taşıyan ayrı bir nesne. Sonraki paketlerden etkilenmez.</td></tr>
 </table>
@@ -506,12 +619,12 @@ ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
   <tr><td><code>MessageReceived</code></td><td>Geçerli paket alındı.</td><td>Ortak alanlar, <code>timestamp</code> (UTS zamanı).</td></tr>
   <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar.</td></tr>
   <tr><td><code>InvalidReceived</code></td><td>Paket geldi ama doğrulanamadı.</td><td>Ortak alanlar, <code>timestamp</code>. <code>image</code> boştur.</td></tr>
-  <tr><td><code>UnknownReceived</code></td><td>Hiçbir mesajla eşleşmedi.</td><td><code>channel</code> (eşleşen kanal, yoksa <code>None</code>), <code>raw</code>, <code>host_time</code>, <code>timestamp</code>.</td></tr>
-  <tr><td><code>WireReceived</code></td><td>Tel üzerinde bir paket alındı.</td><td><code>channel</code>, <code>protocol</code>, <code>interface</code>, <code>wire</code>, <code>timestamp</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>UnknownReceived</code></td><td>Hiçbir mesajla eşleşmedi.</td><td><code>channel</code> (kabul eden kanal, yoksa <code>None</code>), <code>raw</code>, <code>host_time</code>, <code>timestamp</code>, <code>pci</code> (adresi).</td></tr>
+  <tr><td><code>WireReceived</code></td><td>Hattan bir paket alındı.</td><td><code>channel</code>, <code>protocol</code> (UTS path), <code>interface</code>, <code>wire</code> (başlık dahil; 1553/CAN'da mesaj baytları), <code>timestamp</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>WireSent</code></td><td>Tel üzerine bir paket gönderildi.</td><td><code>channel</code>, <code>message</code>, <code>wire</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxTimeout</code></td><td>Periyodik RX mesajı zaman aşımına uğradı.</td><td><code>message</code>, <code>age</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxRestored</code></td><td>Periyodik RX mesajı yeniden geldi.</td><td><code>message</code>, <code>host_time</code>.</td></tr>
-  <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim veya yoklama).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim, yoklama ya da bozuk biçimli UTS öğesi).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code>, <code>host_time</code>.</td></tr>
 </table>
 <p class="muted">Alan adları ve sırası <code>asl_testing/events/types.py</code> ile aynıdır. Her paket önce <code>WireReceived</code>, sonra alım sonucu olayını üretir.</p>
 
@@ -522,26 +635,45 @@ comm.bus.unsubscribe(sub)</code></pre>
 <h2 id="uts">UTS (istemci, simülasyon, yönetim)</h2>
 
 <h3>UtsClient: gerçek hat</h3>
-<p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot vardır:</p>
-<div class="sig">transfer(protocol, interface, data) <span class="ret">-&gt; None</span></div>
-<p>Baytları hatta gönderir. Hata olursa <code>UtsError</code> fırlatır.</p>
-<div class="sig">fetch(protocol, interface) <span class="ret">-&gt; list[UtsFrame]</span></div>
-<p>Son çağrıdan beri gelen paketleri döner. <code>UtsFrame(data, timestamp)</code>.</p>
+<p>UTS istemcisi yalnızca JSON taşır, protokollerden habersizdir. Zorunlu iki metot vardır:</p>
+<div class="sig">post(path, interface, body: dict) <span class="ret">-&gt; None</span></div>
+<p>Bir öğeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa <code>UtsError</code> fırlatır.</p>
+<div class="sig">get(path, interface) <span class="ret">-&gt; list[dict]</span></div>
+<p>Son çağrıdan beri gelen öğeleri döner ve UTS tamponunu boşaltır.</p>
 <p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
 <code>NotImplementedError</code> fırlatır; istemci yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
-<code>HttpUtsClient</code> şu an taslaktır. <code>transfer</code> ve <code>fetch</code> bilerek <code>NotImplementedError</code> fırlatır.</div>
+<code>HttpUtsClient</code> şu an taslaktır; <code>post</code> ve <code>get</code> bilerek <code>NotImplementedError</code> fırlatır.</div>
+
+<h3>Adaptörler: PDU ve UTS JSON</h3>
+<p>Protokol başına bir adaptör, PDU'yu UTS'in beklediği gövdeye çevirir ve UTS'ten gelen öğeyi geri çevirir.</p>
+<table>
+  <tr><th>Adaptör</th><th>Gövde (gerçek UTS ile doğrulanacak)</th></tr>
+  <tr><td><code>ByteListAdapter</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code> (başlık dahil)</td></tr>
+  <tr><td><code>Mil1553Adapter</code></td><td><code>{"message": [node, subnet, word_count, w0, ...], "timestamp": t}</code></td></tr>
+  <tr><td><code>CanAdapter</code></td><td><code>{"id": can_id, "message": [...], "timestamp": t}</code> (varsayım)</td></tr>
+</table>
+<p>Zaman birimi bilinmiyor: <code>Comm(..., time_unit=1e-6)</code> UTS biriminin saniye karşılığını verir. Biçimi bozuk bir öğe
+(<code>UtsFormatError</code>, ör. 1553'te word sayısı tutmuyor) <code>LinkError</code> olarak yayınlanır; aynı cevaptaki diğer öğeler
+yine işlenir. Başka bir biçim için <code>Comm(..., adapters={Mil1553: BenimAdaptörüm()})</code>.</p>
 
 <h3>FakeUtsClient: simülasyon</h3>
-<p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
-<div class="sig">uts.inject(protocol, interface, data, timestamp=None) <span class="ret">-&gt; None</span></div>
-<p>Verilen baytları, cihazdan gelmiş gibi alım kuyruğuna koyar. Gönderim değildir: RX poller bir sonraki yoklamada alır.</p>
-<pre><code>ch = status.channel
-wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
-uts.inject(ch.protocol, ch.interface, wire)           # cihaz bu paketi gönderdi
+<p>Gerçek UTS'in yerine geçer; aynı JSON'u kullanır. Cihazın gönderdiği paketi üç düzeyde üretebilirsiniz. Hiçbiri gönderim
+değildir: öğe alım tamponuna girer, RX poller bir sonraki yoklamada alır.</p>
+<div class="sig">uts.device_sends(msg) <span class="ret">-&gt; dict</span></div>
+<p>Mesaj nesnesi; adres (PCI) ve başlık protokolden eklenir. En sık kullanılan yol.</p>
+<div class="sig">uts.device_sends_bytes(channel, data, pci=None) <span class="ret">-&gt; dict</span></div>
+<p>Mesaj baytları; başlık yine eklenir. Bozuk paketler için.</p>
+<div class="sig">uts.inject(path, interface, item) <span class="ret">-&gt; None</span></div>
+<p>Ham UTS öğesi; UTS'in tam olarak ne döndüreceğini yazmak için (ör. biçim hatası testi).</p>
+<pre><code>device = comut(DEST, SRC, 0x20, direction=Direction.TX)
+uts.device_sends(device)                              # cihaz bu paketi gönderdi
 
-bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
-uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived</code></pre>
+bad = bytearray(device.pack()); bad[-1] ^= 0xFF       # CRC'yi boz
+uts.device_sends_bytes(status.channel, bytes(bad))    # -&gt; InvalidReceived
+
+uts.inject("1553", 1, {"message": [5, 3, 2, 1, 20]})  # 1553 öğesi, doğrudan</code></pre>
+<p><code>uts.sent</code> gönderilenleri <code>(path, interface, gövde)</code> olarak tutar.</p>
 
 <h3>comm.control: UTS yönetimi</h3>
 <p>Hedef olarak bir kanal veya bir mesaj verilebilir.</p>
@@ -556,7 +688,7 @@ uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived</c
   <tr><td><code>remove_filter(msg)</code></td><td><code>None</code></td><td>Mesajın grubunu filtreden çıkarır. Filtre boşalırsa <code>"NONE"</code>.</td></tr>
 </table>
 <div class="note"><strong>Filtre konumları</strong>
-<code>add_filter</code> imza bayt konumlarını <code>kanal.framing.envelope.offset</code> kadar kaydırır. Böylece başlıklı paketlerde konumlar doğru olur.</div>
+<code>add_filter</code> imza bayt konumlarını protokolün <code>offset</code>'i (başlık boyu) kadar kaydırır. Böylece başlıklı paketlerde konumlar doğru olur.</div>
 
 <h3>Hatalar</h3>
 <pre><code>from asl_testing import UtsError
@@ -612,7 +744,14 @@ comm = Comm(uts, [ProjectBase], logger=my_logger)     # tüm katmanları tek log
 
 <div class="warn"><strong>has_new() ve has_sent() sayacı temizler</strong>
 Aynı mesajı iki yerde kontrol ediyorsanız biri diğerinin sayacını tüketir. Kontrol için <code>peek_new()</code> / <code>peek_sent()</code> kullanın,
-ya da tek bir yerde <code>has_new()</code> çağırıp sonucu paylaşın.</div>
+ya da her okuyan kendi <code>rx_history.mark()</code>'ını alıp <code>comm.wait_for</code> / <code>since</code> ile okusun.</div>
+
+<div class="warn"><strong>Birden fazla alanı canlı nesneden okumak</strong>
+<code>s.speed == 10 and s.mode == 2</code> iki ayrı okumadır; arada yeni paket gelebilir. Önce <code>s = msg.snapshot()</code> alın.</div>
+
+<div class="warn"><strong>Ara değerler canlı nesnede görünmez</strong>
+Bir poll'de aynı mesajdan birden fazla paket gelirse nesne sadece sonuncuyu gösterir. "Değer bir an X oldu mu?" için
+<code>comm.wait_for</code> ya da <code>rx_history.since(mark)</code> kullanın.</div>
 
 <div class="warn"><strong>Gönderimden önce has_new() çağırın</strong>
 Önceden gelmiş bir paket, cevap olarak sayılır. İstek göndermeden hemen önce <code>has_new()</code> çağırın.</div>
@@ -627,7 +766,15 @@ ya da tek bir yerde <code>has_new()</code> çağırıp sonucu paylaşın.</div>
 <code>initialize()</code> bunları yeniden yazar ve kayıt anahtarı bozulur.</div>
 
 <div class="warn"><strong>Başlıksız kanal sona</strong>
-Aynı adreste iki başlıksız kanal tanımlanamaz. Başlıklı kanalların envelope'u yalnızca kendi paketini kabul etmelidir.</div>
+Aynı adreste iki başlıksız kanal tanımlanamaz. Başlıklı kanalların <code>Header.decode</code>'u yalnızca kendi paketini kabul etmelidir.</div>
+
+<div class="warn"><strong>İmzasız mesaj adresinde tek başına</strong>
+İmzası olmayan bir RX mesajı adresindeki bütün paketleri alır. Aynı kanalda (1553'te aynı node/subnet'te) başka bir RX mesajı
+gerekiyorsa her ikisine de ayırt edici bir imza alanı verin.</div>
+
+<div class="warn"><strong>1553 projesi big-endian</strong>
+1553 word'leri MSB önce gider; projeyi <code>BigEndianStructure</code> ile tanımlayın. Özel alan tipleri (<code>CRC16</code> gibi)
+şimdilik projenin endian'ını takip etmez (<code>docs/KNOWN_ISSUES.md</code>, K3); 1553 mesajlarında kullanılacaksa big-endian tanımlanmalıdır.</div>
 
 <div class="warn"><strong>Değişken boyda iki alan</strong>
 Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu oradan okur. TX boyu <code>body_size()</code> ile belirlenir.</div>
@@ -637,12 +784,12 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
 <table>
   <tr><th>Grup</th><th>İsimler</th></tr>
   <tr><td>Giriş</td><td><code>Comm</code></td></tr>
-  <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code></td></tr>
+  <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code>, <code>MessageHistory</code>, <code>Record</code></td></tr>
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
-  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>ProtocolType</code></td></tr>
-  <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
+  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code>, <code>CanChannel</code></td></tr>
+  <tr><td>Protokol</td><td><code>Protocol</code>, <code>Pci</code>, <code>NoPci</code>, <code>NO_PCI</code>, <code>Pdu</code>, <code>ByteStream</code>, <code>Ethernet</code>, <code>Serial</code>, <code>Header</code>, <code>Splitter</code>, <code>Mil1553</code>, <code>Mil1553Pci</code>, <code>Can</code>, <code>CanPci</code></td></tr>
   <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
-  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFormatError</code>, <code>UtsAdapter</code>, <code>ByteListAdapter</code>, <code>Mil1553Adapter</code>, <code>CanAdapter</code>, <code>register_adapter</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>
 <p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>

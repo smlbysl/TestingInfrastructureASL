@@ -1,5 +1,8 @@
 # PDU katmanları: prototip
 
+> Bu yapı `asl_testing`'e taşındı (dal `v2.1-pdu`: `asl_testing/protocol/`, `uts/adapters.py`, `channel/registry.py`).
+> Prototip ilk tasarımın kaydı olarak duruyor; güncel kullanım için `docs/manual.html` ve `docs/DESIGN.md`.
+
 Çok protokollü tasarımın PDU yapısıyla (PDU = PCI + SDU) nasıl kurulabileceğini gösteren, `asl_testing`'den bağımsız
 küçük bir prototip. Mevcut koda dokunmaz.
 

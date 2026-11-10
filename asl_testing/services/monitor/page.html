@@ -233,7 +233,7 @@ function renderTree(force) {
   if (!msgs.length) { tree.innerHTML = `<div class="empty">No messages yet.<br>Tools → Start measurement or File → Import CSV.</div>`; return; }
   const parts = [];
   for (const dir of ["RX", "TX"]) {
-    const list = msgs.filter(m => m.direction === dir).sort((a, b) => a.name.localeCompare(b.name) || a.signature.localeCompare(b.signature));
+    const list = msgs.filter(m => m.direction === dir).sort((a, b) => a.name.localeCompare(b.name) || (a.address || "").localeCompare(b.address || "") || a.signature.localeCompare(b.signature));
     if (!list.length) continue;
     parts.push(`<div class="group">${dir === "RX" ? "RECEIVED (RX)" : "TRANSMITTED (TX)"}</div>`);
     for (const m of list) {
@@ -243,7 +243,7 @@ function renderTree(force) {
       if (!matchMsg && !matchFields.length) continue;
       const open = S.open.has(m.id) || (q && !matchMsg && matchFields.length);
       parts.push(`<div class="msg" data-id="${esc(m.id)}"><span class="tw">${open ? "▾" : "▸"}</span><span class="name">${esc(m.name)}</span>
-        <span class="meta">${esc(m.channel)} ${esc(m.signature)}</span><span class="count mono">${m.count}</span></div>`);
+        <span class="meta">${esc(m.channel)} ${esc(m.address || "")} ${esc(m.signature)}</span><span class="count mono">${m.count}</span></div>`);
       if (open) for (const f of (matchMsg ? fields : matchFields)) {
         const sig = S.signals.find(s => s.id === m.id && s.path === f.path);
         parts.push(`<div class="field ${f.plot ? "" : "text"}" data-id="${esc(m.id)}" data-path="${esc(f.path)}">
@@ -304,7 +304,7 @@ function addSignal(id, path, quiet) {
   const info = (S.fields[id] || []).find(x => x.path === path);
   if (info && !info.plot) { toast("Text values cannot be plotted"); return; }
   const msg = S.state.messages.find(m => m.id === id) || {};
-  S.signals.push({ id, path, name: `${msg.name || "?"}.${path}`, dir: msg.direction, channel: msg.channel,
+  S.signals.push({ id, path, name: `${msg.name || "?"}.${path}`, dir: msg.direction, channel: [msg.channel, msg.address].filter(Boolean).join(" "),
                    color: COLORS[S.colorIx++ % COLORS.length], t: [], v: [], next: 0 });
   renderStrips(); renderTree(); poll();
 }

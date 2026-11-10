@@ -4,7 +4,9 @@ One subscription to all events on a single thread, so lines stay in publish orde
 Raw bytes are logged, so any field can be decoded later with the message class,
 even fields nobody watched during the test.
 
-Columns: host_time, uts_time, direction, channel, message, signature, length, data
+Columns: host_time, uts_time, direction, channel, address, message, signature, length, data
+address is the PCI of the message on its protocol (e.g. node=5 subnet=3 on 1553), empty if it has none.
+data is the message bytes (SDU); the protocol header is not part of it.
 """
 import csv
 from datetime import datetime
@@ -13,7 +15,7 @@ from typing import Optional
 from asl_testing.comm import Comm
 from asl_testing.events.types import InvalidReceived, MessageReceived, MessageSent, UnknownReceived
 
-HEADER = ["host_time", "uts_time", "direction", "channel", "message", "signature", "length", "data"]
+HEADER = ["host_time", "uts_time", "direction", "channel", "address", "message", "signature", "length", "data"]
 DIRECTIONS = {
     MessageReceived: "RX",
     MessageSent: "TX",
@@ -35,11 +37,13 @@ class CommLogger:
         if direction is None:
             return                                  # not a message event
         msg = getattr(event, "message", None)
+        pci = msg.pci if msg is not None else getattr(event, "pci", None)
         self._writer.writerow([
             _host_time(event.host_time),
             _uts_time(getattr(event, "timestamp", None)),
             direction,
             str(event.channel) if event.channel is not None else "",
+            str(pci) if pci is not None else "",
             type(msg).__name__ if msg is not None else "",
             f"0x{msg._signature_id:X}" if msg is not None and msg._signature_id is not None else "",
             len(event.raw),

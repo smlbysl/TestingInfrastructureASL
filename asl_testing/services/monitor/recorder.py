@@ -1,6 +1,7 @@
 """Recorder: keeps every received / sent packet per message, decodes field values on request.
 
-A message stream is identified by (direction, class name, channel, signature id).
+A message stream is identified by (direction, class name, channel, address (PCI), signature id),
+so the same message class on two 1553 nodes gives two streams.
 Each stream keeps (time, image) pairs; image is the ctypes layout of the message, so any field
 can be decoded later. Values are decoded only for the signals that are viewed.
 
@@ -20,7 +21,7 @@ from typing import Any, Optional, Sequence
 from asl_testing.events.types import MessageReceived, MessageSent
 from asl_testing.services.monitor.signals import is_number, signal_paths
 
-StreamKey = tuple[str, str, str, str]       # direction, message class, channel, signature (hex)
+StreamKey = tuple[str, str, str, str, str]  # direction, message class, channel, address (PCI), signature (hex)
 
 
 @dataclass
@@ -51,7 +52,7 @@ class Recorder:
         direction = "RX" if isinstance(event, MessageReceived) else "TX"
         msg = event.message
         sig = f"0x{msg._signature_id:X}" if msg._signature_id is not None else ""
-        self._add((direction, type(msg).__name__, str(msg._channel), sig), type(msg),
+        self._add((direction, type(msg).__name__, str(msg._channel), str(msg.pci), sig), type(msg),
                   event.host_time, event.image)
 
     def load_csv(self, text: str, name: str = "") -> int:
@@ -66,8 +67,8 @@ class Recorder:
                 continue
             raw = bytes.fromhex(row["data"])
             t = datetime.fromisoformat(row["host_time"]).timestamp()
-            self._add((row["direction"], row["message"], row["channel"], row["signature"]), cls,
-                      t, _image(cls, raw))
+            key = (row["direction"], row["message"], row["channel"], row.get("address", ""), row["signature"])
+            self._add(key, cls, t, _image(cls, raw))
             count += 1
         self.source = f"csv: {name}" if name else "csv"
         return count
@@ -95,7 +96,7 @@ class Recorder:
         with self._lock:
             streams = list(self.streams.values())
         return [{"id": s.id, "direction": s.key[0], "name": s.key[1], "channel": s.key[2],
-                 "signature": s.key[3], "count": len(s.times)} for s in streams]
+                 "address": s.key[3], "signature": s.key[4], "count": len(s.times)} for s in streams]
 
     def fields(self, stream_id: str) -> list[dict]:
         """Every signal of a stream with its latest value."""
