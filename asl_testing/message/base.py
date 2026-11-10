@@ -51,8 +51,10 @@ class BaseMessageStructure(Structure):
     _signature: ClassVar[Optional[Signature]] = None
     _channels: ClassVar[list[Channel]]           # defined on the project: channels its objects registered on
 
-    # Default PCI (address on the channel's protocol), completed / overridden by keywords per object
+    # Default PCI (address on the channel's protocol), completed / overridden by keywords per object.
+    # Merged like _defaults: a family may give node=, a message subnet=.
     _address: ClassVar[dict[str, object]] = {}
+    _all_address: ClassVar[dict[str, object]] = {}
 
     # Variable size: the real packet size is in the length field (the ctypes layout is the maximum).
     # On the wire the checksum (last field) follows the used body directly.
@@ -74,6 +76,10 @@ class BaseMessageStructure(Structure):
         for klass in reversed(cls.__mro__):             # top to bottom: subclass wins
             merged.update(klass.__dict__.get("_defaults", {}))
         cls._all_defaults = merged
+        address: dict[str, object] = {}
+        for klass in reversed(cls.__mro__):
+            address.update(klass.__dict__.get("_address", {}))
+        cls._all_address = address
 
         if BaseMessageStructure in cls.__bases__:       # project
             cls._channels = []
@@ -92,7 +98,7 @@ class BaseMessageStructure(Structure):
                                  f"(pass channel= or define _channel on the class)")
         # PCI: the protocol's address fields come as keywords (or class defaults), not as ctypes fields
         protocol = self._channel.protocol
-        address = dict(self._address)
+        address = dict(self._all_address)
         address.update({name: kw.pop(name) for name in protocol.pci_type.names() if name in kw})
         self._pci: Pci = protocol.make_pci(**address)
 
@@ -242,12 +248,12 @@ class BaseMessageStructure(Structure):
     @classmethod
     def channels(cls) -> list[Channel]:
         """Channels on which objects of this project have registered."""
-        return list(cls._channels)
+        return list(getattr(cls, "_channels", []))
 
     @classmethod
     def clear_registry(cls) -> None:
         """Removes this project's objects from every channel (between tests)."""
-        for channel in cls._channels:
+        for channel in getattr(cls, "_channels", []):
             channel.registry.clear(cls)
 
     # ---------------------------------------------------------------- wire layout
@@ -314,7 +320,10 @@ class BaseMessageStructure(Structure):
 
         The special fields are computed on one copy of the values, and the bytes come from that copy,
         so a field written by another thread meanwhile cannot end up next to an old checksum.
-        The new length / counter / checksum values are written back to the object.
+        Only the special fields whose value a hook changed (length, counter, checksum) are written back
+        to the object; other fields written meanwhile by another thread are kept.
+        The special fields' on_send hooks and body_size() run on the copy; it carries the object's
+        attributes (channel, PCI, own attributes), but attributes a hook sets on it are not kept.
         """
         return self._pack()[0]
 
@@ -323,10 +332,12 @@ class BaseMessageStructure(Structure):
         for callout in self._on_send:
             callout(self)
         copy = self.snapshot()
+        copy.__dict__.update(self.__dict__)             # hooks / body_size see the object's attributes
+        before = bytes(copy)
         for field in copy._special_fields():
             field.on_send(copy)
         image = bytes(copy)
-        self._write_special_fields(image)
+        self._write_special_fields(image, before)
         return image[:copy.body_size()] + image[copy._trailer_offset():], image
 
     def _sent(self, image: bytes) -> None:
@@ -351,13 +362,15 @@ class BaseMessageStructure(Structure):
         """Views of the special fields on this object, in _order (they share the buffer)."""
         return [getattr(self, name) for _, name in self._special]
 
-    def _write_special_fields(self, image: bytes) -> None:
-        """Copies the bytes of the special fields from image into this object (other fields untouched)."""
+    def _write_special_fields(self, image: bytes, before: bytes) -> None:
+        """Copies into this object the special fields whose bytes differ between before and image
+        (the ones a hook computed); every other field of the object is left untouched."""
         view = memoryview(self).cast("B")
         for _, name in self._special:
             descriptor = getattr(type(self), name)
             start, end = descriptor.offset, descriptor.offset + descriptor.size
-            view[start:end] = image[start:end]
+            if image[start:end] != before[start:end]:
+                view[start:end] = image[start:end]
 
     def _find_field(self, kind: type) -> Optional[FieldType]:
         for field in self._special_fields():

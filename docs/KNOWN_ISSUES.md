@@ -88,6 +88,35 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 ---
 
+## Bağımsız kod incelemesi (dal `v2.1-pdu`)
+
+Değişiklikleri görmemiş ayrı bir inceleme yapıldı. Doğrulanan hatalar düzeltildi ve `tests/test_robustness.py`'ye regresyon
+testi olarak eklendi:
+
+| No | Konu | Durum |
+|---|---|---|
+| R1 | `pack()` başka bir thread'in özel bir alana (`CmdByte`, `AsciiType`) yazdığını geri alıyordu | Düzeltildi: sadece hook'ların değiştirdiği özel alanlar geri yazılıyor |
+| R2 | Özel alan hook'ları ve `body_size()` nesne bilgisi olmayan kopyada çalışıyordu (`AttributeError`, yanlış kanal) | Düzeltildi: kopya nesnenin özelliklerini taşıyor |
+| R3 | Obje olmayan öğe, sayı olmayan timestamp UTS cevabının geri kalanını kaybettiriyordu; `{"message": 5}` 5 sıfır bayta dönüşüyordu | Düzeltildi: tip kontrolü, öğe başına koruma |
+| R4 | Splitter, kanalında RX mesajı yoksa uygulanmıyordu | Düzeltildi: sorgulanan adresin `ChannelSet`'te tanımlı bütün kanalları devrede |
+| R5 | Aynı adreste farklı signature tanımları çakışabiliyor, belgeler aksini söylüyordu | Statik kontrol mümkün değil; WARNING loglanıyor, belgeler düzeltildi |
+| R6 | `_pack()` istisnası periyodik TX thread'ini öldürüyordu | Düzeltildi: ERROR loglanıyor, mesaj gönderilmiyor, diğerleri devam ediyor; boy kuralı hatası artık `LinkError` değil |
+| - | `_address` sınıf hiyerarşisinde birleşmiyordu | Düzeltildi (aile `node`, mesaj `subnet` verebilir) |
+
+Olası ama düzeltilmemiş konular:
+
+| Konu | Not |
+|---|---|
+| Yeniden oluşturmada yön de karşılaştırılıyor | `request()` RX iken `request(direction=RX|TX)` "Conflict" verir; cihaz tarafı kopya varsayılan RX ile oluşturulursa testin RX nesnesinin yerini alır (cihaz kopyalarını `direction=TX` ile oluşturun). |
+| Geçmiş taşınca `wait_for` sessizce kaçırabilir | Kapasiteden fazla kayıt bekleyen tekrar bakmadan gelirse ya da `after` tampondan eskiyse `None` döner; tek işaret `dropped`. Predicate history kilidi altında çalışır; yavaş bir predicate RX'i bekletir. |
+| `Splitter.reset()` hiç çağrılmıyor | Yarım paket testler ya da `Comm` nesneleri arasında kalabilir. |
+| PCI alanı ile aynı adlı ctypes alanı | `node` adlı bir ctypes alanı yapıcıda anahtar kelimeyle verilemez (PCI olarak alınır). |
+| `check_channels` tek `ChannelSet` içinde | Farklı setlerde ya da `channel=` ile verilen kanallar aynı adreste denetlenmez. |
+| Kullanıcı `Header` / `Splitter` hatası `LinkError("poll")` olarak raporlanıyor | Mesajda "receiving failed" yazar; geçit hatasıyla aynı olay tipi. |
+| `RxPoller._late` `id(msg)` ile tutuluyor (eskiden beri) | Nesne değişince yeniden kullanılan id zaman aşımı olayını bastırabilir. |
+
+---
+
 ## Diğer açıklar
 
 | Konu | Önem | Durum | Not |

@@ -20,7 +20,7 @@ from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
 from asl_testing.events.types import LinkError, RxRestored, RxTimeout, WireReceived
 from asl_testing.message.base import BaseMessageStructure
-from asl_testing.channel.channel import Address, Channel, by_address
+from asl_testing.channel.channel import Address, Channel, by_address, defined_channels
 
 
 class RxPoller:
@@ -55,8 +55,15 @@ class RxPoller:
         return found
 
     def addresses(self) -> dict[Address, list[Channel]]:
-        """Address -> its channels, in the order they are tried on RX."""
-        return by_address(self.channels())
+        """Address -> its channels, in the order they are tried on RX.
+
+        An address is polled when one of its channels has an RX message (or is listened to); then every
+        channel defined on that address takes part, so its splitter and header order always apply.
+        """
+        polled = self.channels()
+        wanted = {ch.address for ch in polled}
+        extra = [ch for ch in defined_channels() if ch.address in wanted and ch not in polled]
+        return by_address(polled + extra)
 
     def poll_once(self) -> None:
         for address, channels in self.addresses().items():

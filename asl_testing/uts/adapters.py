@@ -40,8 +40,14 @@ class UtsAdapter:
 
     def timestamp(self, item: dict) -> Optional[float]:
         """Seconds; None if the item has no time."""
+        if not isinstance(item, dict):
+            raise UtsFormatError(f"item is not an object: {item!r}")
         value = item.get("timestamp")
-        return None if value is None else value * self.time_unit
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise UtsFormatError(f"timestamp is not a number: {value!r}")
+        return value * self.time_unit
 
     def to_uts_time(self, seconds: float):
         """Seconds -> UTS units (used by the fake UTS to stamp items like the real one)."""
@@ -49,17 +55,22 @@ class UtsAdapter:
 
     @staticmethod
     def _field(item: dict, name: str):
-        try:
-            return item[name]
-        except (KeyError, TypeError) as error:
-            raise UtsFormatError(f"item has no '{name}': {item!r}") from error
+        if not isinstance(item, dict) or name not in item:
+            raise UtsFormatError(f"item has no '{name}': {item!r}")
+        return item[name]
 
     @staticmethod
     def _bytes(values) -> bytes:
-        try:
-            return bytes(values)
-        except (TypeError, ValueError) as error:
-            raise UtsFormatError(f"not a byte list: {values!r}") from error
+        """A list of ints 0..255 -> bytes (an int alone, a string or a bool is not a byte list)."""
+        if not isinstance(values, (list, tuple)) or not all(_is_int(b) and 0 <= b <= 0xFF for b in values):
+            raise UtsFormatError(f"not a byte list: {values!r}")
+        return bytes(values)
+
+    @staticmethod
+    def _int(value, what: str, limit: int) -> int:
+        if not _is_int(value) or not 0 <= value < limit:
+            raise UtsFormatError(f"{what} is not an integer below {limit}: {value!r}")
+        return value
 
 
 class ByteListAdapter(UtsAdapter):
@@ -84,9 +95,10 @@ class Mil1553Adapter(UtsAdapter):
         if not isinstance(values, list) or len(values) < 3:
             raise UtsFormatError(f"1553: {values!r} has no node / subnet / word count")
         node, subnet, count, *words = values
+        node, subnet = self._int(node, "1553 node", 256), self._int(subnet, "1553 subnet", 256)
         if count != len(words):
             raise UtsFormatError(f"1553: word count {count}, but {len(words)} words")
-        if not all(isinstance(w, int) and 0 <= w <= 0xFFFF for w in words):
+        if not all(_is_int(w) and 0 <= w <= 0xFFFF for w in words):
             raise UtsFormatError(f"1553: {words!r} are not 16-bit words")
         return [Pdu(Mil1553Pci(node, subnet), protocol.from_words(words), self.timestamp(item))]
 
@@ -98,9 +110,13 @@ class CanAdapter(UtsAdapter):
         return {"id": pdu.pci.can_id, "message": list(pdu.sdu)}
 
     def from_uts(self, protocol: Can, item: dict) -> list:
-        can_id = self._field(item, "id")
+        can_id = self._int(self._field(item, "id"), "CAN id", 1 << 29)
         data = self._bytes(self._field(item, "message"))
         return [Pdu(CanPci(can_id), data, self.timestamp(item))]
+
+
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 # Default adapter per protocol type (the most specific class wins); register_adapter adds new ones.

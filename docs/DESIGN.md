@@ -120,7 +120,8 @@ RX:  UTS GET (adres) -> adapter.from_uts -> birimler -> splitter (byte stream) -
   3. değilse SDU içindeki signature'ı tutan mesaj
   4. hiçbiri: unknown
 - Kurallar kayıtta kontrol edilir: signature'sız mesajın yanına başka RX mesajı kaydolamaz (ve tersi); aynı slotta aynı
-  signature ID'si iki farklı sınıfta olamaz. Belirsizlik çalışma sırasında değil tanımda hata verir.
+  signature ID'si iki farklı sınıfta olamaz. Belirsizlik çalışma sırasında değil tanımda hata verir. Aynı slotta farklı
+  signature tanımları (farklı aileler) statik olarak kontrol edilemez: bir paket ikisine uyarsa önce kaydolan alır; WARNING loglanır.
   Not: v2.1-base'deki "önce signature, yoksa kanalın signature'sız mesajı" davranışı (sabit boylu mesajlarla tek bir
   değişken boylu mesajın aynı kanalı paylaşması) artık yok; bu durumda mesajlar ayırt edici bir alanla ayrılmalı.
 - Aynı sınıf + PCI + signature + yön ile yeniden oluşturulan nesne eskisinin yerini alır (`_registered = False`,

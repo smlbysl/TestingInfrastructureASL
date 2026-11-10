@@ -8,6 +8,8 @@
 - start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
   the period (not now + period), so the delay does not accumulate.
 - A message that is no longer registered (replaced by a new object) is dropped from the table.
+A message that cannot be packed (an exception in a callout or hook, a size the bus cannot carry) is
+logged as ERROR and not sent; the other messages keep going.
 Logs: a failed send as ERROR (with traceback), periodic start / stop as INFO, every send as DEBUG.
 """
 import logging
@@ -38,7 +40,12 @@ class TxScheduler:
     def send(self, msg: BaseMessageStructure) -> bool:
         """Sends a message once. Returns False if the UTS request failed (LinkError is published)."""
         with self._send_lock:
-            raw, image = msg._pack()                    # bytes and image from one copy of the values
+            try:
+                raw, image = msg._pack()                # bytes and image from one copy of the values
+                msg._channel.protocol.check_sdu(raw)    # a size the bus cannot carry: not a UTS error
+            except Exception:
+                self.log.exception("packing %s for %s failed", type(msg).__name__, msg._channel)
+                return False
             try:
                 wire = self.transport.send(msg._channel, msg._pci, raw)
             except Exception as error:
@@ -99,6 +106,10 @@ class TxScheduler:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            wait = self.tick()
+            try:
+                wait = self.tick()
+            except Exception:                           # last guard: periodic sending keeps running
+                self.log.exception("TX cycle failed")
+                wait = 0.01
             self._wake.wait(wait)
             self._wake.clear()

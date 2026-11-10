@@ -6,17 +6,23 @@ Identification of an incoming PDU, in this order:
   2. a message without a signature takes every PDU of its slot (it must be alone there)
   3. otherwise the message whose signature (fields inside the SDU) matches
   4. nothing matches: unknown
-The rules are checked when a message registers, so an ambiguity fails at definition time.
+The rules are checked when a message registers: a message without a signature next to another one, or the
+same signature id twice under one signature definition, fails at definition time. Messages of families with
+different signature definitions in one slot cannot be checked that way (a packet may match both; the one
+registered first wins), so that case is logged as a WARNING.
 
 The same message created again (same class, PCI, signature and direction) replaces the old object.
 TX-only objects are kept (periodic sending, clearing between tests) but never take incoming packets.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from asl_testing.protocol.pdu import Pdu
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from asl_testing.channel.channel import Channel
@@ -46,11 +52,16 @@ class _Slot:
             raise ValueError(f"Conflict: {name} and {type(owner).__name__} have the same {where} and "
                              f"signature 0x{msg._signature_id:X}")
 
-    def add(self, msg: BaseMessageStructure) -> None:
+    def add(self, msg: BaseMessageStructure, where: str = "") -> None:
         if msg._signature is None:
             self.plain = msg
-        else:
-            self.signed.setdefault(msg._signature, {})[msg._signature_id] = msg
+            return
+        if msg._signature not in self.signed and self.signed:
+            other = next(iter(next(iter(self.signed.values())).values()))
+            log.warning("%s: %s and %s use different signature definitions; a packet matching both goes "
+                        "to %s (registered first)", where, type(msg).__name__, type(other).__name__,
+                        type(other).__name__)
+        self.signed.setdefault(msg._signature, {})[msg._signature_id] = msg
 
     def remove(self, msg: BaseMessageStructure) -> None:
         if self.plain is msg:
@@ -94,7 +105,7 @@ class ChannelRegistry:
             key = msg._pci.key()
             slot = self.slots.get(key) or _Slot()
             slot.check(msg, self._where(msg))
-            slot.add(msg)
+            slot.add(msg, self._where(msg))
             self.slots[key] = slot
             if msg._rx.timing.is_periodic:
                 self.periodic_rx.append(msg)

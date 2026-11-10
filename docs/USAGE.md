@@ -327,7 +327,7 @@ class EthHeader(Header):
 3. Değilse mesajın içindeki signature alanları eşleşen mesaj.
 4. Hiçbiri: `UnknownReceived`.
 
-Belirsizlikler tanım sırasında hata verir: aynı adreste signature'sız bir mesajın yanına başka mesaj tanımlanamaz, aynı signature iki mesajda olamaz. Bir adreste en fazla bir başlıksız kanal ve en fazla bir splitter olabilir.
+Belirsizlikler tanım sırasında hata verir: aynı adreste signature'sız bir mesajın yanına başka mesaj tanımlanamaz, aynı signature iki mesajda olamaz. Aynı adreste farklı signature tanımlarını kullanan ailelerin mesajları ise birlikte kayıt olabilir; bir paket ikisine de uyarsa önce kaydolan alır, bu durum WARNING olarak loglanır. Bir adreste en fazla bir başlıksız kanal ve en fazla bir splitter olabilir.
 
 **Aynı adreste birden fazla mesaj (1553 örneği):**
 

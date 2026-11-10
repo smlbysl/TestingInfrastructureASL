@@ -25,6 +25,14 @@ from asl_testing.protocol.stream import Ethernet, Header, Serial, Splitter
 
 Address = tuple[str, int]                   # (UTS path, interface)
 
+_DEFINED: list["Channel"] = []              # every channel of every ChannelSet, in definition order
+
+
+def defined_channels() -> list["Channel"]:
+    """Channels defined in a ChannelSet. On a polled address all of them take part in RX (the
+    address's splitter and the order of the headers apply even if a channel has no RX message)."""
+    return list(_DEFINED)
+
 
 class Channel:
     def __init__(self, interface: int, protocol: Protocol, name: str = ""):
@@ -84,6 +92,8 @@ class ChannelSet:
         for name, value in vars(cls).items():
             if isinstance(value, Channel):
                 value.name = name
+                if value not in _DEFINED:
+                    _DEFINED.append(value)
         check_channels(cls.all())
 
     @classmethod

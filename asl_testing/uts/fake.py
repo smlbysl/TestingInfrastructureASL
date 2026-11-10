@@ -39,9 +39,13 @@ class FakeUtsClient(UtsClient):
     # ---------------------------------------------------------------- device side
 
     def inject(self, path: str, interface: int, item: dict) -> None:
-        """Puts a raw UTS item into the receive buffer (stamped now if it has no timestamp)."""
-        item = dict(item)
-        item.setdefault("timestamp", time.time() / self.time_unit)
+        """Puts a raw UTS item into the receive buffer (stamped now if it has no timestamp).
+
+        Anything can be injected, also a malformed item (not a dict), to test how it is handled.
+        """
+        if isinstance(item, dict):
+            item = dict(item)
+            item.setdefault("timestamp", time.time() / self.time_unit)
         with self._lock:
             self._buffers[(path, interface)].append(item)
 

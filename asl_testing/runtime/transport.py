@@ -70,15 +70,21 @@ class Transport:
             try:
                 timestamp = adapter.timestamp(item)
                 units = adapter.from_uts(protocol, item)
-            except UtsFormatError as error:
+            except Exception as error:                  # UtsFormatError, or an adapter bug: this item only
+                if not isinstance(error, UtsFormatError):
+                    error = UtsFormatError(f"{type(error).__name__}: {error} (item {item!r})")
                 frames.append(RxFrame(None, None, b"", path, interface, None, now, error))
                 continue
             for unit in units:
-                parts = splitter.split(unit) if splitter is not None and isinstance(unit, bytes) else [unit]
-                for part in parts:
-                    channel, pdu = self._identify(channels, part, timestamp)
-                    wire = channel.protocol.wire(pdu) if pdu is not None else _as_bytes(part)
-                    frames.append(RxFrame(channel, pdu, wire, path, interface, timestamp, now))
+                try:                                    # a user splitter / header that raises: this unit only
+                    parts = splitter.split(unit) if splitter is not None and isinstance(unit, bytes) else [unit]
+                    for part in parts:
+                        channel, pdu = self._identify(channels, part, timestamp)
+                        wire = channel.protocol.wire(pdu) if pdu is not None else _as_bytes(part)
+                        frames.append(RxFrame(channel, pdu, wire, path, interface, timestamp, now))
+                except Exception as error:
+                    error = UtsFormatError(f"receiving on {path}:{interface} failed: {type(error).__name__}: {error}")
+                    frames.append(RxFrame(None, None, _as_bytes(unit), path, interface, timestamp, now, error))
         return frames
 
     @staticmethod
