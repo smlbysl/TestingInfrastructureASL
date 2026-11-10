@@ -28,6 +28,10 @@ from asl_testing.message.timing import Direction, Timing
 from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, ProtocolType, Rs422Channel
 from asl_testing.channel.framing import Envelope, Framing, Splitter
 
+# protocols (one class per bus type; Ethernet first)
+from asl_testing.protocol.base import Protocol, Received
+from asl_testing.protocol.ethernet import EthernetProtocol
+
 # events
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, MessageReceived, MessageSent,
@@ -48,7 +52,7 @@ __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
     "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType",
     "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "ProtocolType",
-    "Framing", "Envelope", "Splitter",
+    "Framing", "Envelope", "Splitter", "Protocol", "Received", "EthernetProtocol",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
     "UtsClient", "UtsError", "UtsFrame", "UtsControl", "FakeUtsClient", "HttpUtsClient",

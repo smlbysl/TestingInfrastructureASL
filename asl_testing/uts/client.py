@@ -4,6 +4,10 @@ UTS is an HTTP service:
 - POST transfers data on a protocol + interface.
 - GET returns the messages buffered on a protocol + interface and empties that buffer.
 
+Two levels, while the buses move to protocol objects one by one:
+- post / get: JSON, the body / items are written and read by the bus's protocol object (Ethernet now)
+- transfer / fetch: raw bytes, for the buses that have no protocol object yet
+
 The real HTTP client will be written when the UTS API is available. Open points (kept here only):
 - JSON layout of the GET answer (a "messages" field with timestamp and data, plus some header info)
 - data encoding (hex, base64, list of bytes)
@@ -38,6 +42,17 @@ class UtsClient(ABC):
     @abstractmethod
     def fetch(self, protocol: ProtocolType, interface: int) -> list[UtsFrame]:
         """Returns the messages received since the last call (HTTP GET)."""
+
+    # ---------------------------------------------------------------- JSON level (protocol objects)
+    # Not abstract while the byte level is still used; a client without them raises NotImplementedError.
+
+    def post(self, path: str, interface: int, body: dict) -> None:
+        """Sends one item (POST /{path}/{interface}/messages); body comes from the protocol."""
+        raise NotImplementedError
+
+    def get(self, path: str, interface: int) -> list[dict]:
+        """Items received since the last call (GET /{path}/{interface}/messages); read by the protocol."""
+        raise NotImplementedError
 
     # ---------------------------------------------------------------- management (optional)
     # Not abstract: a client without them keeps working; only these calls raise NotImplementedError.
