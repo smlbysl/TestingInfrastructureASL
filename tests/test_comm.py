@@ -27,6 +27,22 @@ class CommTests(CommTestCase):
             time.sleep(0.01)
         self.assertEqual(len(invalid), 1)
 
+    def test_too_small_length_does_not_stop_receiving(self):
+        """K1: a broken variable-size packet is invalid and the next packet is still received."""
+        import struct
+        from projects.example_project.messages import ser_report
+        report = ser_report(DEST, SRC, 0)
+        tx = ser_report(DEST, SRC, 0, direction=Direction.TX)
+        tx.count = 2
+        bad = bytearray(tx.pack())
+        struct.pack_into("<H", bad, ser_report.messageLength.offset, 1)
+        ch = report.channel
+        report.has_new()
+        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.device_sends(tx)
+        self.assertEqual(self.comm.wait_new(report, timeout=0.5), 1)
+        self.assertEqual(report.rx_state.errors, 1)
+
     def test_missing_periodic_message_times_out(self):
         status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=2))
         timeouts = []

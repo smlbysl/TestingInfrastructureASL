@@ -68,7 +68,9 @@ class LengthType(FieldType):
     def on_receive(self, msg, raw: bytes) -> bool:
         length = self.from_raw(msg, raw).val
         if msg._variable_size:
-            return length <= ctypes.sizeof(msg)  # the ctypes layout is the maximum
+            # at least up to the end of this field plus the trailer (checksum); at most the ctypes layout
+            minimum = self.offset_in(msg) + ctypes.sizeof(self) + msg._trailer_size()
+            return minimum <= length <= ctypes.sizeof(msg)
         return length == ctypes.sizeof(msg)
 
 

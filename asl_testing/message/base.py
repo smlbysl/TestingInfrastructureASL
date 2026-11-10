@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 from ctypes import Structure
 from typing import Callable, ClassVar, Optional
 
@@ -13,6 +14,7 @@ from asl_testing.message.state import RxState, TxState
 from asl_testing.message.timing import Timing
 
 Callout = Callable[["BaseMessageStructure"], None]
+log = logging.getLogger(__name__)
 
 
 def _explicit_none(cls) -> bool:
@@ -261,27 +263,34 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- RX side
 
     def validate(self, raw: bytes) -> bool:
-        """Do the size and the special fields (length, checksum ...) of the packet match?"""
-        if len(raw) < self._rx_size(raw):
+        """Do the size and the special fields (length, checksum ...) of the packet match?
+
+        A hook that raises (e.g. a malformed packet it cannot read) makes the packet invalid;
+        the exception is logged and never reaches the RX thread.
+        """
+        try:
+            if len(raw) < self._rx_size(raw):
+                return False
+            return all(field.on_receive(self, raw) for field in self._special_fields())
+        except Exception:
+            log.warning("%s: validation raised on a %d-byte packet", type(self).__name__, len(raw),
+                        exc_info=True)
             return False
-        return all(field.on_receive(self, raw) for field in self._special_fields())
 
     def decode(self, raw: bytes, timestamp: Optional[float] = None) -> bool:
         """Writes the packet into the object's ctypes buffer in place, if it is valid.
 
         Body bytes go to the start of the buffer, trailer bytes to the checksum field;
         the unused part of a variable-size message is cleared.
+        The new image is prepared first and written with one copy (a memoryview assignment does not
+        release the GIL), so a thread reading a field sees the old or the new packet, never a mix.
         timestamp: arrival time reported by UTS (seconds), stored in rx_state.timestamp.
         """
         if not self.validate(raw):
             if self._rx is not None:
                 self._rx.on_error()
             return False
-        body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
-        address = ctypes.addressof(self)
-        ctypes.memset(address, 0, ctypes.sizeof(self))
-        ctypes.memmove(address, raw, body)
-        ctypes.memmove(address + offset, raw[body:body + size], size)
+        memoryview(self).cast("B")[:] = self._image(raw)
         if self._rx is not None:
             self._rx.on_receive(timestamp)
         for callout in self._on_receive:
@@ -343,3 +352,12 @@ class BaseMessageStructure(Structure):
     def _rx_body(self, raw: bytes) -> int:
         """Body bytes of the incoming packet (everything before its checksum)."""
         return self._rx_size(raw) - self._trailer_size()
+
+    def _image(self, raw: bytes) -> bytes:
+        """ctypes layout of a validated packet: body at the start, trailer at the checksum field,
+        the unused part of a variable-size message zero."""
+        body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
+        image = bytearray(ctypes.sizeof(self))
+        image[:body] = raw[:body]
+        image[offset:offset + size] = raw[body:body + size]
+        return bytes(image)

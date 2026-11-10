@@ -67,7 +67,10 @@ class RxPoller:
                 self.clock.update(frame.timestamp)
                 self.bus.publish(WireReceived(frame.channel, frame.protocol, frame.interface, frame.wire,
                                               frame.timestamp, frame.host_time))
-                self.dispatcher.dispatch(frame)
+                try:
+                    self.dispatcher.dispatch(frame)
+                except Exception:                       # one bad frame must not stop receiving
+                    self.log.exception("RX of a frame on %s failed", frame.channel)
         self._check_timeouts()
 
     # ---------------------------------------------------------------- timeouts
@@ -117,4 +120,7 @@ class RxPoller:
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval):
-            self.poll_once()
+            try:
+                self.poll_once()
+            except Exception:                           # last guard: the poller thread keeps running
+                self.log.exception("RX poll cycle failed")
