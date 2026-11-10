@@ -9,6 +9,8 @@ Equality is identity: every channel is defined once, in the project.
         CONTROL = Rs422Channel(0)
         DIAG    = EthernetChannel(1, header=EthHeader())
         RAW     = EthernetChannel(1)
+        BUS_A   = Mil1553Channel(1)
+        CAN0    = CanChannel(0)
 
 Messages get the channel as a class default (_channel). Physical settings (IP, port, baud rate ...)
 are not part of it.
@@ -17,6 +19,8 @@ from typing import Iterable, Iterator, Optional
 
 from asl_testing.channel.registry import ChannelRegistry
 from asl_testing.protocol.base import Protocol
+from asl_testing.protocol.can import Can
+from asl_testing.protocol.mil1553 import Mil1553
 from asl_testing.protocol.stream import Ethernet, Header, Serial, Splitter
 
 Address = tuple[str, int]                   # (UTS path, interface)
@@ -56,6 +60,20 @@ class EthernetChannel(Channel):
 class Rs422Channel(Channel):
     def __init__(self, interface: int, header: Optional[Header] = None, splitter: Optional[Splitter] = None):
         super().__init__(interface, Serial(header, splitter))
+
+
+class Mil1553Channel(Channel):
+    """A 1553 bus; messages give node= and subnet=. byteorder: how the message bytes map to words."""
+
+    def __init__(self, interface: int, byteorder: str = "big"):
+        super().__init__(interface, Mil1553(byteorder))
+
+
+class CanChannel(Channel):
+    """A CAN bus; messages give can_id= (or _address). extended: 29-bit ids."""
+
+    def __init__(self, interface: int, extended: bool = False):
+        super().__init__(interface, Can(extended))
 
 
 class ChannelSet:

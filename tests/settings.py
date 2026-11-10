@@ -6,9 +6,10 @@ Change PROJECTS to test another project. ASL_UTS=http selects the real UTS
 import os
 
 from asl_testing import FakeUtsClient
+from projects.example_project.buses import CanBase, Mil1553Base
 from projects.example_project.header import ProjectBase
 
-PROJECTS = [ProjectBase]
+PROJECTS = [ProjectBase, Mil1553Base, CanBase]
 
 SRC, DEST = 0x0001, 0x0002
 

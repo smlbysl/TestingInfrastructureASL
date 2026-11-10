@@ -100,6 +100,8 @@ class BaseMessageStructure(Structure):
         self._apply_defaults()
         # ctypes fields go to super()
         super().__init__(*args, **kw)
+        if not self._variable_size:
+            protocol.check_sdu(bytes(self))           # e.g. more than 8 bytes on CAN: a definition error
 
         self._direction = direction if direction is not None else type(self)._direction
         capacity = history if history is not None else self._history

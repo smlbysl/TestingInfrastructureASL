@@ -42,7 +42,10 @@ from asl_testing.message.timing import Direction, Timing
 from asl_testing.protocol.pdu import NO_PCI, NoPci, Pci, Pdu
 from asl_testing.protocol.base import Protocol
 from asl_testing.protocol.stream import ByteStream, Ethernet, Header, Serial, Splitter
-from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, Rs422Channel
+from asl_testing.protocol.mil1553 import Mil1553, Mil1553Pci
+from asl_testing.protocol.can import Can, CanPci
+from asl_testing.channel.channel import (CanChannel, Channel, ChannelSet, EthernetChannel, Mil1553Channel,
+                                         Rs422Channel)
 
 # events
 from asl_testing.events.bus import EventBus, Subscriber
@@ -51,7 +54,8 @@ from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, 
 
 # UTS
 from asl_testing.uts.client import UtsClient, UtsError
-from asl_testing.uts.adapters import ByteListAdapter, UtsAdapter, UtsFormatError, register_adapter
+from asl_testing.uts.adapters import (ByteListAdapter, CanAdapter, Mil1553Adapter, UtsAdapter, UtsFormatError,
+                                     register_adapter)
 from asl_testing.uts.control import UtsControl
 from asl_testing.uts.fake import FakeUtsClient
 from asl_testing.uts.http import HttpUtsClient
@@ -65,10 +69,12 @@ __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
     "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType", "MessageHistory", "Record",
     "Pci", "NoPci", "NO_PCI", "Pdu", "Protocol", "ByteStream", "Ethernet", "Serial", "Header", "Splitter",
-    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel",
+    "Mil1553", "Mil1553Pci", "Can", "CanPci",
+    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "Mil1553Channel", "CanChannel",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
-    "UtsClient", "UtsError", "UtsFormatError", "UtsAdapter", "ByteListAdapter", "register_adapter",
+    "UtsClient", "UtsError", "UtsFormatError", "UtsAdapter", "ByteListAdapter", "Mil1553Adapter", "CanAdapter",
+    "register_adapter",
     "UtsControl", "FakeUtsClient", "HttpUtsClient",
     "ErrorLog", "CommLogger", "MonitorService",
 ]
