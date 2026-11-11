@@ -52,6 +52,6 @@ with comm:                                        # open(): RX poller + TX sched
     comm.send(req)
     time.sleep(0.1)                               # give the poller time to fetch the answer
 
-print(f"\nsent to UTS     : {len(uts.sent)} packet(s), first on {uts.sent[0][0].name}:{uts.sent[0][1]}")
+print(f"\nsent to UTS     : {len(uts.posted)} request(s), first on {uts.posted[0][0]}:{uts.posted[0][1]}")
 print(f"status.comut[0] : {status.comut[0]}")
 print(f"status rx_state : count={status.rx_state.count}, uts time={status.rx_state.timestamp:.3f}")

@@ -45,10 +45,12 @@ def _wait(check: Callable[[], int], timeout: float, interval: float) -> int:
 
 class Comm:
     def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
-                 poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
+                 poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None,
+                 protocols: Optional[dict] = None):
+        """protocols: protocol object per channel type (ProtocolType -> Protocol), replacing the defaults."""
         self.log = logger or logging.getLogger(__name__)
         self.bus = EventBus(log=logger)
-        self.transport = Transport(uts)
+        self.transport = Transport(uts, protocols)
         self.dispatcher = Dispatcher(self.bus, projects, log=logger)
         self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
         self.tx = TxScheduler(self.transport, self.bus, log=logger)

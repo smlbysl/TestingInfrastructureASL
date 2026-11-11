@@ -542,15 +542,22 @@ comm.bus.unsubscribe(sub)</code></pre>
 <h2 id="uts">UTS (istemci, simülasyon, yönetim)</h2>
 
 <h3>UtsClient: gerçek hat</h3>
-<p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot vardır:</p>
-<div class="sig">transfer(protocol, interface, data) <span class="ret">-&gt; None</span></div>
-<p>Baytları hatta gönderir. Hata olursa <code>UtsError</code> fırlatır.</p>
-<div class="sig">fetch(protocol, interface) <span class="ret">-&gt; list[UtsFrame]</span></div>
-<p>Son çağrıdan beri gelen paketleri döner. <code>UtsFrame(data, timestamp)</code>.</p>
+<p>Gerçek cihaz için bir istemci yazılır. Ethernet ve RS422 için kullanılan iki metot:</p>
+<div class="sig">post(path, interface, body) <span class="ret">-&gt; None</span></div>
+<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa <code>UtsError</code> fırlatır.</p>
+<div class="sig">get(path, interface) <span class="ret">-&gt; list[dict]</span></div>
+<p>Son çağrıdan beri gelen öğeleri döner; her öğeyi protokol çözer.</p>
+<p>Protokol nesnesi olmayan hat tipleri için bayt seviyesindeki <code>transfer(protocol, interface, data)</code> ve
+<code>fetch(protocol, interface) -&gt; list[UtsFrame]</code> kalır.</p>
+<h4>Protokol nesneleri</h4>
+<p>Her hat tipinin baytları UTS'e nasıl yazdığını ve UTS'ten nasıl okuduğunu bir protokol nesnesi belirler:
+<code>EthernetProtocol</code>, <code>Rs422Protocol</code>. İkisinin biçimi bugün aynı: <code>{"message": [b0, b1, ...], "timestamp": t}</code>.
+UTS'in zamanı saniye değilse <code>EthernetProtocol(time_unit=1e-6)</code> gibi verilir ve
+<code>Comm(uts, projects, protocols={ProtocolType.ETHERNET: ...})</code> ile kullanılır.</p>
 <p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
 <code>NotImplementedError</code> fırlatır; istemci yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
-<code>HttpUtsClient</code> şu an taslaktır. <code>transfer</code> ve <code>fetch</code> bilerek <code>NotImplementedError</code> fırlatır.</div>
+<code>HttpUtsClient</code> şu an taslaktır; metotları bilerek <code>NotImplementedError</code> fırlatır.</div>
 
 <h3>FakeUtsClient: simülasyon</h3>
 <p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
@@ -561,7 +568,9 @@ wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
 uts.inject(ch.protocol, ch.interface, wire)           # cihaz bu paketi gönderdi
 
 bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
-uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived</code></pre>
+uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived
+
+uts.posted[-1]        # ("rs422", 0, {"message": [...]}): son gönderilen istek</code></pre>
 
 <h3>comm.control: UTS yönetimi</h3>
 <p>Hedef olarak bir kanal veya bir mesaj verilebilir.</p>
@@ -669,7 +678,7 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>ProtocolType</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
   <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
-  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>
 <p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>

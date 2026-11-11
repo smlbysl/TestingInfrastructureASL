@@ -5,20 +5,26 @@ from collections import defaultdict
 from typing import Optional
 
 from asl_testing.channel.channel import ProtocolType
+from asl_testing.protocol.defaults import default_protocols
 from asl_testing.uts.client import FilterGroups, UtsClient, UtsFrame
 
 
 class FakeUtsClient(UtsClient):
     """Stand-in for UTS during development and tests.
 
-    transfer() records what is sent; inject() plays the device side and puts a packet
-    into the receive buffer of a protocol + interface; fetch() drains that buffer, like UTS.
+    transfer() / post() record what is sent; inject() plays the device side and puts a packet
+    into the receive buffer of a protocol + interface; fetch() / get() drain that buffer, like UTS.
+    For a bus with a protocol object (Ethernet, RS422 ...) inject() stores the item UTS would return
+    (protocol.simulate), and get() returns it; the other buses keep the raw bytes for fetch().
     Configs and filters are only stored (the filter is not applied to injected packets).
     """
 
     def __init__(self):
-        self.sent: list[tuple[ProtocolType, int, bytes]] = []
+        self.sent: list[tuple[ProtocolType, int, bytes]] = []          # byte level (transfer)
+        self.posted: list[tuple[str, int, dict]] = []                  # JSON level (post)
+        self.protocols = default_protocols()                            # to build the items of get()
         self._buffers: dict[tuple[ProtocolType, int], list[UtsFrame]] = defaultdict(list)
+        self._items: dict[tuple[str, int], list[dict]] = defaultdict(list)
         self._lock = threading.Lock()         # inject (test thread) and fetch (RX poller) share the buffers
         self.configs: dict[tuple[ProtocolType, int], dict] = defaultdict(dict)
         self.filters: dict[tuple[ProtocolType, int], tuple[str, FilterGroups]] = {}
@@ -30,11 +36,23 @@ class FakeUtsClient(UtsClient):
         with self._lock:
             return self._buffers.pop((protocol, interface), [])
 
+    def post(self, path: str, interface: int, body: dict) -> None:
+        self.posted.append((path, interface, dict(body)))
+
+    def get(self, path: str, interface: int) -> list[dict]:
+        with self._lock:
+            return self._items.pop((path, interface), [])
+
     def inject(self, protocol: ProtocolType, interface: int, data: bytes,
                timestamp: Optional[float] = None) -> None:
+        """The device sent data (bytes on the line) on a protocol + interface."""
         stamp = time.time() if timestamp is None else timestamp
+        handler = self.protocols.get(protocol)
         with self._lock:
-            self._buffers[(protocol, interface)].append(UtsFrame(bytes(data), stamp))
+            if handler is None:
+                self._buffers[(protocol, interface)].append(UtsFrame(bytes(data), stamp))
+            else:
+                self._items[(handler.path, interface)].append(handler.simulate(bytes(data), stamp))
 
     # ---------------------------------------------------------------- management
 

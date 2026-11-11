@@ -52,9 +52,9 @@ def main() -> None:
     comm.start(sw_req)
     time.sleep(0.1)
     comm.stop(sw_req)
-    periodic = len(uts.sent)
+    periodic = len(uts.posted)
     comm.send(sw_req)
-    print(f"  periodic sends: {periodic}, after one-shot: {len(uts.sent)}, "
+    print(f"  periodic sends: {periodic}, after one-shot: {len(uts.posted)}, "
           f"counter: {sw_req.messageCounter.val}")
 
     # --- RX ---------------------------------------------------------------------
@@ -138,14 +138,14 @@ def main() -> None:
     # --- One-shot request bit (after_send of a field type) ----------------------
     print("\nOne-shot bit")
     motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.02))
-    first = len(uts.sent)
+    first = len(uts.posted)
     comm.start(motor)
     time.sleep(0.03)
     motor.cmd.startReq = 1                                               # request a start once
     time.sleep(0.1)
     comm.stop(motor)
     offset = motor_cmd.cmd.offset
-    bits = [data[offset] & 1 for _, _, data in uts.sent[first:]]
+    bits = [body["message"][offset] & 1 for _, _, body in uts.posted[first:]]
     print(f"  startReq in sent packets: {bits}, now: {motor.cmd.startReq}, mode kept: {motor.cmd.mode}")
 
     # --- UTS control: configuration and filters (direct calls) ------------------
@@ -166,12 +166,12 @@ def main() -> None:
     def unreachable(*args):
         raise ConnectionError("UTS unreachable")
 
-    uts.transfer = unreachable
+    uts.post = unreachable
     print(f"\nUTS error: send returned {comm.send(sw_req2)}")
     motor.cmd.startReq = 1
     comm.send(motor)
     print(f"  startReq after a failed send (kept for the next send): {motor.cmd.startReq}")
-    del uts.transfer
+    del uts.post
 
     comm.close()
     print(f"\nline level: {len(wire_tx)} WireSent, {len(wire_rx)} WireReceived")

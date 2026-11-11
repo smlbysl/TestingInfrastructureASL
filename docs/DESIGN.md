@@ -20,6 +20,10 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
   channel/                   2. Kanal: nereden gider
     channel.py               Channel, EthernetChannel, Rs422Channel, ChannelSet, ProtocolType
     framing.py               Splitter, Envelope, Framing
+  protocol/                  Protokol: bir hat tipinin baytları UTS'e nasıl yazılır / UTS'ten nasıl okunur
+    base.py                  Protocol (path, encode, decode, simulate), Received
+    ethernet.py, rs422.py    EthernetProtocol, Rs422Protocol: {"message": [baytlar], "timestamp": t}
+    defaults.py              hat tipi -> protokol nesnesi (varsayılanlar)
   uts/                       3. Sürücü: UTS'ye nasıl ulaşılır
     client.py                UtsClient (arayüz), UtsFrame
     http.py                  HttpUtsClient (yer tutucu)
@@ -61,8 +65,20 @@ TxScheduler      ne zaman gönderilir        RxPoller   ne zaman sorgulanır + z
                                             Dispatcher registry ile eşleme, decode, olay
 EventBus         olayları abonelere dağıtır (CommLogger, ErrorLog, test dinleyicileri, ileride simülasyon/UI)
 Transport        kanal envelope'u, adres (protocol + interface) başına sorgu, splitter, kanal tespiti
-UtsClient        HTTP (POST transfer, GET mesaj listesi); UTS'ye özgü her şey burada
+Protocol         hat tipine göre baytlar <-> UTS isteği / öğesi (encode, decode)
+UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu gibi taşır
 ```
+
+## Protokol nesneleri
+- Her hat tipinin bir protokol nesnesi var: `EthernetProtocol`, `Rs422Protocol`. Çekirdek protokole hattaki baytları
+  verir, UTS isteğinin gövdesini alır (`encode`); UTS'in döndürdüğü öğeyi verir, baytları ve zamanı alır (`decode`).
+- Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
+  eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
+- Transport protokolü kanalın tipiyle bulur (`default_protocols()`; `Comm(..., protocols=...)` ile değiştirilebilir).
+  Protokol nesnesi olmayan bir tip eski bayt yolunu (`uts.transfer` / `uts.fetch`) kullanır.
+- Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
+  biri değişirse diğeri etkilenmez.
+- Açık: gerçek UTS'te alan adları ve timestamp birimi (`time_unit` = UTS birimi başına saniye).
 
 ## Kanal ve framing
 - `Channel`: generic kanal tanımı = protokol (alt sınıf: `EthernetChannel`, `Rs422Channel`) + interface + `Framing`.

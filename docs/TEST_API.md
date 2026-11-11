@@ -137,6 +137,7 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `FakeUtsClient.inject(protocol, interface, bytes)` | Simülasyonda RX baytı üretir | Evet (sahte cihaz) | Evet |
+| `FakeUtsClient.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
 | `comm.control.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
 | `comm.control.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |
 | `comm.control.get_filter / set_filter / clear_filter` | Ham filtre yönetimi | Sınırlı | Evet |
