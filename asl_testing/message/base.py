@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import time
 from ctypes import Structure
 from typing import Callable, ClassVar, Optional
 
 from asl_testing.channel.channel import Channel
 from asl_testing.message.timing import Direction
 from asl_testing.message.fields import ChecksumType, FieldType, LengthType
+from asl_testing.message.history import MessageHistory, Record, next_seq
 from asl_testing.message.registry import Registry
 from asl_testing.message.signature import Signature
 from asl_testing.message.state import RxState, TxState
@@ -60,6 +62,7 @@ class BaseMessageStructure(Structure):
     _channel: ClassVar[Optional[Channel]] = None
     _direction: ClassVar[Direction] = Direction.RX
     _timing: ClassVar[Timing] = Timing()
+    _history: ClassVar[int] = 64                 # received packets kept per object (rx_history)
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -85,6 +88,7 @@ class BaseMessageStructure(Structure):
                  direction: Optional[Direction] = None,
                  rx: Optional[Timing] = None,
                  tx: Optional[Timing] = None,
+                 history: Optional[int] = None,
                  **kw):
         # Defaults first; values given to the constructor override them
         self._apply_defaults()
@@ -97,7 +101,10 @@ class BaseMessageStructure(Structure):
             raise AttributeError(f"{type(self).__name__}: no channel "
                                  f"(pass channel= or define _channel on the class)")
         self._direction = direction if direction is not None else type(self)._direction
-        self._rx = RxState(rx or self._timing) if Direction.RX in self._direction else None
+        self._rx = None
+        if Direction.RX in self._direction:
+            capacity = history if history is not None else type(self)._history
+            self._rx = RxState(rx or self._timing, history=MessageHistory(capacity, type(self).__name__))
         self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
         self._on_receive: list[Callout] = []
         self._on_send: list[Callout] = []
@@ -150,6 +157,24 @@ class BaseMessageStructure(Structure):
     def rx_age(self) -> Optional[float]:
         """Seconds since the last valid packet, on this host's clock; None if nothing has arrived."""
         return self._rx.age() if self._rx is not None else None
+
+    @property
+    def rx_history(self) -> Optional[MessageHistory]:
+        """Received packets of this object in order (the last N; None for a TX-only message).
+
+            mark = status.rx_history.mark()
+            comm.send(request)
+            values = [r.snapshot().speed for r in status.rx_history.since(mark)]
+        """
+        return self._rx.history if self._rx is not None else None
+
+    def snapshot(self):
+        """A consistent copy of the current values, taken with one copy (not registered).
+
+        Use it to read several fields of the same packet: s = status.snapshot(); s.speed, s.mode.
+        The copy has field values only: no channel, state or history.
+        """
+        return type(self).from_buffer_copy(bytes(self))
 
     def has_new(self) -> int:
         """Number of valid packets received since the last call (0: none); the call clears it.
@@ -297,6 +322,7 @@ class BaseMessageStructure(Structure):
         memoryview(self).cast("B")[:] = image               # one copy: readers see the old or the new packet
         if self._rx is not None:
             self._rx.on_receive(timestamp)
+            self._rx.history.push(Record(next_seq(), timestamp, time.time(), bytes(image), type(self)))
         for callout in self._on_receive:
             callout(self)
         return True

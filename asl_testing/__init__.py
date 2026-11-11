@@ -11,7 +11,7 @@ The sub-packages are the library's internals (layers, each importing only the on
     events/      event types and the event bus
     uts/         UTS client (HTTP, fake) and UTS control
     channel/     channel definition and framing
-    message/     message model (base class, fields, signature, registry, timing, state)
+    message/     message model (base class, fields, signature, registry, timing, state, history)
 """
 __version__ = "2.1.dev3"
 
@@ -21,6 +21,7 @@ from asl_testing.comm import Comm
 # message model
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.message.fields import (AsciiType, ChecksumType, CounterType, FieldType, LengthType)
+from asl_testing.message.history import MessageHistory, Record
 from asl_testing.message.signature import Signature
 from asl_testing.message.timing import Direction, Timing
 
@@ -46,7 +47,7 @@ from asl_testing.services.monitor import MonitorService
 
 __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
-    "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType",
+    "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType", "MessageHistory", "Record",
     "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "ProtocolType",
     "Framing", "Envelope", "Splitter",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",

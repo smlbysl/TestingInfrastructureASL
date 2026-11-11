@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
+from asl_testing.message.history import MessageHistory
 from asl_testing.message.timing import Timing
 
 
@@ -19,6 +20,7 @@ class RxState:
     count: int = 0                       # number of valid packets
     errors: int = 0                      # number of packets that failed validation
     created: float = field(default_factory=time.monotonic)   # host time the object was created
+    history: Optional[MessageHistory] = None   # received packets in order (the last N); new per object
     _seen: int = 0                       # count at the last check_new() call
 
     def on_receive(self, timestamp: Optional[float] = None) -> None:
