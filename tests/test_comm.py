@@ -41,6 +41,9 @@ class CommTests(CommTestCase):
         self.uts.inject(ch.protocol, ch.interface, bytes(bad))
         self.device_sends(tx)                                               # a valid one right after
         self.expect_new(rx)
+        deadline = time.monotonic() + self.timeout              # events are delivered by the bus thread
+        while not invalid and time.monotonic() < deadline:
+            time.sleep(0.01)
         self.assertEqual(len(invalid), 1)
         self.assertEqual(rx.count, 2)
 
