@@ -15,7 +15,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 1. ~~K1: Uzunluk alanı RX thread'ini öldürüyor~~ (çözüldü)
 2. ~~B1: `decode` okuyuculara yarım değer gösteriyor~~ (çözüldü)
 3. K3: Özel alan tipleri projenin endian'ını takip etmiyor (çözüm tasarlandı, karar bekliyor)
-4. B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor
+4. ~~B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor~~ (çözüldü)
 5. B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç
 6. B13: GIL kontrolü
 
@@ -88,9 +88,9 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 | B6 | `has_new()` paylaşılan tek imleç | Orta | Kısmen | `peek_new` / `peek_sent` eklendi. Asıl çözüm: çağırana ait `mark` / `since`. |
 | B7 | Batch içindeki paketler aynı zaman damgasını taşıyor | Orta | Açık | Global, monoton `seq` eklenmeli. UTS listesinin kronolojik olduğu doğrulanmalı. |
 | B8 | `msg.on_receive` callout'u canlı nesneyi değiştirebilir | Düşük | Karar bekliyor | Event ve history decode'un hazırladığı görüntüyü taşısın. |
-| B9 | `pack()`: yeni değer + eski CRC gidebiliyor | Yüksek | Açık | Test thread'i checksum hesabı ile `bytes(self)` arasında yazarsa. Düzeltme: hesaplar tek kopya üzerinde. |
-| B10 | Değişken boyda `count` / uzunluk / CRC / gövde tutarsızlığı | Yüksek | Açık | B9'un özel hali; aynı düzeltme. |
-| B11 | `MessageSent.image` ile `raw` farklı olabilir | Düşük | Açık | `pack` ikisini aynı kopyadan versin. |
+| B9 | `pack()`: yeni değer + eski CRC gidebiliyordu | Yüksek | Çözüldü | Ölçüldü: 1 sn'de 5.730 paketin 2.259'u CRC hatalı. Artık özel alanlar tek bir kopyada hesaplanıyor, baytlar o kopyadan alınıyor; sadece hook'un değiştirdiği özel alanlar nesneye geri yazılıyor (eşzamanlı yazılan değerler korunuyor). Test: `tests/test_threading.py`. |
+| B10 | Değişken boyda `count` / uzunluk / CRC / gövde tutarsızlığı | Yüksek | Çözüldü | Ölçüldü: 4.246 paketin 2.258'i geçersiz. B9 ile aynı düzeltme; `body_size()` de kopyadan okunuyor. |
+| B11 | `MessageSent.image` ile `raw` farklı olabiliyordu | Düşük | Çözüldü | `TxScheduler.send` ikisini tek `msg._pack()` çağrısından alıyor. |
 | B12 | Periyodik gönderimde `after_send` yarışı | Orta | Açık | `DESIGN.md`'de kayıtlı; B9 düzeltmesi bunu çözmez. |
 | B13 | Koruma GIL'e bağlı | Sınırlama | Açık | Free-threaded Python'da import sırasında hata verilsin. |
 | B14 | İki yönlü mesajda RX, TX için yazılan değerlerin üzerine yazar | Tasarım | Karar bekliyor | Seçenekler: RX'i history'den okumak / ayrı nesne / dokümante etmek. |

@@ -304,13 +304,29 @@ class BaseMessageStructure(Structure):
     # ---------------------------------------------------------------- TX side
 
     def pack(self) -> bytes:
-        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes."""
+        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes.
+
+        The special fields are computed on one copy of the values and the bytes come from that copy,
+        so a field written by another thread meanwhile cannot end up next to an old checksum (B9, B10).
+        Only the special fields a hook changed (length, counter, checksum) are written back to the object;
+        other fields written meanwhile by another thread are kept.
+        The hooks and body_size() run on the copy; it carries the object's attributes (channel, states,
+        own attributes), but attributes a hook sets on it are not kept.
+        """
+        return self._pack()[0]
+
+    def _pack(self) -> tuple[bytes, bytes]:
+        """(wire bytes, image), both from the same copy; the TX layer puts the image into MessageSent (B11)."""
         for callout in self._on_send:
             callout(self)
-        for field in self._special_fields():
-            field.on_send(self)
-        data = bytes(self)
-        return data[:self.body_size()] + data[self._trailer_offset():]
+        copy = type(self).from_buffer_copy(bytes(self))      # one consistent copy of the values
+        copy.__dict__.update(self.__dict__)                  # hooks / body_size see the object's attributes
+        before = bytes(copy)
+        for field in copy._special_fields():
+            field.on_send(copy)
+        image = bytes(copy)
+        self._write_special_fields(image, before)
+        return image[:copy.body_size()] + image[copy._trailer_offset():], image
 
     def _sent(self) -> None:
         """Called by the TX layer after a successful send: counts it and runs the after_send hooks."""
@@ -332,6 +348,16 @@ class BaseMessageStructure(Structure):
     def _special_fields(self) -> list[FieldType]:
         """Views of the special fields on this object, in _order (they share the buffer)."""
         return [getattr(self, name) for _, name in self._special]
+
+    def _write_special_fields(self, image: bytes, before: bytes) -> None:
+        """Copies into this object the special fields whose bytes differ between before and image
+        (the ones a hook computed); every other field of the object is left untouched."""
+        view = memoryview(self).cast("B")
+        for _, name in self._special:
+            descriptor = getattr(type(self), name)
+            start, end = descriptor.offset, descriptor.offset + descriptor.size
+            if image[start:end] != before[start:end]:
+                view[start:end] = image[start:end]
 
     def _find_field(self, kind: type) -> Optional[FieldType]:
         for field in self._special_fields():

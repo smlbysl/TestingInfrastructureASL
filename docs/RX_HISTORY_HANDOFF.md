@@ -187,7 +187,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 
 ### 4.2 TX tarafı
 
-#### B9 — `pack()` checksum ile gönderilen byte'lar arasında yarış  *(YÜKSEK, kod okumasıyla bulundu, ölçülmedi)*
+#### B9 — `pack()` checksum ile gönderilen byte'lar arasında yarış  *(YÜKSEK — ölçüldü ve çözüldü, KNOWN_ISSUES.md)*
 - **Nerede:** `BaseMessageStructure.pack()` → özel alanların `on_send`'i (length, counter, **checksum**) canlı obje
   üzerinde çalışır, ardından `data = bytes(self)` alınır.
 - **Mekanizma:** Periyodik mesaj TX thread'inde pack edilirken test thread'i bir alanı yazarsa (ör. `motor.speed = 5`)
