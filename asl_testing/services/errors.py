@@ -1,18 +1,18 @@
-"""ErrorLog: reports communication problems to a separate file (not the messaging history).
+"""ErrorLog: writes communication problems to a separate file.
 
-Reported: UTS requests that failed (LinkError), periodic RX timeouts and recoveries (from events),
-and exceptions raised inside event subscribers (records of the bus logger).
-Works from events, so it also works when Comm is given a custom logger.
-Its lines do not propagate to the general log, which already has the same problems from the runtime.
-(With a custom logger, subscriber exceptions go to that logger, not to this file.)
+Written: failed UTS requests (LinkError), RX timeouts and recoveries, exceptions in subscribers.
+Built on events, so it also works with a custom Comm logger (subscriber exceptions then go to that
+logger). Its records do not go to the general log, which has the same problems already.
 """
+
+__author__ = "İsmail Baysal"
 import logging
 
 from asl_testing.comm import Comm
 from asl_testing.events.types import LinkError, RxRestored, RxTimeout
 
 log = logging.getLogger("asl_testing.errors")
-log.propagate = False                               # no duplicates in the general log
+log.propagate = False
 BUS_LOG = "asl_testing.events.bus"                  # subscriber exceptions
 
 

@@ -1,14 +1,15 @@
 """RxPoller: one thread that polls UTS at a fixed interval.
 
-Every cycle:
-1. polls each RX address once: the addresses of channels with registered RX messages
-   and of channels added with listen(); channels sharing an address are told apart by their envelope
-2. publishes WireReceived for every packet and hands it to the dispatcher
-3. checks periodic RX messages for timeouts on the UTS clock and publishes RxTimeout / RxRestored
-A failed poll is published as LinkError, logged as ERROR (with traceback) and polling continues.
-An exception while dispatching one packet is logged as ERROR and the next packet is handled.
-Timeouts are logged as WARNING, recoveries as INFO.
+Each cycle:
+1. reads every address that has RX messages or was added with listen()
+2. publishes WireReceived for each packet and passes it to the dispatcher
+3. checks periodic RX messages for timeout on the UTS clock (RxTimeout / RxRestored)
+
+A failed poll gives LinkError; a packet that fails in the dispatcher is logged and skipped.
+Polling goes on in both cases.
 """
+
+__author__ = "İsmail Baysal"
 import logging
 import threading
 import time
@@ -32,16 +33,16 @@ class RxPoller:
         self.bus = bus
         self.projects = projects
         self.log = log or logging.getLogger(__name__)
-        self.interval = interval                    # seconds between two poll cycles
+        self.interval = interval                    # seconds between two cycles
         self.clock = UtsClock()
-        self._extra = set(channels)                 # channels polled even without RX messages
-        self._late: set[int] = set()                # id() of timed-out messages (ctypes objects are not hashable)
+        self._extra = set(channels)                 # polled even without RX messages
+        self._late: set[int] = set()                # id() of late messages; ctypes objects are not hashable
         self._started: Optional[float] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def listen(self, channel: Channel) -> None:
-        """Also polls a channel that has no registered RX message (to see unknown packets)."""
+        """Polls a channel that has no RX message (to see its packets as unknown)."""
         self._extra.add(channel)
         self.log.info("listening on %s", channel)
 
@@ -53,7 +54,7 @@ class RxPoller:
         return found
 
     def addresses(self) -> dict[Address, list[Channel]]:
-        """Address -> its channels, in the order they are tried on RX."""
+        """Address -> its channels in RX order."""
         return by_address(self.channels())
 
     def poll_once(self) -> None:
@@ -70,7 +71,7 @@ class RxPoller:
                                               frame.timestamp, frame.host_time))
                 try:
                     self.dispatcher.dispatch(frame)
-                except Exception:                   # one bad packet must not stop the receiver
+                except Exception:
                     self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), address)
         self._check_timeouts()
 
@@ -98,11 +99,11 @@ class RxPoller:
             self.bus.publish(RxRestored(msg, time.time()))
 
     def _age(self, rx) -> float:
-        """Age of the last packet on the UTS clock; on the host clock until UTS time is known."""
+        """Age of the last packet on the UTS clock (host clock until a UTS time is known)."""
         now = self.clock.now()
         if rx.timestamp is not None and now is not None:
             return now - rx.timestamp
-        # Never arrived: count from when polling started or the object was created, whichever is later
+        # Never received: count from the later of poll start and object creation.
         since = rx.last_time if rx.last_time is not None else max(self._started, rx.created)
         return time.monotonic() - since
 

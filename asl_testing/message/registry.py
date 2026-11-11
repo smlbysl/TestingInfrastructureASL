@@ -1,14 +1,12 @@
-"""Registry: records of one message family (messages sharing the same signature).
+"""Registry: the message objects of one family.
 
-A family class opens its own Registry when it is defined and adds it to its project's family list.
-A message object does not know the rules; it only calls registry.add(self).
-The registry holds references to the objects; decode writes incoming data directly into them.
-
-A registry opened with by_channel (a class that writes `_signature = None` explicitly) identifies its RX
-messages by the channel alone: key (channel, None), so it holds at most one RX message per channel.
-A registry that simply has no signature (a project without one) does not receive anything, as before.
+A family class opens its registry when it is defined; every object adds itself with registry.add(self).
+RX objects are stored under (channel, signature id); decode writes incoming packets directly into them.
+A family that sets `_signature = None` (by_channel) is found by channel only: one RX message per channel.
 """
 from __future__ import annotations
+
+__author__ = "İsmail Baysal"
 
 from typing import TYPE_CHECKING, Optional
 
@@ -22,19 +20,19 @@ if TYPE_CHECKING:
 class Registry:
     def __init__(self, signature: Optional[Signature], by_channel: bool = False):
         self.signature = signature
-        self.by_channel = by_channel                            # explicit _signature = None
-        self.all: list[BaseMessageStructure] = []               # single source: all objects
-        self.dispatch: dict[tuple[Channel, int], BaseMessageStructure] = {}  # RX objects only
-        self.periodic_rx: list[BaseMessageStructure] = []       # watched for RX timeout
-        self.periodic_tx: list[BaseMessageStructure] = []       # periodic TX candidates
+        self.by_channel = by_channel
+        self.all: list[BaseMessageStructure] = []
+        self.dispatch: dict[tuple[Channel, int], BaseMessageStructure] = {}     # RX objects only
+        self.periodic_rx: list[BaseMessageStructure] = []                       # checked for RX timeout
+        self.periodic_tx: list[BaseMessageStructure] = []
 
     @property
     def channels(self) -> set[Channel]:
-        """Channels on which this family receives."""
+        """Channels this family receives on."""
         return {channel for channel, _ in self.dispatch}
 
     def add(self, msg: BaseMessageStructure) -> None:
-        # The same message created again (same class, channel, signature, direction) replaces the old one
+        """Adds an object; an object of the same class, channel, signature and direction is replaced."""
         old = self._find_same(msg)
         if old is not None:
             self.remove(old)
@@ -42,7 +40,7 @@ class Registry:
         self.all.append(msg)
         if msg._rx is not None:
             if self.by_channel or msg._signature_id is not None:
-                key = (msg._channel, msg._signature_id)     # (channel, None): identified by the channel
+                key = (msg._channel, msg._signature_id)
                 owner = self.dispatch.get(key)
                 if owner is not None:
                     what = "no signature" if key[1] is None else f"signature 0x{key[1]:X}"
@@ -52,7 +50,7 @@ class Registry:
                 self.dispatch[key] = msg
             if msg._rx.timing.is_periodic:
                 self.periodic_rx.append(msg)
-        # TX-only objects do not enter dispatch: an incoming packet must not overwrite a TX object
+        # TX-only objects stay out of dispatch, so a received packet never overwrites them.
         if msg._tx is not None and msg._tx.timing.is_periodic:
             self.periodic_tx.append(msg)
         msg._registered = True
@@ -65,18 +63,18 @@ class Registry:
             self.periodic_rx.remove(msg)
         if msg in self.periodic_tx:
             self.periodic_tx.remove(msg)
-        msg._registered = False                 # the TX scheduler drops objects that are no longer registered
+        msg._registered = False                         # the TX scheduler drops unregistered objects
 
     def lookup(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        """Finds the message object of this family from a raw packet."""
+        """Object of this family for a raw packet, or None."""
         if self.by_channel:
-            return self.dispatch.get((channel, None))     # identified by the channel
+            return self.dispatch.get((channel, None))
         if self.signature is None or self.signature.mask is None:
             return None
         return self.dispatch.get((channel, self.signature.compute(raw)))
 
     def clear(self) -> None:
-        """For cleaning up between tests."""
+        """Drops every object (between tests)."""
         for msg in self.all:
             msg._registered = False
         self.all.clear()

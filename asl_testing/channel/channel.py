@@ -1,17 +1,16 @@
-"""Channel: the logical channel a message travels on.
-
-A channel is an interface number of a protocol plus its framing. Several channels may share one
-address (protocol + interface), e.g. one with an Ethernet header and one without; on RX the
-envelope tells them apart. Equality is identity: every channel is defined once, in the project.
+"""Channel: where a message travels, a UTS interface of a protocol plus its framing.
 
     class MyChannels(ChannelSet):
         CONTROL = Rs422Channel(0)
         DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
-        RAW     = EthernetChannel(1)
 
-The channel is given to messages as a class default (_channel); physical settings
-(IP, port, baud rate ...) are not part of it.
+Messages get their channel as a class default (_channel). Equality is identity: each channel is
+defined once in the project. Physical settings (IP, port, baud rate) are not part of a channel.
+Today several channels may share one address (protocol + interface); their envelopes tell them apart.
 """
+
+__author__ = "İsmail Baysal"
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import ClassVar, Iterable, Iterator
@@ -69,7 +68,7 @@ class Mil1553Channel(Channel):
 
 
 class ChannelSet:
-    """The channels of a project: names them and checks the rules when the class is defined."""
+    """Channels of a project: names them and checks the rules when the class is defined."""
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -87,7 +86,7 @@ class ChannelSet:
 
 
 def check_channels(channels: Iterable[Channel]) -> None:
-    """On one address: at most one splitter and at most one channel without an envelope."""
+    """Per address: at most one channel without an envelope and at most one splitter."""
     plain: dict[Address, Channel] = {}
     split: dict[Address, Channel] = {}
     for ch in channels:
@@ -104,7 +103,7 @@ def check_channels(channels: Iterable[Channel]) -> None:
 
 
 def by_address(channels: Iterable[Channel]) -> dict[Address, list[Channel]]:
-    """Groups channels by address, in the order they are tried on RX: with an envelope first, plain last."""
+    """Channels grouped by address, in RX order: with an envelope first, plain last."""
     groups: dict[Address, list[Channel]] = {}
     for ch in channels:
         groups.setdefault(ch.address, []).append(ch)

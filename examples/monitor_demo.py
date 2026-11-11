@@ -6,6 +6,9 @@ The packets are also written to monitor_demo.csv (CommLogger): open it later wit
 or without a test:
     python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages
 """
+
+__author__ = "İsmail Baysal"
+
 import argparse
 import math
 import threading

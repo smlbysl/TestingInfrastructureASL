@@ -1,12 +1,11 @@
-"""EventBus: publish / subscribe inside the program.
+"""EventBus: publish / subscribe between the layers.
 
-- Publishers (dispatcher, TX scheduler, RX poller) call publish(event); it returns immediately.
-- Every subscription has its own queue and thread, so a slow subscriber blocks neither
-  the publisher nor the other subscribers.
-- A subscription is made by event type, optionally filtered by message object (where=...).
-  Subscribing to `object` receives every event.
-- An exception in a handler is logged (on the given logger) and the subscriber keeps running.
+publish() returns at once. Each subscriber has its own queue and thread, so a slow subscriber
+does not hold up the publisher or the others. A subscription is by event type (`object` = all),
+optionally for one message object (where=). An exception in a handler is logged.
 """
+
+__author__ = "İsmail Baysal"
 import logging
 import queue
 import threading
@@ -23,7 +22,7 @@ class Subscriber(threading.Thread):
         self.log = log
         self.event_type = event_type
         self.handler = handler
-        self.where = where                    # only events of this message object, if given
+        self.where = where                    # message object, or None for all
         self.queue: queue.Queue = queue.Queue()
 
     def accepts(self, event) -> bool:
@@ -70,7 +69,7 @@ class EventBus:
                 sub.queue.put(event)
 
     def close(self) -> None:
-        """Stops every subscriber after it has handled the events already queued."""
+        """Stops all subscribers after their queued events."""
         with self._lock:
             subs = [s for group in self._subs.values() for s in group]
             self._subs.clear()

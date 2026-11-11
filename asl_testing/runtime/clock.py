@@ -1,8 +1,9 @@
-"""UtsClock: an estimate of the current UTS time.
+"""UtsClock: estimate of the current UTS time for RX timeouts.
 
-RX timeouts are measured on the UTS clock, but UTS only reports time with received packets.
-The estimate is: the last UTS timestamp seen + the host time elapsed since it was seen.
+UTS reports time only with packets, so: last UTS timestamp + host time passed since then.
 """
+
+__author__ = "İsmail Baysal"
 import time
 from typing import Optional
 
@@ -20,7 +21,7 @@ class UtsClock:
             self._host = time.monotonic()
 
     def now(self) -> Optional[float]:
-        """Estimated UTS time; None until the first timestamp is seen."""
+        """Estimated UTS time, or None before the first timestamp."""
         if self._uts is None:
             return None
         return self._uts + (time.monotonic() - self._host)

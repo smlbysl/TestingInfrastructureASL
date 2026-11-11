@@ -9,6 +9,9 @@
 
 unittest-style classes (CommTestCase, HardwareTestCase) also run under pytest as they are.
 """
+
+__author__ = "İsmail Baysal"
+
 import pytest
 
 from tests.base import HARDWARE, TIMEOUT, open_comm

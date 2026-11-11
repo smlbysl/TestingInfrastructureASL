@@ -1,10 +1,10 @@
-"""Project-specific framing.
+"""Framing of the project.
 
-EthHeader is an example envelope: an 8-byte header in front of every message on a channel,
-computed from the length and not part of the message's length field or checksum.
-Layout of the example: 55 AA | total length (uint16, little endian) | 4 reserved bytes.
-Replace it with the real header of the project.
+EthHeader: example 8-byte header in front of every message on a channel, outside the message's
+length and checksum. Layout: 55 AA | total length (uint16 LE) | 4 reserved bytes.
 """
+
+__author__ = "İsmail Baysal"
 import struct
 from typing import Optional
 
@@ -21,7 +21,7 @@ class EthHeader(Envelope):
 
     def on_receive(self, wire: bytes) -> Optional[bytes]:
         if len(wire) < self.SIZE or wire[:2] != self.MAGIC:
-            return None                                 # not a packet of this channel
+            return None
         if struct.unpack_from("<H", wire, 2)[0] != len(wire):
             return None
         return wire[self.SIZE:]

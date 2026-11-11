@@ -1,12 +1,14 @@
 """Project and its families.
 
-ProjectBase (project)  : endianness, header, default channel/direction/timing
- ├ Family1 (family)    : signature = destinationId + messageId
- ├ Family2 (family)    : signature = destinationId + sourceId
- └ Serial2 (family)    : no signature -> identified by its channel (one RX message per channel)
+ProjectBase   byte order, header, default channel / direction / timing
+ ├ Family1    signature destinationId + messageId
+ ├ Family2    signature destinationId + sourceId
+ └ Serial2    no signature: found by channel (one RX message per channel)
 
-The checksum is not part of the header: every message adds it as its last field.
+The checksum is not in the header; every message adds it as its last field.
 """
+
+__author__ = "İsmail Baysal"
 from ctypes import LittleEndianStructure, c_uint32
 
 from asl_testing import BaseMessageStructure, Direction, Signature, Timing
@@ -23,13 +25,12 @@ class ProjectBase(BaseMessageStructure, LittleEndianStructure):
         ("messageCounter",  Counter8),
     ]
 
-    # Defaults (overridden per object with channel= / direction= / rx= / tx=)
+    # Defaults; an object can override them with channel= / direction= / rx= / tx=.
     _channel = MyChannels.CONTROL
     _direction = Direction.RX
     _timing = Timing()                  # event
 
     def __init__(self, sourceid, destinationid, messageid, **kw):
-        # kw: channel, direction, rx, tx and field values
         self.sourceId = sourceid
         self.destinationId = destinationid
         self.messageId = messageid
@@ -42,13 +43,10 @@ class Family1(ProjectBase):
 
 class Family2(ProjectBase):
     _signature = Signature("destinationId", "sourceId")
-    _channel = MyChannels.DIAG                  # this family travels on Ethernet with a header
+    _channel = MyChannels.DIAG                  # Ethernet with a header
 
 
 class Serial2(ProjectBase):
-    """A device on SER2 whose packets carry no identifying field: the channel identifies the RX message.
-
-    _signature = None opens a family of its own without a signature (key: channel, None).
-    """
+    """Device on SER2 without an identifying field: `_signature = None`, found by channel."""
     _signature = None
     _channel = MyChannels.SER2

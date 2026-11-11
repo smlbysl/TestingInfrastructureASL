@@ -1,13 +1,13 @@
-"""Dispatcher: delivers a received frame to its message object and publishes the result.
+"""Dispatcher: finds the message object of a received frame, decodes it and publishes the result.
 
-frame -> lookup -> msg.decode(raw, timestamp) -> event
-lookup: first a signature match in every project, then a message identified by the channel alone
-(a family without a signature), so one project's channel rule does not hide another's signature match.
-- no channel or no message matches -> UnknownReceived, frame kept in `unknown`
-- matches but fails validate  -> InvalidReceived
-- matches and valid           -> MessageReceived
-Logs: unknown and invalid packets as WARNING, every valid packet as DEBUG.
+Lookup: a signature match in any project first, then a message found by channel only.
+
+    no match            UnknownReceived (frame kept in `unknown`)
+    match, invalid      InvalidReceived
+    match, valid        MessageReceived
 """
+
+__author__ = "İsmail Baysal"
 import logging
 from collections import deque
 from typing import Optional, Sequence
@@ -24,7 +24,7 @@ class Dispatcher:
         self.bus = bus
         self.projects = projects
         self.log = log or logging.getLogger(__name__)
-        self.unknown: deque[RxFrame] = deque(maxlen=history)   # frames that matched no message
+        self.unknown: deque[RxFrame] = deque(maxlen=history)
 
     def dispatch(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
         msg = self._lookup(frame)

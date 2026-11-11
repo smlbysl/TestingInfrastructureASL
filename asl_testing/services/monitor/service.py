@@ -1,13 +1,11 @@
-"""MonitorService: a local web page to watch message values over time (live or from a CSV).
+"""MonitorService: local web page to watch message values over time, live or from a CSV.
 
-    monitor = MonitorService(comm, [ProjectBase], port=8050)   # comm=None: offline only (CSV import)
-    monitor.start()                                            # open http://localhost:8050
-    ...
+    monitor = MonitorService(comm, [ProjectBase], port=8050)   # comm=None: CSV import only
+    monitor.start()                                            # http://localhost:8050
     monitor.stop()
 
-The page: File > Import CSV / Clear, Tools > Start / Stop (listen to comm), the RX / TX message
-tree on the left (click: fields, right click: add), one coloured chart per signal on the right.
-Only the Python standard library is used; the page needs no internet.
+Page: File > Import CSV / Clear, Tools > Start / Stop, message tree on the left, one chart per
+signal on the right. Standard library only; the page needs no internet.
 
 API (JSON):
     GET  /api/state                      source, listening, t0, message streams
@@ -16,6 +14,9 @@ API (JSON):
     POST /api/start | /api/stop | /api/clear
     POST /api/import?name=<file>         body: CommLogger CSV text
 """
+
+__author__ = "İsmail Baysal"
+
 import json
 import logging
 import threading
@@ -46,7 +47,7 @@ class MonitorService:
     # ---------------------------------------------------------------- web server
 
     def start(self) -> None:
-        """Starts the web server (not the recording: Tools > Start, or listen())."""
+        """Starts the web server; recording starts with listen() or Tools > Start."""
         self._server = ThreadingHTTPServer((self.host, self.port), _handler(self))
         self._server.daemon_threads = True
         threading.Thread(target=self._server.serve_forever, name="MonitorWeb", daemon=True).start()
@@ -65,13 +66,13 @@ class MonitorService:
         return bool(self._subs)
 
     def listen(self) -> None:
-        """Starts recording the received and sent messages of comm."""
+        """Starts recording the messages of comm."""
         if self.comm is None:
             raise RuntimeError("no Comm given: offline mode (import a CSV)")
         if self._subs:
             return
         if not self.recorder.source.startswith("live"):
-            self.recorder.clear()                       # an imported CSV is replaced by live data
+            self.recorder.clear()                       # live data replaces an imported CSV
         self.recorder.source = "live"
         self._subs = [self.comm.subscribe(MessageReceived, self.recorder.on_event),
                       self.comm.subscribe(MessageSent, self.recorder.on_event)]

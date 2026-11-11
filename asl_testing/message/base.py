@@ -1,4 +1,24 @@
+"""Base class of all messages.
+
+Class hierarchy:
+    BaseMessageStructure -> project -> family -> message class -> object
+
+    project        derives directly from BaseMessageStructure; byte order, header fields,
+                   default channel / direction / timing, list of families
+    family         defines its own _signature and opens its own Registry
+    message class  adds the payload fields (_fields_)
+    object         may override channel, direction, timing and history per instance
+
+Naming: _x_ belongs to ctypes (_fields_, _pack_), _x is a class setting, public information is a property.
+
+Wire layout:
+    ctypes layout:  [ body ............. | unused (variable size) | trailer ]
+    on the wire:    [ body (body_size)   | trailer ]
+The trailer is the checksum field (the last field). For a fixed-size message the wire equals bytes(self).
+"""
 from __future__ import annotations
+
+__author__ = "İsmail Baysal"
 
 import ctypes
 import logging
@@ -21,57 +41,37 @@ Callout = Callable[["BaseMessageStructure"], None]
 
 
 def _explicit_none(cls) -> bool:
-    """True when the class writes `_signature = None` itself: its RX messages are identified by the channel."""
+    """True if the class sets `_signature = None` itself: its RX messages are found by channel."""
     return "_signature" in cls.__dict__ and cls.__dict__["_signature"] is None
 
 
 class BaseMessageStructure(Structure):
-    """Base of all messages.
-
-    Hierarchy:  BaseMessageStructure -> Project -> Family -> message class -> object
-    - Project: a class that derives DIRECTLY from BaseMessageStructure. Endianness (ctypes base),
-      header fields, default channel/direction/timing. Holds the list of its families (_families).
-    - Family: a class that defines its own _signature. Opens its own Registry.
-      The project also opens a registry (for messages that belong to no family).
-    - Message class: payload via _fields_.
-    - Object: channel, direction and timing per object (class defaults otherwise).
-
-    Naming: _x_ belongs to ctypes only (_fields_, _pack_); class settings are _x;
-    public information is exposed as properties (channel, direction, signature_id, rx_state, tx_state).
-    """
+    """Base of all messages (see the module docstring)."""
     _pack_ = 1
 
-    # Special fields: (_order, field name), collected from FieldType entries in _fields_
-    _special: ClassVar[list[tuple[int, str]]] = []
+    _special: ClassVar[list[tuple[int, str]]] = []      # (order, name) of the FieldType fields
+    _defaults: ClassVar[dict[str, object]] = {}         # defaults declared by this class
+    _all_defaults: ClassVar[dict[str, object]] = {}     # merged with the base classes
 
-    # Default field values: _defaults is what the class itself declares,
-    # _all_defaults is the merge with all base classes (computed, subclass wins)
-    _defaults: ClassVar[dict[str, object]] = {}
-    _all_defaults: ClassVar[dict[str, object]] = {}
-
-    # Project / family
     _signature: ClassVar[Optional[Signature]] = None
-    _families: ClassVar[list[Registry]]          # defined on the project
-    _registry: ClassVar[Registry]                # defined on the project or the family
+    _families: ClassVar[list[Registry]]                 # set on the project
+    _registry: ClassVar[Registry]                       # set on the project and on each family
 
-    # Variable size: the real packet size is in the length field (the ctypes layout is the maximum).
-    # On the wire the checksum (last field) follows the used body directly.
-    _variable_size: ClassVar[bool] = False
+    _variable_size: ClassVar[bool] = False              # real size is in the length field
 
-    # Defaults (can be overridden per object)
     _channel: ClassVar[Optional[Channel]] = None
     _direction: ClassVar[Direction] = Direction.RX
     _timing: ClassVar[Timing] = Timing()
-    _history: ClassVar[int] = 64                 # received packets kept per object (rx_history)
+    _history: ClassVar[int] = 64                        # received packets kept per object
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         own = [(ftype._order, name) for name, ftype, *_ in cls.__dict__.get("_fields_", [])
                if isinstance(ftype, type) and issubclass(ftype, FieldType)]
-        cls._special = sorted(cls._special + own)       # inherited + own fields
+        cls._special = sorted(cls._special + own)
 
         merged: dict[str, object] = {}
-        for klass in reversed(cls.__mro__):             # top to bottom: subclass wins
+        for klass in reversed(cls.__mro__):             # subclass wins
             merged.update(klass.__dict__.get("_defaults", {}))
         cls._all_defaults = merged
 
@@ -81,7 +81,7 @@ class BaseMessageStructure(Structure):
             cls._families.append(cls._registry)
         elif "_signature" in cls.__dict__:              # family
             cls._registry = Registry(cls._signature, _explicit_none(cls))
-            cls._families.append(cls._registry)         # the project's list, via inheritance
+            cls._families.append(cls._registry)
 
     def __init__(self, *args,
                  channel: Optional[Channel] = None,
@@ -90,12 +90,10 @@ class BaseMessageStructure(Structure):
                  tx: Optional[Timing] = None,
                  history: Optional[int] = None,
                  **kw):
-        # Defaults first; values given to the constructor override them
         self._apply_defaults()
-        # Metadata comes as keywords; ctypes fields go to super()
-        super().__init__(*args, **kw)
+        super().__init__(*args, **kw)                   # field values given here override the defaults
 
-        # Object information is stored with an underscore: no clash with an ICD field of the same name
+        # Object settings start with "_" so they do not clash with ICD field names.
         self._channel = channel if channel is not None else type(self)._channel
         if self._channel is None:
             raise AttributeError(f"{type(self).__name__}: no channel "
@@ -108,19 +106,19 @@ class BaseMessageStructure(Structure):
         self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
         self._on_receive: list[Callout] = []
         self._on_send: list[Callout] = []
-        self._last_rx_image = b""                           # bytes of the last decoded packet (set by decode)
+        self._last_rx_image = b""
 
         for field in self._special_fields():
             field.on_init(self)
 
         self._signature_id: Optional[int] = None
         if self._signature is not None:
-            self._signature.bind(type(self))            # the layout is ready here
+            self._signature.bind(type(self))            # the ctypes layout exists only from here on
             self._signature_id = self._signature.compute(bytes(self))
 
         self._registry.add(self)
 
-    # ---------------------------------------------------------------- public information
+    # ---------------------------------------------------------------- information
 
     @property
     def channel(self) -> Channel:
@@ -142,88 +140,68 @@ class BaseMessageStructure(Structure):
     def tx_state(self) -> Optional[TxState]:
         return self._tx
 
-    # Times of the last valid packet. Prefixed with rx_ so an ICD field such as "timestamp" does not hide them.
+    # The rx_ prefix keeps ICD fields such as "timestamp" from hiding these properties.
 
     @property
     def rx_timestamp(self) -> Optional[float]:
-        """UTS arrival time of the last valid packet (seconds); None if nothing has arrived."""
+        """UTS time of the last valid packet in seconds, or None."""
         return self._rx.timestamp if self._rx is not None else None
 
     @property
     def rx_host_time(self) -> Optional[float]:
-        """Wall clock of this host (time.time) when the last valid packet was received; None if nothing has arrived."""
+        """Host time (time.time) of the last valid packet, or None."""
         return self._rx.host_time if self._rx is not None else None
 
     @property
     def rx_age(self) -> Optional[float]:
-        """Seconds since the last valid packet, on this host's clock; None if nothing has arrived."""
+        """Seconds since the last valid packet on the host clock, or None."""
         return self._rx.age() if self._rx is not None else None
 
     @property
     def rx_history(self) -> Optional[MessageHistory]:
-        """Received packets of this object in order (the last N; None for a TX-only message).
-
-            mark = status.rx_history.mark()
-            comm.send(request)
-            values = [r.snapshot().speed for r in status.rx_history.since(mark)]
-        """
+        """Last received packets in order; None for a TX-only message."""
         return self._rx.history if self._rx is not None else None
 
     def snapshot(self):
-        """A consistent copy of the current values, taken with one copy (not registered).
-
-        Use it to read several fields of the same packet: s = status.snapshot(); s.speed, s.mode.
-        The copy has field values only: no channel, state or history.
-        """
+        """Copy of the current values, taken in one step; use it to read several fields together."""
         return type(self).from_buffer_copy(bytes(self))
 
     def has_new(self) -> int:
-        """Number of valid packets received since the last call (0: none); the call clears it.
-
-            if status.has_new():
-                print(status.speed)
-        """
+        """Valid packets received since the last call; clears the count."""
         return self._rx.check_new() if self._rx is not None else 0
 
     def peek_new(self) -> int:
-        """Like has_new(), but does not clear the count."""
+        """Like has_new() without clearing."""
         return self._rx.peek_new() if self._rx is not None else 0
 
     def has_sent(self) -> int:
-        """Number of successful sends since the last call (0: none); the call clears it.
-
-            comm.send(request)
-            if motor.has_sent(): ...        # periodic: one more frame went out
-        """
+        """Successful sends since the last call; clears the count."""
         return self._tx.check_sent() if self._tx is not None else 0
 
     def peek_sent(self) -> int:
-        """Like has_sent(), but does not clear the count."""
+        """Like has_sent() without clearing."""
         return self._tx.peek_sent() if self._tx is not None else 0
 
     # ---------------------------------------------------------------- defaults
 
     def initialize(self) -> None:
-        """Brings the fields back to the class defaults; length/checksum are recomputed.
+        """Restores the class defaults and recomputes length / checksum.
 
-        Signature fields must not be in _defaults: calling this later would break the registry key.
+        Signature fields must not be in _defaults, or the registry key breaks.
         """
         self._apply_defaults()
         for field in self._special_fields():
             field.on_init(self)
 
-    # ---------------------------------------------------------------- user callouts
+    # ---------------------------------------------------------------- callouts
 
     def on_receive(self, callout: Callout) -> Callout:
-        """Called after a valid packet is written into the object, in the RX thread.
-
-        Can be used as a decorator. For a listener that runs in its own thread use comm.on_receive.
-        """
+        """Registers callout(msg), called in the RX thread after a valid packet is written. Usable as decorator."""
         self._on_receive.append(callout)
         return callout
 
     def on_send(self, callout: Callout) -> Callout:
-        """Called inside pack(), BEFORE counter/checksum (so changes are covered by the checksum)."""
+        """Registers callout(msg), called in pack() before length / counter / checksum. Usable as decorator."""
         self._on_send.append(callout)
         return callout
 
@@ -231,18 +209,14 @@ class BaseMessageStructure(Structure):
 
     @classmethod
     def families(cls, channel: Optional[Channel] = None) -> list[Registry]:
-        """The project's family registries; with a channel, only those receiving on it."""
+        """Registries of the project; with a channel, only those receiving on it."""
         if channel is None:
             return list(cls._families)
         return [reg for reg in cls._families if channel in reg.channels]
 
     @classmethod
     def lookup(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        """Finds the message object in this project that a raw packet belongs to.
-
-        Families with a signature are tried first; a family without one (identified by the channel)
-        takes the packet only if no signature matched.
-        """
+        """Message object of this project for a raw packet: signature match first, then by channel."""
         msg = cls.lookup_signature(channel, raw)
         return msg if msg is not None else cls.lookup_channel(channel)
 
@@ -266,34 +240,26 @@ class BaseMessageStructure(Structure):
 
     @classmethod
     def clear_registry(cls) -> None:
-        """Clears all records of the project (between tests)."""
+        """Drops every registered object of the project (between tests)."""
         for reg in cls._families:
             reg.clear()
 
-    # ---------------------------------------------------------------- wire layout
-    #
-    #   ctypes layout:  [ body ............................ | unused (variable size) | trailer ]
-    #   on the wire:    [ body (body_size bytes)            | trailer ]
-    #
-    # The trailer is the checksum field and everything after it (the checksum is the last field).
-    # For a fixed-size message the body ends where the trailer starts, so the wire equals bytes(self).
+    # ---------------------------------------------------------------- sizes
 
     def body_size(self) -> int:
-        """Bytes before the checksum that are sent. A variable-size message overrides this for TX,
-        e.g. header + count * element size."""
+        """Bytes sent before the checksum. Variable-size messages override this for TX."""
         return self._trailer_offset()
 
     def wire_size(self) -> int:
-        """Total size on the wire (written to the length field)."""
+        """Total size on the wire (the value of the length field)."""
         return self.body_size() + self._trailer_size()
 
-    # ---------------------------------------------------------------- RX side
+    # ---------------------------------------------------------------- RX
 
     def validate(self, raw: bytes) -> bool:
-        """Do the size and the special fields (length, checksum ...) of the packet match?
+        """Checks the size and the special fields (length, checksum ...) of a packet.
 
-        A packet that makes a field hook raise (e.g. too short to read its length field) is invalid;
-        the error is logged and the caller sees False, so one bad packet cannot stop the receiver.
+        An exception in a field hook makes the packet invalid; it is logged.
         """
         try:
             if len(raw) < self._rx_size(raw):
@@ -304,51 +270,46 @@ class BaseMessageStructure(Structure):
             return False
 
     def decode(self, raw: bytes, timestamp: Optional[float] = None) -> bool:
-        """Writes the packet into the object's ctypes buffer in place, if it is valid.
+        """Writes a valid packet into the object; returns False for an invalid one.
 
-        Body bytes go to the start of the buffer, trailer bytes to the checksum field;
-        the unused part of a variable-size message is cleared.
-        The new state is built in a separate buffer and written with a single copy that holds the GIL,
-        so another thread reading a field never sees a half-written or cleared object (B1).
-        timestamp: arrival time reported by UTS (seconds), stored in rx_state.timestamp.
+        The new values are prepared in a separate buffer and copied in one step, so a reader
+        in another thread sees either the old or the new packet. The unused part of a
+        variable-size message is cleared. timestamp is the UTS time in seconds.
         """
         if not self.validate(raw):
             if self._rx is not None:
                 self._rx.on_error()
             return False
         body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
-        image = bytearray(ctypes.sizeof(self))              # the new state, prepared off the object
+        image = bytearray(ctypes.sizeof(self))
         image[:body] = raw[:body]
         image[offset:offset + size] = raw[body:body + size]
-        memoryview(self).cast("B")[:] = image               # one copy: readers see the old or the new packet
+        memoryview(self).cast("B")[:] = image
         if self._rx is not None:
             self._rx.on_receive(timestamp)
             self._rx.history.push(Record(next_seq(), timestamp, time.time(), bytes(image), type(self)))
-        self._last_rx_image = bytes(image)                  # MessageReceived carries this packet, not a later one
+        self._last_rx_image = bytes(image)              # MessageReceived carries these bytes
         for callout in self._on_receive:
             callout(self)
         return True
 
-    # ---------------------------------------------------------------- TX side
+    # ---------------------------------------------------------------- TX
 
     def pack(self) -> bytes:
-        """For sending: user callouts -> special fields (length, counter, checksum) -> wire bytes.
+        """Bytes to send: callouts, then length / counter / checksum, then the wire bytes.
 
-        The special fields are computed on one copy of the values and the bytes come from that copy,
-        so a field written by another thread meanwhile cannot end up next to an old checksum (B9, B10).
-        Only the special fields a hook changed (length, counter, checksum) are written back to the object;
-        other fields written meanwhile by another thread are kept.
-        The hooks and body_size() run on the copy; it carries the object's attributes (channel, states,
-        own attributes), but attributes a hook sets on it are not kept.
+        The special fields are computed on a copy and the bytes come from that copy, so a field
+        written by another thread at the same time cannot be sent with an old checksum. Only the
+        special fields that changed are written back to the object.
         """
         return self._pack()[0]
 
     def _pack(self) -> tuple[bytes, bytes]:
-        """(wire bytes, image), both from the same copy; the TX layer puts the image into MessageSent (B11)."""
+        """(wire bytes, image) from the same copy; the image goes into MessageSent."""
         for callout in self._on_send:
             callout(self)
-        copy = type(self).from_buffer_copy(bytes(self))      # one consistent copy of the values
-        copy.__dict__.update(self.__dict__)                  # hooks / body_size see the object's attributes
+        copy = type(self).from_buffer_copy(bytes(self))
+        copy.__dict__.update(self.__dict__)             # hooks see channel, states and own attributes
         before = bytes(copy)
         for field in copy._special_fields():
             field.on_send(copy)
@@ -357,7 +318,7 @@ class BaseMessageStructure(Structure):
         return image[:copy.body_size()] + image[copy._trailer_offset():], image
 
     def _sent(self) -> None:
-        """Called by the TX layer after a successful send: counts it and runs the after_send hooks."""
+        """Called by the TX layer after a successful send: counts it, runs after_send."""
         if self._tx is not None:
             self._tx.on_send()
         for field in self._special_fields():
@@ -368,18 +329,17 @@ class BaseMessageStructure(Structure):
     def _apply_defaults(self) -> None:
         for name, value in self._all_defaults.items():
             field = getattr(self, name)
-            if isinstance(field, FieldType):            # special types such as Ascii, Counter
+            if isinstance(field, FieldType):
                 field.val = value
             else:
                 setattr(self, name, value)
 
     def _special_fields(self) -> list[FieldType]:
-        """Views of the special fields on this object, in _order (they share the buffer)."""
+        """Special fields of this object in _order (views on the same buffer)."""
         return [getattr(self, name) for _, name in self._special]
 
     def _write_special_fields(self, image: bytes, before: bytes) -> None:
-        """Copies into this object the special fields whose bytes differ between before and image
-        (the ones a hook computed); every other field of the object is left untouched."""
+        """Copies the special fields that differ between before and image; other fields stay as they are."""
         view = memoryview(self).cast("B")
         for _, name in self._special:
             descriptor = getattr(type(self), name)
@@ -394,7 +354,7 @@ class BaseMessageStructure(Structure):
         return None
 
     def _trailer_offset(self) -> int:
-        """Offset of the checksum field in the ctypes layout (the size if there is none)."""
+        """Offset of the checksum field; the full size if there is none."""
         checksum = self._find_field(ChecksumType)
         return checksum.offset_in(self) if checksum is not None else ctypes.sizeof(self)
 
@@ -402,11 +362,11 @@ class BaseMessageStructure(Structure):
         return ctypes.sizeof(self) - self._trailer_offset()
 
     def _rx_size(self, raw: bytes) -> int:
-        """Size of the incoming packet: from its length field for a variable-size message."""
+        """Size of an incoming packet; read from the length field for a variable-size message."""
         if self._variable_size:
             return self._find_field(LengthType).from_raw(self, raw).val
         return ctypes.sizeof(self)
 
     def _rx_body(self, raw: bytes) -> int:
-        """Body bytes of the incoming packet (everything before its checksum)."""
+        """Bytes of an incoming packet before its checksum."""
         return self._rx_size(raw) - self._trailer_size()

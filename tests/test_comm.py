@@ -1,4 +1,7 @@
 """Integration tests: Comm with the simulated UTS (FakeUtsClient), real threads."""
+
+__author__ = "İsmail Baysal"
+
 import time
 
 from asl_testing import Direction, InvalidReceived, RxTimeout, Timing

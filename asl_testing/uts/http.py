@@ -1,11 +1,12 @@
-"""HttpUtsClient: the real UTS client (placeholder until the UTS API is integrated)."""
+"""HttpUtsClient: the real UTS client (placeholder until the UTS API is known)."""
+
+__author__ = "İsmail Baysal"
+
 from asl_testing.channel.channel import ProtocolType
 from asl_testing.uts.client import UtsClient, UtsFrame
 
 
 class HttpUtsClient(UtsClient):
-    """Placeholder for the real UTS client."""
-
     def __init__(self, base_url: str):
         self.base_url = base_url
 

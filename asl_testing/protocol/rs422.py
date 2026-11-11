@@ -1,15 +1,15 @@
-"""RS422: UTS carries the bytes received on a serial line as a list of numbers.
+"""RS422 protocol.
 
     POST body : {"message": [b0, b1, ...]}
     GET item  : {"message": [b0, b1, ...], "timestamp": t}
 
-The format is the same as Ethernet today, but it is a separate class: the two buses can change
-independently. A GET item may hold part of a stream; the channel's splitter cuts it into packets after
-decode, as before.
-
-To be checked against the real UTS: the exact field names and the unit of the timestamp
-(time_unit = seconds per UTS unit; 1.0 means UTS already gives seconds).
+Same format as Ethernet today, kept as a separate class so the two can change independently.
+A GET item may hold part of a stream; the channel's splitter cuts it into packets after decode.
+To check with the real UTS: field names and timestamp unit (time_unit = seconds per UTS unit).
 """
+
+__author__ = "İsmail Baysal"
+
 from typing import Optional
 
 from asl_testing.protocol.base import Protocol, Received

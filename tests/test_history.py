@@ -1,4 +1,7 @@
 """Received packets kept in order (rx_history), snapshot, and the wait on a condition."""
+
+__author__ = "İsmail Baysal"
+
 import logging
 import threading
 import time

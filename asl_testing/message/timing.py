@@ -1,9 +1,7 @@
-"""Timing: the timing setting of a message (immutable).
+"""Timing and direction settings of a message."""
 
-- period None means the message is event based, otherwise it is periodic.
-- Frozen, so a project default can be shared between all objects.
-- Changing values (last arrival/send time, counters) live in RxState / TxState.
-"""
+__author__ = "İsmail Baysal"
+
 from dataclasses import dataclass
 from enum import Flag, auto
 from typing import Optional
@@ -11,8 +9,9 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class Timing:
-    period: Optional[float] = None       # seconds; None -> event
-    tolerance: float = 2.0               # RX: late when period * tolerance is exceeded
+    """period None: event message; otherwise periodic. Frozen, so one default can be shared."""
+    period: Optional[float] = None       # seconds
+    tolerance: float = 2.0               # RX is late after period * tolerance
 
     @property
     def is_periodic(self) -> bool:
@@ -22,4 +21,4 @@ class Timing:
 class Direction(Flag):
     RX = auto()
     TX = auto()
-    BOTH = RX | TX      # bidirectional message
+    BOTH = RX | TX

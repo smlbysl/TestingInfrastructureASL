@@ -1,12 +1,10 @@
-"""Signals: the fields of a message class as flat paths, and their values in a message image.
+"""Signals: the fields of a message class as flat paths ("speed", "comut[0]", "cmd.startReq").
 
-A path names one value:  "speed", "comut[0]", "cmd.startReq", "messageLength".
-- plain fields and bit fields         -> their value
-- arrays                              -> one path per element; char arrays -> one text value
-- special field types with a `value`  -> the field's .val (e.g. a counter, a length)
-- other structures (e.g. CmdByte)     -> one path per sub-field
-Only numbers can be plotted; text values are shown in the tree only.
+Arrays give one path per element (char arrays one text value), special fields with `value` give .val,
+other structures one path per sub-field. Only numbers can be plotted.
 """
+
+__author__ = "İsmail Baysal"
 import ctypes
 from typing import Any, Callable
 

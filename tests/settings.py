@@ -3,6 +3,9 @@
 Change PROJECTS to test another project. ASL_UTS=http selects the real UTS
 (HttpUtsClient, not implemented yet); anything else uses the simulated FakeUtsClient.
 """
+
+__author__ = "İsmail Baysal"
+
 import os
 
 from asl_testing import FakeUtsClient

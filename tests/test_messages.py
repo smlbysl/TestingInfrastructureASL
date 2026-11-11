@@ -1,4 +1,7 @@
 """Unit tests of the message model: no threads, no UTS."""
+
+__author__ = "İsmail Baysal"
+
 import unittest
 
 from asl_testing import Direction

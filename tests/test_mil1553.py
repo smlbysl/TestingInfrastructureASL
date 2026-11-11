@@ -1,4 +1,7 @@
 """MIL-STD-1553 protocol: the packet goes to and comes from UTS as [rt, subnet, word_count, word, ...]."""
+
+__author__ = "İsmail Baysal"
+
 import time
 import unittest
 from ctypes import BigEndianStructure, LittleEndianStructure, c_uint16, c_uint32

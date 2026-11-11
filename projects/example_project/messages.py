@@ -1,4 +1,7 @@
 """Message definitions (ICD). A message class defines its payload fields and ends with the checksum."""
+
+__author__ = "İsmail Baysal"
+
 from ctypes import c_int16, c_uint16, c_uint32
 
 from asl_testing import Direction

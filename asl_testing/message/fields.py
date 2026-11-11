@@ -1,19 +1,22 @@
-"""Special field types.
+"""Special field types: fields that take part in the message life cycle.
 
-Each special field type knows what to do in the message life cycle:
-- on_init(msg)          : when the object is created
-- on_send(msg)          : inside pack() (after the user callouts)
-- on_receive(msg, raw)  : while an incoming packet is validated; returning False rejects it
-- after_send(msg)       : after the packet was sent successfully (not on a UTS error), e.g. to clear a request bit
+Hooks, called by BaseMessageStructure in _order:
+    on_init(msg)            object created
+    on_send(msg)            inside pack(), after the user callouts
+    on_receive(msg, raw)    while a packet is validated; False rejects the packet
+    after_send(msg)         after a successful send (not after a UTS error)
 
-BaseMessageStructure walks the fields of these types in _order and calls them; it does not know their names.
-Project-specific types (e.g. Length16, CRC16) derive from these.
+Projects derive their own types from these (e.g. Length16, CRC16).
 """
+
+__author__ = "İsmail Baysal"
+
 import ctypes
 from ctypes import Structure
 
 
 class FieldType(Structure):
+    """Base of the special field types; .val reads / writes the value through on_get / on_set."""
     _pack_ = 1
     _order = 0                           # lower runs first
 
@@ -48,48 +51,44 @@ class FieldType(Structure):
     # ---------------------------------------------------------------- helpers
 
     def offset_in(self, msg) -> int:
-        """Byte offset of the field inside the message."""
+        """Byte offset of the field in the message."""
         return ctypes.addressof(self) - ctypes.addressof(msg)
 
     def from_raw(self, msg, raw: bytes):
-        """The same field read from the incoming packet (with its own type)."""
+        """The same field read from a raw packet."""
         return type(self).from_buffer_copy(raw, self.offset_in(msg))
 
 
 class LengthType(FieldType):
-    """Total length of the packet on the wire (header + body + checksum)."""
+    """Total packet length on the wire (header + body + checksum)."""
 
     def on_init(self, msg) -> None:
         self.val = msg.wire_size()
 
     def on_send(self, msg) -> None:
-        self.val = msg.wire_size()              # changes with the used body of a variable-size message
+        self.val = msg.wire_size()
 
     def on_receive(self, msg, raw: bytes) -> bool:
         length = self.from_raw(msg, raw).val
         if msg._variable_size:
-            return self.min_length(msg) <= length <= ctypes.sizeof(msg)  # the ctypes layout is the maximum
+            return self.min_length(msg) <= length <= ctypes.sizeof(msg)
         return length == ctypes.sizeof(msg)
 
     def min_length(self, msg) -> int:
-        """Smallest valid length of a variable-size packet: up to the end of this field, plus the checksum."""
+        """Smallest valid length of a variable-size packet: up to the end of this field plus the checksum."""
         return self.offset_in(msg) + ctypes.sizeof(self) + msg._trailer_size()
 
 
 class CounterType(FieldType):
-    """Incremented on every send."""
+    """Incremented on every pack()."""
 
     def on_send(self, msg) -> None:
         self.val += 1
 
 
 class ChecksumType(FieldType):
-    """The last field of a message; covers the body sent before it.
-
-    Subclasses define the algorithm in compute. For a variable-size message the checksum
-    follows the used body on the wire, so its position changes with every packet.
-    """
-    _order = 100                         # always last: must cover the new values of the other fields
+    """Last field of a message; covers the body sent before it. Subclasses implement compute()."""
+    _order = 100                         # runs last, after the other fields are final
 
     def compute(self, data: bytes) -> int:
         raise NotImplementedError
@@ -106,6 +105,8 @@ class ChecksumType(FieldType):
 
 
 class AsciiType(FieldType):
+    """Text field: .val is a str, stored as ASCII bytes."""
+
     def on_get(self, v):
         return v.decode("ascii")
 

@@ -1,11 +1,13 @@
-"""Ethernet: UTS carries the bytes of a packet as a list of numbers.
+"""Ethernet protocol.
 
     POST body : {"message": [b0, b1, ...]}
     GET item  : {"message": [b0, b1, ...], "timestamp": t}
 
-To be checked against the real UTS: the exact field names and the unit of the timestamp
-(time_unit = seconds per UTS unit; 1.0 means UTS already gives seconds).
+To check with the real UTS: field names and timestamp unit (time_unit = seconds per UTS unit).
 """
+
+__author__ = "İsmail Baysal"
+
 from typing import Optional
 
 from asl_testing.protocol.base import Protocol, Received

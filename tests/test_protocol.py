@@ -1,4 +1,7 @@
 """Protocol objects: Ethernet and RS422 go through their protocol object (UTS post / get)."""
+
+__author__ = "İsmail Baysal"
+
 import time
 import unittest
 

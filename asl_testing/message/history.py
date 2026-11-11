@@ -1,16 +1,16 @@
-"""Received packets of a message, kept in order (the last N).
+"""Message history: the last N received packets of a message, in order.
 
-The live object shows only the last packet. When several packets of a message arrive in one UTS poll,
-the values in between are visible only here.
+The object shows only the last packet; packets that arrive together in one UTS poll are all kept here.
+Reading does not remove records, so every reader keeps its own mark.
 
-    mark = status.rx_history.mark()                    # only packets after this point count
+    mark = status.rx_history.mark()
     ...
-    for rec in status.rx_history.since(mark):          # every packet since mark, oldest first
+    for rec in status.rx_history.since(mark):
         print(rec.seq, rec.timestamp, rec.snapshot().speed)
-
-Reading never removes records: each reader keeps its own mark, so two readers do not affect each other.
-A record holds the packet as the ctypes layout of the message; snapshot() turns it into a separate object.
 """
+
+__author__ = "İsmail Baysal"
+
 import itertools
 import logging
 import threading
@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 _log = logging.getLogger(__name__)
-_seq = itertools.count(1)               # one order for all messages; next() is atomic under the GIL
+_seq = itertools.count(1)               # one order for all messages
 
 
 def next_seq() -> int:
@@ -28,43 +28,43 @@ def next_seq() -> int:
 
 @dataclass(frozen=True)
 class Record:
-    """One received packet. Never changes."""
-    seq: int                            # global order: a larger seq arrived later (over all messages)
-    timestamp: Optional[float]          # arrival time reported by UTS (seconds)
-    host_time: float                    # wall clock of this host when it was decoded (time.time)
-    image: bytes                        # the packet in the message's ctypes layout
-    cls: type                           # message class, to read the image
+    """One received packet."""
+    seq: int                            # arrival order over all messages
+    timestamp: Optional[float]          # UTS time in seconds
+    host_time: float                    # host time (time.time)
+    image: bytes                        # ctypes layout of the message
+    cls: type                           # message class
 
     def snapshot(self):
-        """A separate object with the values of this packet (not registered, no channel / state)."""
+        """Separate object with the values of this packet (not registered, no channel or state)."""
         return self.cls.from_buffer_copy(self.image)
 
 
 class MessageHistory:
-    """The last `capacity` records of one message; the oldest is dropped when it is full."""
+    """Last `capacity` records of one message; the oldest is dropped when full."""
 
     def __init__(self, capacity: int, name: str = ""):
         if capacity < 1:
             raise ValueError("history capacity must be at least 1")
         self.capacity = capacity
-        self.name = name                # for the overflow warning
+        self.name = name
         self.dropped = 0                # records pushed out by newer ones
         self._records: deque[Record] = deque(maxlen=capacity)
         self._cond = threading.Condition()
 
     def push(self, record: Record) -> None:
-        """Called by the RX thread for every valid packet."""
+        """Adds a record (RX thread). Warns once when the first record is dropped."""
         with self._cond:
             if len(self._records) == self.capacity:
                 self.dropped += 1
-                if self.dropped == 1:               # once per history, not for every packet
+                if self.dropped == 1:
                     _log.warning("history of %s is full (%d records): older packets are dropped",
                                  self.name or "message", self.capacity)
             self._records.append(record)
             self._cond.notify_all()
 
     def mark(self) -> int:
-        """The current position: since(mark) / wait_for(after=mark) see only packets after it."""
+        """Current position; since() and wait_for() look only after it."""
         with self._cond:
             return self._records[-1].seq if self._records else 0
 
@@ -78,12 +78,12 @@ class MessageHistory:
             return self._records[-1] if self._records else None
 
     def wait_for(self, predicate: Callable[[object], bool], after: int, timeout: float) -> Optional[Record]:
-        """The first record after `after` whose snapshot satisfies predicate; None on timeout.
+        """First record after `after` whose snapshot satisfies predicate, or None on timeout.
 
-        Wakes up when a record arrives (no polling). predicate gets the snapshot: lambda s: s.speed == 10.
+        Wakes up when a record arrives. Each record is tested once.
         """
         found: list[Record] = []
-        checked = after                                 # records up to here were already tested
+        checked = after
 
         def check() -> bool:
             nonlocal checked

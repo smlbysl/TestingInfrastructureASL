@@ -1,21 +1,24 @@
 """asl_testing: message model and UTS communication for test code.
 
-Test code and project definitions import everything from this module:
+Tests and project definitions import everything from here:
 
-    from asl_testing import Comm, BaseMessageStructure, Timing, Direction, Channel, ChannelSet
+    from asl_testing import Comm, BaseMessageStructure, Timing, Direction, ChannelSet
 
-The sub-packages are the library's internals (layers, each importing only the ones below it):
-    comm.py      Comm: the single entry point for test code
-    services/    event subscribers (message history, error log, monitor)
+Sub-packages (each uses only the ones below it):
+    comm.py      Comm, the entry point
+    services/    CSV log, error log, monitor
     runtime/     transport, RX poller, dispatcher, TX scheduler
-    events/      event types and the event bus
-    uts/         UTS client (HTTP, fake) and UTS control
-    channel/     channel definition and framing
-    message/     message model (base class, fields, signature, registry, timing, state, history)
+    events/      event types, event bus
+    uts/         UTS client (HTTP, fake), UTS control
+    protocol/    protocol objects (Ethernet, RS422, MIL-STD-1553)
+    channel/     channels, framing
+    message/     message model
 """
+
+__author__ = "İsmail Baysal"
 __version__ = "2.1.dev3"
 
-# comm first: it pulls in the layers below, the rest only re-exports names
+# comm first: it imports the layers below; the rest only re-exports names
 from asl_testing.comm import Comm
 
 # message model

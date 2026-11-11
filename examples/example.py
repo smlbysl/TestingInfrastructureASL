@@ -6,6 +6,9 @@ a re-created message replacing the old one, UTS errors and the logs.
 
 Run from the repository root:  python -m examples.example
 """
+
+__author__ = "İsmail Baysal"
+
 import ctypes
 import logging
 import time

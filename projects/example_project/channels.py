@@ -1,4 +1,7 @@
 """Channels of the project. Messages get them as class defaults (_channel)."""
+
+__author__ = "İsmail Baysal"
+
 from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Framing
 from projects.example_project.framing import EthHeader
 

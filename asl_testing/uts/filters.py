@@ -1,16 +1,16 @@
-"""Filter calculations: message objects -> UTS filter groups (pure functions).
+"""UTS filter groups from message signatures.
 
 A group is a list of (byte position on the line, value); a filter is a list of groups (OR).
-Positions are on the line, so the envelope header in front of the message is added (offset).
 """
+
+__author__ = "İsmail Baysal"
 
 
 def signature_filter(msg, offset: int = 0) -> list[tuple[int, int]]:
-    """The signature bytes of a message object as one filter group.
+    """Signature bytes of a message as one filter group.
 
-    offset: bytes in front of the message on the line (the channel envelope's offset).
-    Only bytes covered by the signature mask are used. A byte only partly covered (bit field)
-    is given with its masked value; whether UTS accepts that is an open point.
+    offset: header size in front of the message (envelope.offset). A byte only partly covered by
+    the mask (bit field) is given with its masked value; whether UTS accepts that is open.
     """
     sig = msg._signature
     if sig is None or sig.mask is None:

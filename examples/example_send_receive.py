@@ -5,6 +5,9 @@ The answer is polled from the fake UTS, dispatched to the status object and the 
 
 Run from the repository root:  python -m examples.example_send_receive
 """
+
+__author__ = "İsmail Baysal"
+
 import time
 
 from asl_testing import Comm, FakeUtsClient, MessageReceived, MessageSent, Direction

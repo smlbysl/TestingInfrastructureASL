@@ -13,6 +13,9 @@ Environment:
     ASL_HARDWARE=1     run HardwareTestCase tests
     ASL_TIMEOUT=1.0    default wait time of the expect_* helpers (seconds)
 """
+
+__author__ = "İsmail Baysal"
+
 import os
 import unittest
 

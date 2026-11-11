@@ -1,13 +1,13 @@
 """Transport: moves bytes between channels and UTS.
 
-TX: channel envelope -> protocol.encode -> UTS post on the channel's address.
-RX: UTS get on an address -> protocol.decode -> the address's splitter -> the first channel of the
-    address whose envelope accepts the packet -> RxFrame for the dispatcher.
-Knows channels and bytes only; nothing about messages, signatures or timing.
-
-Protocols are looked up by the channel's protocol type (Ethernet, RS422 ...). A type without a
-protocol object (CAN today) still uses the old byte path (uts.transfer / uts.fetch).
+TX: envelope -> protocol.encode -> uts.post
+RX: uts.get -> protocol.decode -> splitter -> envelope of each channel on the address -> RxFrame
+Knows channels and bytes only, not messages, signatures or timing. A channel type without a
+protocol object (CAN) uses uts.transfer / uts.fetch.
 """
+
+__author__ = "İsmail Baysal"
+
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -25,12 +25,12 @@ _NO_SPLIT = Splitter()
 @dataclass(frozen=True)
 class RxFrame:
     channel: Optional[Channel]          # None: no envelope on the address accepted the packet
-    data: bytes                         # message bytes (inside the envelope)
-    wire: bytes                         # packet as it was on the line
+    data: bytes                         # message bytes (envelope removed)
+    wire: bytes                         # bytes on the line
     protocol: ProtocolType
     interface: int
-    timestamp: Optional[float]          # UTS arrival time in seconds
-    host_time: float                    # wall clock of this host when polled
+    timestamp: Optional[float]          # UTS time in seconds
+    host_time: float                    # host time (time.time) of the poll
 
 
 class Transport:
@@ -39,17 +39,17 @@ class Transport:
         self.protocols = default_protocols() if protocols is None else dict(protocols)
 
     def send(self, channel: Channel, data: bytes) -> bytes:
-        """Sends message bytes on a channel; returns the bytes put on the line."""
+        """Sends message bytes on a channel; returns the bytes on the line."""
         wire = channel.framing.envelope.on_send(data)
         protocol = self.protocols.get(channel.protocol)
-        if protocol is None:                                    # not moved to a protocol object yet
+        if protocol is None:
             self.uts.transfer(channel.protocol, channel.interface, wire)
         else:
             self.uts.post(protocol.path, channel.interface, protocol.encode(wire))
         return wire
 
     def poll(self, address: Address, channels: list[Channel]) -> list[RxFrame]:
-        """Fetches an address; channels are the candidates on it, in the order they are tried."""
+        """Reads an address; channels are its channels in the order their envelopes are tried."""
         kind, interface = address
         splitter = next((ch.framing.splitter for ch in channels if ch.has_splitter), _NO_SPLIT)
         now = time.time()
@@ -62,7 +62,7 @@ class Transport:
 
     def _receive(self, kind: ProtocolType, interface: int) -> list[Received]:
         protocol = self.protocols.get(kind)
-        if protocol is None:                                    # not moved to a protocol object yet
+        if protocol is None:
             return [Received(item.data, item.timestamp) for item in self.uts.fetch(kind, interface)]
         return [protocol.decode(item) for item in self.uts.get(protocol.path, interface)]
 

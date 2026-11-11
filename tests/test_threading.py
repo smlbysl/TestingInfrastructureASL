@@ -1,4 +1,7 @@
 """Thread safety of the message object while the RX thread writes into it."""
+
+__author__ = "İsmail Baysal"
+
 import sys
 import threading
 import time

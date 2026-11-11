@@ -1,37 +1,35 @@
-"""Framing: what happens to bytes between a message and the line.
+"""Framing: what happens to the bytes between a message and the line.
 
-- Splitter (stream level): turns what UTS returned for an address into packets.
-  It works before the packet is matched to a channel, so one address has at most one splitter.
-- Envelope (packet level): what is added around a message on a channel.
+Splitter   stream level: cuts what UTS returned for an address into packets (one per address)
+Envelope   packet level: what a channel adds around a message (e.g. a header)
 
-The defaults do nothing, so a channel without framing passes bytes through unchanged.
+The defaults pass the bytes through unchanged.
 """
+
+__author__ = "İsmail Baysal"
+
 from dataclasses import dataclass, field
 from typing import Optional
 
 
 class Splitter:
     def split(self, data: bytes) -> list[bytes]:
-        """Returns the packets contained in data. Default: data is one packet."""
+        """Packets in data. Default: data is one packet."""
         return [data]
 
     def reset(self) -> None:
-        """Drops any partial packet kept between two reads."""
+        """Drops a partial packet kept between two reads."""
 
 
 class Envelope:
-    offset = 0      # bytes in front of the message on the line (header size); used for UTS filters
+    offset = 0      # header size in front of the message; used for UTS filters
 
     def on_send(self, data: bytes) -> bytes:
         """TX: message bytes -> bytes on the line."""
         return data
 
     def on_receive(self, wire: bytes) -> Optional[bytes]:
-        """RX: bytes on the line -> message bytes.
-
-        Returns None when the packet does not belong to this channel, so the next channel
-        on the same address is tried.
-        """
+        """RX: bytes on the line -> message bytes, or None if the packet is not for this channel."""
         return wire
 
 

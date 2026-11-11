@@ -1,11 +1,12 @@
-"""CommLogger: writes the messaging history (every received and sent packet) to one CSV file.
+"""CommLogger: writes every received and sent packet to a CSV file.
 
-One subscription to all events on a single thread, so lines stay in publish order.
-Raw bytes are logged, so any field can be decoded later with the message class,
-even fields nobody watched during the test.
+One subscription to all events, so the lines keep publish order. Raw bytes are written, so any
+field can be decoded later with the message class.
 
 Columns: host_time, uts_time, direction, channel, message, signature, length, data
 """
+
+__author__ = "İsmail Baysal"
 import csv
 from datetime import datetime
 from typing import Optional
@@ -33,7 +34,7 @@ class CommLogger:
     def _on_event(self, event) -> None:
         direction = DIRECTIONS.get(type(event))
         if direction is None:
-            return                                  # not a message event
+            return
         msg = getattr(event, "message", None)
         self._writer.writerow([
             _host_time(event.host_time),
@@ -48,7 +49,7 @@ class CommLogger:
         self._file.flush()
 
     def close(self) -> None:
-        """Call after comm.close(), so every queued event is written first."""
+        """Call after comm.close(), so queued events are written first."""
         self._file.close()
 
 

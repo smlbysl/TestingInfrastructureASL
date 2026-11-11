@@ -1,10 +1,11 @@
-"""Offline monitor: opens the page without a running test, to import CommLogger CSV files.
+"""Offline monitor: opens the page without a test, to import CommLogger CSV files.
 
     python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages
 
-Arguments: module:ProjectClass for each project, and the modules that define the message classes
-(a CSV row is decoded with the class of the same name, so that class must be imported).
+Arguments: module:ProjectClass per project and the modules with the message classes.
 """
+
+__author__ = "İsmail Baysal"
 import argparse
 import importlib
 import time

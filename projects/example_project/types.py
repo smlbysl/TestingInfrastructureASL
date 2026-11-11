@@ -1,4 +1,6 @@
-"""Project-specific field types (derived from asl_testing.message.fields)."""
+"""Field types of the project."""
+
+__author__ = "İsmail Baysal"
 from ctypes import c_char, c_uint8, c_uint16
 
 from asl_testing import AsciiType, ChecksumType, CounterType, FieldType, LengthType
@@ -37,10 +39,9 @@ class AsciiChar(AsciiType):
 
 
 class CmdByte(FieldType):
-    """One command byte whose bits are managed together.
+    """Command byte: startReq is sent once and cleared after a successful send; mode keeps its value.
 
-    startReq goes out once and is cleared after a successful send; the other bits keep their value.
-    Access: msg.cmd.startReq, msg.cmd.mode (no .val: the type has no single value field).
+    Access: msg.cmd.startReq, msg.cmd.mode (no .val).
     """
     _fields_ = [
         ("startReq",  c_uint8, 1),
@@ -48,7 +49,7 @@ class CmdByte(FieldType):
         ("reserved",  c_uint8, 4),
     ]
 
-    def on_init(self, msg) -> None:     # initial values (also restored by msg.initialize())
+    def on_init(self, msg) -> None:     # also run by msg.initialize()
         self.startReq = 0
         self.mode = 1
 

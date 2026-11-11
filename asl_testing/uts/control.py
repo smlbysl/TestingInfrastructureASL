@@ -1,18 +1,15 @@
-"""UtsControl: direct (vertical) access from the test to UTS management.
+"""UtsControl: configuration and receive filters of a UTS interface, called directly from the test.
 
-Configuration and receive filters of a UTS interface. Synchronous: a call returns the result or
-raises (UtsError from the client). Independent of the RX / TX threads and of events; it only
-shares the UtsClient with them.
+Calls are synchronous (result or UtsError) and independent of the RX / TX threads.
+The target is a channel or a message (its channel); the channel selects protocol + interface.
 
-The target is a message object or a Channel; a message gives its channel. The channel's
-protocol + interface select the UTS interface, so channels sharing an address share its
-configuration and its filter.
-
-    comm.control.add_filter(status)                # signature bytes of the message, on the line
+    comm.control.add_filter(status)
     comm.control.remove_filter(status)
     comm.control.clear_filter(MyChannels.CONTROL)
     comm.control.set_config(status, baudRate=115200)
 """
+
+__author__ = "İsmail Baysal"
 import logging
 from typing import Any, Union
 
@@ -48,23 +45,19 @@ class UtsControl:
         return self.uts.get_filter(ch.protocol, ch.interface)
 
     def set_filter(self, target: Target, groups: FilterGroups, kind: str = "INCLUSIVE") -> None:
-        """Writes a whole filter: OR of groups, each an AND of (byte position on the line, value)."""
+        """Writes the whole filter."""
         ch = _channel(target)
         self.uts.set_filter(ch.protocol, ch.interface, kind, groups)
         self.log.info("%s: filter %s %s", ch, kind, groups)
 
     def clear_filter(self, target: Target) -> None:
-        """Removes the filter of the interface: every packet passes again."""
+        """Removes the filter; every packet passes."""
         ch = _channel(target)
         self.uts.set_filter(ch.protocol, ch.interface, "NONE", [])
         self.log.info("%s: filter cleared", ch)
 
     def add_filter(self, msg: BaseMessageStructure) -> None:
-        """Adds the message's signature bytes to the interface's filter (read, add, write back).
-
-        The first one switches the interface from "everything passes" to "only the filter passes".
-        Adding the same message twice changes nothing.
-        """
+        """Adds the message's signature bytes to the filter (read, add, write). Adding twice changes nothing."""
         ch = msg.channel
         group = signature_filter(msg, ch.framing.envelope.offset)
         kind, groups = self.uts.get_filter(ch.protocol, ch.interface)
@@ -75,7 +68,7 @@ class UtsControl:
         self.log.info("%s: filter + %s %s", ch, type(msg).__name__, group)
 
     def remove_filter(self, msg: BaseMessageStructure) -> None:
-        """Removes the message's group from the filter; no group left -> no filter."""
+        """Removes the message's group; with no group left the filter is removed."""
         ch = msg.channel
         group = signature_filter(msg, ch.framing.envelope.offset)
         kind, groups = self.uts.get_filter(ch.protocol, ch.interface)

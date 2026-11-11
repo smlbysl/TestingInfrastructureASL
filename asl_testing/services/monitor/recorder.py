@@ -1,14 +1,10 @@
-"""Recorder: keeps every received / sent packet per message, decodes field values on request.
+"""Recorder: keeps (time, image) of every packet per message stream; decodes values on request.
 
-A message stream is identified by (direction, class name, channel, signature id).
-Each stream keeps (time, image) pairs; image is the ctypes layout of the message, so any field
-can be decoded later. Values are decoded only for the signals that are viewed.
-
-Sources:
-- live: MessageReceived / MessageSent events of a Comm (start / stop)
-- offline: a CSV written by CommLogger; the class is found by its name in the projects
-Times are seconds on this host's clock (time.time); the UI shows them relative to the first packet.
+A stream is (direction, class name, channel, signature id). Sources: live events of a Comm, or a
+CommLogger CSV (the class is found by name). Times are host time; the page shows them from the first packet.
 """
+
+__author__ = "İsmail Baysal"
 import csv
 import ctypes
 import io
@@ -20,7 +16,7 @@ from typing import Any, Optional, Sequence
 from asl_testing.events.types import MessageReceived, MessageSent
 from asl_testing.services.monitor.signals import is_number, signal_paths
 
-StreamKey = tuple[str, str, str, str]       # direction, message class, channel, signature (hex)
+StreamKey = tuple[str, str, str, str]       # direction, class, channel, signature (hex)
 
 
 @dataclass
@@ -41,7 +37,7 @@ class Recorder:
         self.classes = _message_classes(projects)          # class name -> class
         self.streams: dict[StreamKey, Stream] = {}
         self._paths: dict[type, list] = {}                 # class -> [(path, getter)]
-        self._lock = threading.Lock()                      # event thread appends, HTTP thread reads
+        self._lock = threading.Lock()                      # event thread writes, HTTP thread reads
         self.source = "empty"                              # "live", "csv: <name>" or "empty"
 
     # ---------------------------------------------------------------- input
@@ -56,11 +52,11 @@ class Recorder:
 
     def load_csv(self, text: str, name: str = "") -> int:
         """Adds the RX / TX rows of a CommLogger CSV; returns the number of packets loaded."""
-        self.classes = _message_classes(self.projects)     # classes imported since the start count too
+        self.classes = _message_classes(self.projects)     # include classes imported later
         count = 0
         for row in csv.DictReader(io.StringIO(text)):
             if row["direction"] not in ("RX", "TX"):
-                continue                                   # invalid / unknown packets: no message
+                continue
             cls = self.classes.get(row["message"])
             if cls is None:
                 continue
@@ -144,15 +140,11 @@ def _message_classes(projects: Sequence[type]) -> dict[str, type]:
 
 
 def _image(cls: type, raw: bytes) -> bytes:
-    """ctypes layout of a message from its bytes on the wire (like decode, without validation).
-
-    Fixed size: the wire equals the layout. Variable size: the body goes to the start, the
-    checksum (last bytes of the packet) to the checksum field.
-    """
+    """ctypes layout from wire bytes, like decode without validation."""
     size = ctypes.sizeof(cls)
     if not getattr(cls, "_variable_size", False) or len(raw) >= size:
         return raw[:size].ljust(size, b"\0")
-    probe = cls.from_buffer_copy(bytes(size))              # an unregistered object: only its layout is used
+    probe = cls.from_buffer_copy(bytes(size))              # unregistered; only its layout is used
     offset, trailer = probe._trailer_offset(), probe._trailer_size()
     body = max(len(raw) - trailer, 0)
     image = bytearray(size)

@@ -1,14 +1,12 @@
 """TxScheduler: one-shot sends and one thread for all periodic messages.
 
-- send(msg): counter, checksum, bytes, envelope and the UTS request happen under one lock, so the
-  scheduler and the test sending the same message at the same time cannot mix up the counter.
-  Publishes WireSent (bytes on the line) and MessageSent. After a successful send the after_send
-  hooks of the special fields run (still under the lock); the events carry the values that were sent.
-- start(msg) / stop(msg): adds / removes a periodic message. The next send time is advanced by
-  the period (not now + period), so the delay does not accumulate.
-- A message that is no longer registered (replaced by a new object) is dropped from the table.
-Logs: a failed send as ERROR (with traceback), periodic start / stop as INFO, every send as DEBUG.
+send(msg)      pack, envelope and UTS request under one lock, so the scheduler and the test
+               cannot mix up the counter; then after_send, WireSent and MessageSent
+start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up
+A message that is no longer registered (replaced by a new object) is dropped from the table.
 """
+
+__author__ = "İsmail Baysal"
 import logging
 import threading
 import time
@@ -26,7 +24,7 @@ class TxScheduler:
         self.bus = bus
         self.log = log or logging.getLogger(__name__)
         self._send_lock = threading.Lock()
-        # id(message) -> [message, next due (monotonic)]; ctypes objects are not hashable
+        # id(msg) -> [msg, next due time (monotonic)]; ctypes objects are not hashable
         self._table: dict[int, list] = {}
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -35,9 +33,9 @@ class TxScheduler:
     # ---------------------------------------------------------------- sending
 
     def send(self, msg: BaseMessageStructure) -> bool:
-        """Sends a message once. Returns False if the UTS request failed (LinkError is published)."""
+        """Sends a message once; False if the UTS request failed (LinkError is published)."""
         with self._send_lock:
-            raw, image = msg._pack()                # both from the same copy
+            raw, image = msg._pack()
             try:
                 wire = self.transport.send(msg._channel, raw)
             except Exception as error:
@@ -69,7 +67,7 @@ class TxScheduler:
         return id(msg) in self._table
 
     def tick(self) -> Optional[float]:
-        """Sends what is due; returns seconds until the next due message (None if the table is empty)."""
+        """Sends what is due; returns seconds to the next due message, None if there is none."""
         now = time.monotonic()
         for key, entry in list(self._table.items()):
             msg, due = entry
@@ -78,7 +76,7 @@ class TxScheduler:
                 continue
             if due <= now:
                 self.send(msg)
-                entry[1] = due + msg._tx.timing.period   # harmless if stop() removed the entry meanwhile
+                entry[1] = due + msg._tx.timing.period
         if not self._table:
             return None
         return max(0.0, min(due for _, due in list(self._table.values())) - time.monotonic())
