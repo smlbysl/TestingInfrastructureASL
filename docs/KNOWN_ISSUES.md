@@ -14,7 +14,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 1. ~~K1: Uzunluk alanı RX thread'ini öldürüyor~~ (çözüldü)
 2. ~~B1: `decode` okuyuculara yarım değer gösteriyor~~ (çözüldü)
-3. K3: Özel alan tipleri projenin endian'ını takip etmiyor
+3. K3: Özel alan tipleri projenin endian'ını takip etmiyor (çözüm tasarlandı, karar bekliyor)
 4. B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor
 5. B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç
 6. B13: GIL kontrolü
@@ -48,15 +48,28 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
   splitter ayırıyor.
 
 ### K3 — Özel alan tipleri projenin endian'ını takip etmiyor
-- **Önem:** Yüksek (big-endian projede Kritik) — **Durum:** Doğrulandı
+- **Önem:** Yüksek (big-endian projede Kritik) — **Durum:** Açık (çözüm tasarlandı, uygulanmadı)
 - **Nerede:** `FieldType(Structure)`; proje tipleri `Length16`, `Counter8`, `CRC16`, `CmdByte`
-- **Ne oluyor:** `FieldType` makinenin yerel sırasıyla (x86: little-endian) tanımlı. Big-endian bir projenin içinde
-  bile little-endian kalıyor, ctypes hata vermiyor. Uzunluk, sayaç ve CRC hatta ters sırayla gider.
-  Bit alanlarının konumu da değişir: `a=1` little-endian'da `0x01`, big-endian'da `0x80`.
+- **Ne oluyor:** `BigEndianStructure` alanları `ctypes._endian._other_endian` ile çevirir: temel tipler
+  (`c_uint16` …) `__ctype_be__` karşılığına, diziler eleman tipine göre çevrilir; iç içe `Structure` ise **olduğu gibi
+  bırakılır**. `FieldType` bir `Structure` olduğu için özel alanlar big-endian mesajda makinenin sırasında
+  (x86: little-endian) kalır. Bit alanlarının konumu da değişmez: `a=1` big-endian'da `0x80` olmalıyken `0x01` gider.
   TX ve RX kendi aralarında tutarlı olduğu için simülasyonda testler geçer; hata gerçek cihazda görünür.
-- **Düzeltme:** Proje tiplerinde endian açıkça yazılsın (`class CRC16(ChecksumType, BigEndianStructure)`) ve
-  kütüphane, mesaj sınıfı tanımlanırken her özel alanın bayt sırasını projeninkiyle karşılaştırıp uyuşmazsa
-  `TypeError` versin.
+  Örnek proje little-endian olduğu için şu an etkilenmiyor.
+- **Tasarlanan çözüm (prototiple doğrulandı, Python 3.13):**
+  1. `FieldType.__init_subclass__` her özel tip için ters endian'lı bir ikiz üretir ve `__ctype_be__`
+     (big-endian makinede `__ctype_le__`) olarak bağlar. ctypes big-endian mesajda bu ikizi kendisi seçer;
+     proje tiplerinde hiçbir şey yazmak gerekmez. İkiz aynı metotları taşır, `val` / hook'lar aynı çalışır.
+  2. İkiz `Length16`'dan türeyemez (ctypes'ta `_fields_` olan sınıftan türeyen sınıf alanları sona ekler),
+     üst sınıftan (`LengthType`) türer. Bu yüzden `isinstance(alan, Length16)` big-endian mesajda `False` döner.
+     - **Yol A (önerilen):** Sadece `FieldType` için ctypes'ın metaclass'ından türeyen küçük bir `_FieldMeta`;
+       `__instancecheck__` / `__subclasscheck__` ikizin `_origin` bilgisine de bakar. Prototipte `isinstance`
+       iki endian'da da doğru. Mesaj sınıflarına dokunmaz.
+     - **Yol B:** Metaclass yok; `alan.kind is Length16` ile sorulur, `isinstance(alan, Length16)` kullanılmaması
+       dokümante edilir. Risk: unutulursa yine sessiz hata.
+  3. Güvenlik kontrolü: mesaj tanımlanırken ikizi olmayan ve endian'ı uyuşmayan bir özel alan `TypeError` verir
+     (bayt sırası önemsiz alanlar, ör. tek bayt / `c_char` dizisi, hariç).
+- **Karar bekliyor:** Yol A mı Yol B mi; konu şimdilik açık bırakıldı.
 
 ### K4 — `snapshot()` / `from_buffer_copy` ile oluşan nesnede metadata yok
 - Bkz. B15. `__init__` çalışmadığı için `_channel`, `_rx`, `_tx` yok; `snap.channel` `AttributeError` verir.
