@@ -57,8 +57,12 @@ class EventBus:
         return sub
 
     def unsubscribe(self, sub: Subscriber) -> None:
+        """Stops a subscription; a second call does nothing."""
         with self._lock:
-            self._subs[sub.event_type].remove(sub)
+            subs = self._subs[sub.event_type]
+            if sub not in subs:
+                return
+            subs.remove(sub)
         sub.stop()
 
     def publish(self, event) -> None:

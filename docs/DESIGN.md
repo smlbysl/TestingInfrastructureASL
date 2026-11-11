@@ -235,7 +235,7 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 
 ## Registry
 - `all`, `dispatch` (`(channel, signature_id) -> nesne`, sadece RX), `channels` (dispatch'ten),
-  `periodic_rx` (zaman aşımı), `periodic_tx` (aday listesi; gönderim `comm.start` ile).
+  `periodic_rx` (zaman aşımı). Periyodik gönderim `comm.start` ile başlar.
 - Aynı sınıf + channel + signature + yön ile yeniden oluşturulan nesne eskisinin yerini alır;
   eskisi tüm listelerden çıkar, `_registered = False` olur, scheduler onu tablodan düşürür.
 - Farklı sınıf aynı channel + signature ile RX'e girerse `ValueError`.

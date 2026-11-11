@@ -4,7 +4,7 @@ __author__ = "İsmail Baysal"
 
 import time
 
-from asl_testing import Direction, InvalidReceived, RxTimeout, Timing
+from asl_testing import Direction, InvalidReceived, MessageReceived, RxTimeout, Timing
 from projects.example_project.messages import comut, diag_log, motor_cmd
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
@@ -49,6 +49,11 @@ class CommTests(CommTestCase):
             time.sleep(0.01)
         self.assertEqual(len(invalid), 1)
         self.assertEqual(rx.count, 2)
+
+    def test_unsubscribe_twice_does_nothing(self):
+        sub = self.comm.subscribe(MessageReceived, lambda ev: None)
+        self.comm.bus.unsubscribe(sub)
+        self.comm.bus.unsubscribe(sub)                                       # e.g. a service closed twice
 
     def test_missing_periodic_message_times_out(self):
         status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=2))

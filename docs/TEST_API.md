@@ -127,7 +127,6 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `Envelope.on_receive(wire)` | Kabul ederse mesaj baytlarını, etmezse `None` | Evet (kendi envelope'unu test ederken) | Evet |
 | `Envelope.offset` | Başlık boyu (UTS filtresi için) | Evet | Evet |
 | `Splitter.split(data)` | UTS'ten gelen veriyi çerçevelere böler | Evet (akış protokolleri için) | Evet |
-| `Splitter.reset()` | Yarım paketi atar | Sınırlı | Evet |
 
 ## 6. Olaylar (`events`)
 

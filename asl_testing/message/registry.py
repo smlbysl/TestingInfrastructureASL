@@ -24,7 +24,6 @@ class Registry:
         self.all: list[BaseMessageStructure] = []
         self.dispatch: dict[tuple[Channel, int], BaseMessageStructure] = {}     # RX objects only
         self.periodic_rx: list[BaseMessageStructure] = []                       # checked for RX timeout
-        self.periodic_tx: list[BaseMessageStructure] = []
 
     @property
     def channels(self) -> set[Channel]:
@@ -51,8 +50,6 @@ class Registry:
             if msg._rx.timing.is_periodic:
                 self.periodic_rx.append(msg)
         # TX-only objects stay out of dispatch, so a received packet never overwrites them.
-        if msg._tx is not None and msg._tx.timing.is_periodic:
-            self.periodic_tx.append(msg)
         msg._registered = True
 
     def remove(self, msg: BaseMessageStructure) -> None:
@@ -61,15 +58,13 @@ class Registry:
             del self.dispatch[key]
         if msg in self.periodic_rx:
             self.periodic_rx.remove(msg)
-        if msg in self.periodic_tx:
-            self.periodic_tx.remove(msg)
         msg._registered = False                         # the TX scheduler drops unregistered objects
 
     def lookup(self, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
         """Object of this family for a raw packet, or None."""
         if self.by_channel:
             return self.dispatch.get((channel, None))
-        if self.signature is None or self.signature.mask is None:
+        if self.signature is None:
             return None
         return self.dispatch.get((channel, self.signature.compute(raw)))
 
@@ -80,7 +75,6 @@ class Registry:
         self.all.clear()
         self.dispatch.clear()
         self.periodic_rx.clear()
-        self.periodic_tx.clear()
 
     def _find_same(self, msg: BaseMessageStructure) -> Optional[BaseMessageStructure]:
         for m in self.all:

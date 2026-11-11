@@ -17,9 +17,6 @@ class Splitter:
         """Packets in data. Default: data is one packet."""
         return [data]
 
-    def reset(self) -> None:
-        """Drops a partial packet kept between two reads."""
-
 
 class Envelope:
     offset = 0      # header size in front of the message; used for UTS filters

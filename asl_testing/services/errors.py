@@ -6,6 +6,7 @@ logger). Its records do not go to the general log, which has the same problems a
 """
 
 __author__ = "İsmail Baysal"
+
 import logging
 
 from asl_testing.comm import Comm

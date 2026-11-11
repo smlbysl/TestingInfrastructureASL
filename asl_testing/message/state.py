@@ -52,13 +52,6 @@ class RxState:
             return None
         return time.monotonic() - self.last_time
 
-    def is_fresh(self) -> bool:
-        if self.last_time is None:
-            return False
-        if not self.timing.is_periodic:
-            return True
-        return self.age() <= self.timing.period * self.timing.tolerance
-
 
 @dataclass
 class TxState:

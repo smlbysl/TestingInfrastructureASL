@@ -215,12 +215,6 @@ class BaseMessageStructure(Structure):
         return [reg for reg in cls._families if channel in reg.channels]
 
     @classmethod
-    def lookup(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
-        """Message object of this project for a raw packet: signature match first, then by channel."""
-        msg = cls.lookup_signature(channel, raw)
-        return msg if msg is not None else cls.lookup_channel(channel)
-
-    @classmethod
     def lookup_signature(cls, channel: Channel, raw: bytes) -> Optional[BaseMessageStructure]:
         for reg in cls.families(channel):
             if reg.signature is not None:
@@ -280,15 +274,12 @@ class BaseMessageStructure(Structure):
             if self._rx is not None:
                 self._rx.on_error()
             return False
-        body, offset, size = self._rx_body(raw), self._trailer_offset(), self._trailer_size()
-        image = bytearray(ctypes.sizeof(self))
-        image[:body] = raw[:body]
-        image[offset:offset + size] = raw[body:body + size]
+        image = self._image(raw, self._rx_body(raw))
         memoryview(self).cast("B")[:] = image
         if self._rx is not None:
             self._rx.on_receive(timestamp)
-            self._rx.history.push(Record(next_seq(), timestamp, time.time(), bytes(image), type(self)))
-        self._last_rx_image = bytes(image)              # MessageReceived carries these bytes
+            self._rx.history.push(Record(next_seq(), timestamp, time.time(), image, type(self)))
+        self._last_rx_image = image                     # MessageReceived carries these bytes
         for callout in self._on_receive:
             callout(self)
         return True
@@ -333,6 +324,14 @@ class BaseMessageStructure(Structure):
                 field.val = value
             else:
                 setattr(self, name, value)
+
+    def _image(self, raw: bytes, body: int) -> bytes:
+        """ctypes layout of a packet: body at the start, checksum in its field, the rest cleared."""
+        offset, size = self._trailer_offset(), self._trailer_size()
+        image = bytearray(ctypes.sizeof(self))
+        image[:body] = raw[:body]
+        image[offset:offset + size] = raw[body:body + size]
+        return bytes(image)
 
     def _special_fields(self) -> list[FieldType]:
         """Special fields of this object in _order (views on the same buffer)."""

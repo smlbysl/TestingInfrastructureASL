@@ -145,12 +145,7 @@ def _image(cls: type, raw: bytes) -> bytes:
     if not getattr(cls, "_variable_size", False) or len(raw) >= size:
         return raw[:size].ljust(size, b"\0")
     probe = cls.from_buffer_copy(bytes(size))              # unregistered; only its layout is used
-    offset, trailer = probe._trailer_offset(), probe._trailer_size()
-    body = max(len(raw) - trailer, 0)
-    image = bytearray(size)
-    image[:body] = raw[:body]
-    image[offset:offset + trailer] = raw[body:body + trailer]
-    return bytes(image)
+    return probe._image(raw, max(len(raw) - probe._trailer_size(), 0))
 
 
 def _safe(get, msg) -> Any:

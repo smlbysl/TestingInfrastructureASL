@@ -62,7 +62,7 @@ class Signature:
 
     def compute(self, raw: bytes) -> Optional[int]:
         """Signature id of a raw packet, or None if the packet is too short."""
-        if self.mask is None or self.offset is None:
+        if self.mask is None:
             return None
         chunk = raw[self.offset:self.offset + len(self.mask)]
         if len(chunk) < len(self.mask):
