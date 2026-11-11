@@ -1,6 +1,9 @@
 # BaseMessageStructure - Tasarım Notları
 
-Python ctypes ile Ethernet/RS422 haberleşen projeler için test altyapısı.
+Yazar: İsmail Baysal
+
+Python ctypes ile Ethernet, RS422 ve MIL-STD-1553 üzerinden haberleşen projeler için test altyapısı.
+Şemalı mimari: `docs/architecture.html` (`python tools/build_architecture.py` ile üretilir).
 ICD'ye bağlı mesaj nesneleri oluşturulur; haberleşme UTS (HTTP servisi) üzerinden yapılır.
 Ayrıntılı tasarım ve yol haritası: "UTS Haberleşme Katmanı – Tasarım ve Yol Haritası" belgesi.
 Kod içindeki yorumlar İngilizce.

@@ -1,5 +1,7 @@
 # Test arayüzü: neye, nasıl erişilir
 
+Yazar: İsmail Baysal
+
 Bu belge arayüzlerin referansı ve açık tasarım soruları. Nasıl kullanılacağı için `docs/USAGE.md`'ye bak.
 
 Bu belge test yazan kişinin kullanabileceği yüzeyi listeler. Her madde için iki şeye bakıldı:
@@ -105,6 +107,17 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `ch.has_envelope`, `ch.has_splitter` | Bayraklar | Sınırlı | Evet |
 | `ChannelSet.all()` | Projedeki tüm kanallar | Evet | Evet |
 | `ChannelSet` kuralları (`check_channels`) | Tanım sırasında doğrulama | Evet (hata mesajı) | Evet |
+| `EthernetChannel`, `Rs422Channel`, `Mil1553Channel` | Kanal tipleri (protokole göre) | Evet (proje tanımı) | Evet |
+
+### Protokoller
+
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `EthernetProtocol(time_unit)`, `Rs422Protocol(time_unit)` | Bayt listesi: `{"message": [...], "timestamp": t}` | Evet (zaman birimi farklıysa) | Evet |
+| `Mil1553Protocol(byte_order, time_unit)` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]` | Evet (big-endian projede) | Evet |
+| `protocol.encode(data)` / `decode(item)` / `simulate(data, ts)` | Bayt ↔ UTS gövdesi / öğesi | Sınırlı (protokol testi) | Evet |
+| `Comm(..., protocols={ProtocolType: Protocol})` | Varsayılan protokol nesnelerini değiştirir | Evet | Evet |
+| `FakeUtsClient.protocols` | Sahte UTS'in kullandığı protokol nesneleri; `Comm`'a verilenle aynı olmalı | Evet (simülasyonda) | Açık: tek kaynağa indirilmeli |
 
 ## 5. Çerçeveleme (`Framing`, `Splitter`, `Envelope`)
 

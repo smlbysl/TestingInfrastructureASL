@@ -1,5 +1,7 @@
 # Kullanım kılavuzu
 
+Yazar: İsmail Baysal
+
 Bu belge nasıl yazılacağını gösterir. Her arayüzün ayrıntılı listesi, test için anlamlı olup olmadığı ve açık tasarım soruları için `docs/TEST_API.md`'ye bak.
 
 Test yazarken bütün isimler tek bir yerden gelir:
@@ -64,13 +66,21 @@ motor.cmd.startReq = 1          # bit alanı
 req.request[1] = 50             # dizi elemanı
 ```
 
-Her gönderimde değer hesaplamak için kanca (değer test kodunda hesaplanır):
+Her gönderimde bir değeri o an hesaplamak için `on_send` kancası kullanılır:
 
 ```python
-motor.on_send(lambda m: setattr(m, "speed", setpoint_now()))   # setpoint_now: test kodunun kendi fonksiyonu
+def update_speed(m):
+    m.speed = setpoint_now()        # setpoint_now: test kodunun kendi fonksiyonu
+
+motor.on_send(update_speed)         # ya da dekoratör: @motor.on_send
+comm.start(motor)                   # her periyodik gönderimde önce update_speed çalışır
 ```
 
-Kanca gönderimden hemen önce çalışır. Sayaç ve CRC gibi alanlar kancadan sonra hesaplanır.
+- Kanca her `pack()` çağrısında, yani her gönderimde (tek seferlik ya da periyodik) çalışır.
+- Kancanın yazdığı değerler pakete girer: uzunluk, sayaç ve CRC kancadan **sonra** hesaplanır.
+- Periyodik mesajda kanca TX thread'inde çalışır; kısa tutulmalı, beklememeli.
+- Kanca checksum'a dokunmamalıdır; `pack()` onu en son hesaplar.
+- Gelen paket için karşılığı `msg.on_receive(fn)`: geçerli paket nesneye yazıldıktan sonra RX thread'inde çalışır.
 
 ---
 
@@ -207,6 +217,14 @@ wire = ch.framing.envelope.on_send(status.pack())      # başlık varsa eklenir,
 uts.inject(ch.protocol, ch.interface, wire)
 ```
 
+`inject` paketi kanalın protokolüne göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
+1553: 16 bitlik değer listesi). Gönderilenleri kontrol etmek için `uts.posted` kullanılır:
+
+```python
+comm.send(req)
+path, interface, body = uts.posted[-1]                 # ("rs422", 0, {"message": [...]})
+```
+
 Bozuk paket göndermek için baytları değiştirip enjekte edersin:
 
 ```python
@@ -286,24 +304,84 @@ Logging standart `logging` modülüyle yapılır: `asl_testing.*` logger'ları. 
 
 ---
 
-## 8. Çerçeveleme (özel başlık, akış)
+## 8. Kanallar ve protokoller (interface kullanımı)
 
-Bu bölüm yalnızca kanal tanımında kullanılır, test kodunda değil. Proje tanımında:
+Bu bölüm proje tanımında kullanılır, test kodunda değil.
+
+### Kanal tanımı
+
+Kanal, UTS'teki bir interface'tir. Her protokolün kendi kanal sınıfı vardır:
 
 ```python
-from asl_testing import Envelope, Framing, Splitter, EthernetChannel, Rs422Channel, ChannelSet
+from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Mil1553Channel, Framing
 
 class MyChannels(ChannelSet):
-    CONTROL = Rs422Channel(0)
-    DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))   # başlığı olan
-    RAW     = EthernetChannel(1)                                   # başlıksız
+    CONTROL = Rs422Channel(0)                                   # RS422, interface 0
+    DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))  # Ethernet 1, 8 baytlık başlıkla
+    BUS_A   = Mil1553Channel(1)                                 # 1553, interface 1
 ```
 
-- `Envelope.on_send` gönderimde başlık ekler.
-- `Envelope.on_receive` yalnızca kendi paketini kabul eder, diğerlerinde `None` döner. Böylece paket sıradaki kanala geçer.
-- `Splitter` UTS'ten gelen akışı paketlere böler. Bir adreste en fazla bir tane olabilir.
+Mesaj kanalını sınıf varsayılanından (`_channel = MyChannels.CONTROL`) ya da nesne oluştururken (`channel=`) alır.
 
-Kanal kuralları tanım sırasında kontrol edilir: bir adreste en fazla bir başlıksız kanal olabilir.
+### Protokol: UTS'e ne gider
+
+Her kanal tipinin bir protokol nesnesi vardır. Protokol, hattaki baytları UTS isteğine çevirir ve UTS'ten geleni geri baytlara çevirir.
+Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde aynıdır.
+
+| Kanal | Protokol | UTS'e giden / UTS'ten gelen |
+|---|---|---|
+| `EthernetChannel` | `EthernetProtocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
+| `Rs422Channel` | `Rs422Protocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
+| `Mil1553Channel` | `Mil1553Protocol` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
+
+UTS'in zamanı saniye değilse ya da 1553 projesi big-endian ise protokol nesnesi `Comm`'a verilir:
+
+```python
+from asl_testing import Comm, ProtocolType, EthernetProtocol, Rs422Protocol, Mil1553Protocol
+
+comm = Comm(uts, [ProjectBase], protocols={
+    ProtocolType.ETHERNET: EthernetProtocol(time_unit=1e-6),   # UTS mikrosaniye veriyor
+    ProtocolType.RS422:    Rs422Protocol(time_unit=1e-6),
+    ProtocolType.MIL1553:  Mil1553Protocol(byte_order="big", time_unit=1e-6),
+})
+```
+
+`protocols` verilirse varsayılanların yerine geçer; kullanılan bütün tipler yazılmalıdır.
+
+Sahte UTS kendi protokol nesnelerini tutar. `Comm`'a farklı bir protokol verildiyse sahte UTS'e de aynısı verilmelidir,
+yoksa `inject` edilen paket yanlış çevrilir ve bilinmeyen paket olur:
+
+```python
+uts.protocols[ProtocolType.MIL1553] = Mil1553Protocol(byte_order="big")
+```
+
+### 1553 mesajı tanımlamak
+
+`rt`, `subnet` ve `word_count` mesajın ilk üç alanıdır ve `c_uint16` tanımlanır. Liste bu alanların değerleriyle başlar:
+
+```python
+class Bus1553(BaseMessageStructure, LittleEndianStructure):
+    _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
+    _signature = Signature("rt", "subnet")          # gelen paket rt + subnet ile tanınır
+    _channel = MyChannels.BUS_A
+
+class rt30_status(Bus1553):
+    _fields_ = [("mode", c_uint16), ("speed", c_uint32)]
+    _defaults = {"rt": 30, "subnet": 1, "wordCount": 3}
+
+# mode=1, speed=0x11223344 -> {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}
+```
+
+- Değerleri protokol kontrol etmez; `rt`, `subnet` ve `wordCount` mesaj tanımından ve testten gelir.
+- `Mil1553Protocol(byte_order=...)` mesaj yapısının endian'ıyla aynı olmalı. `LittleEndianStructure` için `"little"` (32 bitlik alanda düşük kelime önce),
+  `BigEndianStructure` için `"big"` (yüksek kelime önce). Uyuşmazsa her değerin baytları ters gider: `30` → `7680`.
+
+### Başlık ve akış (framing)
+
+- `Envelope.on_send` gönderimde başlık ekler, `Envelope.on_receive` alımda başlığı kontrol edip çıkarır. Paket bu kanala ait değilse `None` döner.
+- `Splitter` UTS'ten gelen akışı paketlere böler (ör. RS422'de bir GET öğesinde birden fazla paket). Protokol çözdükten sonra çalışır.
+- Bugün aynı interface'te başlıklı ve başlıksız iki kanal tanımlanabiliyor (örnek projede `DIAG` ve `RAW`); başlıklar paketleri ayırır.
+  Kanal tanımı sırasında kontrol edilir: bir interface'te en fazla bir başlıksız kanal ve bir splitter olabilir.
 
 ---
 
@@ -351,4 +429,5 @@ assert len(comm.unknown) == 0
 
 - **Hata enjeksiyonu** (CRC, uzunluk, bit bozma): tasarlandı, henüz eklenmedi. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Gönderim sırası `pack()` → fault → envelope → UTS.
 - **`comm.unsubscribe`** kısayolu: şimdilik `comm.bus.unsubscribe(sub)`.
-- **Gerçek HTTP UTS istemcisi:** `HttpUtsClient` henüz taslak.
+- **Gerçek HTTP UTS istemcisi:** `HttpUtsClient` henüz taslak (`post` / `get` UTS API'si netleşince yazılacak).
+- **CAN:** kanal sınıfı ve protokol nesnesi yok.

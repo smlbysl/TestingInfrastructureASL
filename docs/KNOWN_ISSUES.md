@@ -1,5 +1,7 @@
 # Bilinen sorunlar
 
+Yazar: İsmail Baysal
+
 Bütün bilinen açıklar tek listede. Her madde: önem, durum, nerede, ne oluyor, önerilen düzeltme.
 Ayrıntılı analiz için kaynak belgeler:
 - `docs/RX_HISTORY_HANDOFF.md` (B1–B15: thread güvenliği, mesaj geçmişi, TX tutarlılığı)

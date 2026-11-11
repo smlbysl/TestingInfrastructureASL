@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="İsmail Baysal">
 <title>asl_testing: Kullanım Kılavuzu</title>
 <style>
   :root {
@@ -111,6 +112,8 @@
   <a href="#alan-ascii">&nbsp;&nbsp;AsciiType</a>
   <a href="#alan-yeni">&nbsp;&nbsp;Yeni özel tip yazmak</a>
   <a href="#kanal">Kanal (Channel, ChannelSet)</a>
+  <a href="#protokol">&nbsp;&nbsp;Protokol</a>
+  <a href="#mil1553">&nbsp;&nbsp;MIL-STD-1553</a>
   <a href="#cerceve">Çerçeveleme (Envelope, Splitter)</a>
   <a href="#olaylar">Olaylar</a>
   <a href="#uts">UTS (istemci, simülasyon, yönetim)</a>
@@ -318,9 +321,16 @@ values = [r.snapshot().speed for r in status.rx_history.since(mark)]</code></pre
 <h3 id="mesaj-kanca">Kancalar (callout)</h3>
 <p>Bunlar nesne başına eklenen, mesajla ilgili kullanıcı kodlarıdır. Sınıf tanımındaki özel alan hook'larından ayrıdır.</p>
 <div class="sig">msg.on_send(fn) <span class="ret">-&gt; fn</span></div>
-<p><code>fn(msg)</code> her <code>pack()</code> çağrısında, <strong>sayaç ve checksum'dan önce</strong> çalışır. Yani değişiklikler
-checksum'a dahil edilir. Dekoratör olarak da kullanılabilir.</p>
-<pre><code>motor.on_send(lambda m: setattr(m, "speed", setpoint_now()))   # setpoint_now: test kodunun kendi fonksiyonu</code></pre>
+<p><code>fn(msg)</code> her <code>pack()</code> çağrısında, yani her gönderimde (tek seferlik ya da periyodik) çalışır.
+Uzunluk, sayaç ve checksum <strong>kancadan sonra</strong> hesaplanır; kancanın yazdığı değerler pakete ve CRC'ye girer.
+Periyodik mesajda kanca TX thread'inde çalışır, kısa tutulmalıdır. Dekoratör olarak da kullanılabilir.</p>
+<pre><code>@motor.on_send
+def update_speed(m):
+    m.speed = setpoint_now()        # setpoint_now: test kodunun kendi fonksiyonu
+
+comm.start(motor)                   # her gönderimde önce update_speed</code></pre>
+<p>Sıra: <code>on_send</code> kancaları → özel alanların <code>on_send</code> hook'ları (uzunluk, sayaç, en son CRC) → baytlar →
+envelope → protokol → UTS → başarılıysa <code>after_send</code> hook'ları.</p>
 <div class="sig">msg.on_receive(fn) <span class="ret">-&gt; fn</span></div>
 <p><code>fn(msg)</code> her geçerli alımdan sonra, RX thread'inde çalışır. Ayrı thread gerekiyorsa <code>comm.on_receive</code> kullanın.</p>
 
@@ -432,20 +442,58 @@ Bir alanın değeri gönderim veya alımla birlikte kendiliğinden değişiyorsa
 Yalnızca bir sabit değer değişiyorsa <code>_defaults</code> yeterlidir.</div>
 
 <h2 id="kanal">Kanal (Channel, ChannelSet)</h2>
-<p>Kanal, bir hattın (protokol + interface) ve o hattaki çerçeveleme ayarlarının adıdır. Kanallar bir <code>ChannelSet</code>
-içinde, proje düzeyinde tanımlanır.</p>
-<pre><code>from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Framing
+<p>Kanal, UTS'teki bir interface'in (protokol + interface numarası) ve o hattaki çerçeveleme ayarlarının adıdır.
+Kanallar bir <code>ChannelSet</code> içinde, proje düzeyinde tanımlanır.</p>
+<pre><code>from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Mil1553Channel, Framing
 
 class MyChannels(ChannelSet):
     CONTROL = Rs422Channel(0)
     DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
     RAW     = EthernetChannel(1)
-    SER2    = Rs422Channel(2)</code></pre>
+    SER2    = Rs422Channel(2)
+    BUS_A   = Mil1553Channel(1)</code></pre>
+
+<h3 id="protokol">Protokol: UTS'e ne gider</h3>
+<p>Her kanal tipinin bir protokol nesnesi vardır. Protokol, hattaki baytları UTS isteğine, UTS'ten geleni baytlara çevirir.
+Test kodu bunu görmez; <code>send</code>, <code>start</code>, <code>wait_for</code> her protokolde aynıdır.</p>
+<table>
+  <tr><th>Kanal</th><th>Protokol</th><th>UTS'e giden / gelen</th></tr>
+  <tr><td><code>EthernetChannel</code></td><td><code>EthernetProtocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
+  <tr><td><code>Rs422Channel</code></td><td><code>Rs422Protocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
+  <tr><td><code>Mil1553Channel</code></td><td><code>Mil1553Protocol</code></td><td><code>{"message": [rt, subnet, word_count, word, ...], "timestamp": t}</code></td></tr>
+</table>
+<p>UTS'in zamanı saniye değilse ya da 1553 projesi big-endian ise protokol nesneleri <code>Comm</code>'a verilir. Sahte UTS kullanılıyorsa
+aynı nesneler <code>uts.protocols</code>'a da yazılır; yoksa <code>inject</code> edilen paket yanlış çevrilir.</p>
+<pre><code>protocols = {ProtocolType.ETHERNET: EthernetProtocol(time_unit=1e-6),
+             ProtocolType.RS422:    Rs422Protocol(time_unit=1e-6),
+             ProtocolType.MIL1553:  Mil1553Protocol(byte_order="big", time_unit=1e-6)}
+comm = Comm(uts, [ProjectBase], protocols=protocols)
+uts.protocols.update(protocols)            # sadece FakeUtsClient için</code></pre>
+
+<h3 id="mil1553">MIL-STD-1553 mesajı</h3>
+<p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
+Gelen paket <code>Signature("rt", "subnet")</code> ile tanınır. Protokol değerleri kontrol etmez.</p>
+<pre><code>class Bus1553(BaseMessageStructure, LittleEndianStructure):
+    _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
+    _signature = Signature("rt", "subnet")
+    _channel = MyChannels.BUS_A
+
+class rt30_status(Bus1553):
+    _fields_ = [("mode", c_uint16), ("speed", c_uint32)]
+    _defaults = {"rt": 30, "subnet": 1, "wordCount": 3}
+
+# mode=1, speed=0x11223344 -&gt; {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}</code></pre>
+<table>
+  <tr><th>Mesaj yapısı</th><th>byte_order</th><th>Liste</th><th>32 bitlik alan</th></tr>
+  <tr><td><code>LittleEndianStructure</code></td><td><code>"little"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, düşük kelime önce</td></tr>
+  <tr><td><code>BigEndianStructure</code></td><td><code>"big"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, yüksek kelime önce</td></tr>
+  <tr><td>uyuşmazlık</td><td></td><td><code>[7680, 256, ...]</code></td><td>her değerin baytları ters</td></tr>
+</table>
 
 <table>
   <tr><th>Üye</th><th>Anlamı</th></tr>
   <tr><td><code>ch.name</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi).</td></tr>
-  <tr><td><code>ch.protocol</code></td><td><code>ProtocolType.ETHERNET</code>, <code>RS422</code> veya <code>CAN</code>.</td></tr>
+  <tr><td><code>ch.protocol</code></td><td><code>ProtocolType.ETHERNET</code>, <code>RS422</code>, <code>MIL1553</code> (ya da <code>CAN</code>).</td></tr>
   <tr><td><code>ch.interface</code></td><td>Hattın numarası.</td></tr>
   <tr><td><code>ch.address</code></td><td><code>(protokol, interface)</code> çifti. Aynı adresi paylaşan kanallar aynı UTS okumasını kullanır.</td></tr>
   <tr><td><code>ch.framing</code></td><td><code>Framing(splitter, envelope)</code>.</td></tr>

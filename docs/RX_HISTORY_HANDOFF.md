@@ -1,5 +1,7 @@
 # Mesaj Geçmişi (Ring Buffer), Snapshot ve Thread Güvenliği — Devir Notu
 
+Yazar: İsmail Baysal
+
 > Bu dosya başka bir session'a aktarılmak için hazırlandı. Yeni session bu dosyayı okuyarak konuşmanın
 > nereden geldiğini, ne istendiğini, hangi kararların verildiğini, hangi açıkların bulunduğunu ve önerilen
 > tasarımı eksiksiz görebilmeli. Kodda henüz **hiçbir değişiklik yapılmadı**; aşağıdakiler analiz ve öneridir.
