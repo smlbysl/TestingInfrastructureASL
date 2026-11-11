@@ -22,6 +22,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 | `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
 | `on_receive(msg, handler)` | Mesaj alındığında handler (kendi thread'inde) | Evet | Evet |
 | `wait_new(msg, timeout)` | Yeni geçerli paket gelene kadar bekler | Evet | Evet |
+| `wait_for(msg, predicate, timeout, after) -> Record \| None` | Değerleri koşulu sağlayan paket gelene kadar bekler; tek yoklamadaki ara paketlere de bakar | Evet | Evet |
 | `wait_sent(msg, timeout)` | Yeni başarılı gönderim olana kadar bekler | Evet | Evet |
 | `listen(channel)` | Kayıtlı mesajı olmayan kanalı da yoklar | Evet | Evet |
 | `unknown` | Hiçbir mesajla eşleşmeyen çerçevelerin listesi | Evet | Evet |
@@ -51,6 +52,8 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 |---|---|---|---|
 | `msg.has_new()` | Yeni geçerli paket sayısı, sayacı sıfırlar | Evet | Evet |
 | `msg.peek_new()` | Aynısı, sıfırlamadan | Evet | Evet |
+| `msg.rx_history` | Gelen paketler sırayla (son N): `mark()`, `since(mark)`, `last()`, `wait_for(...)`, `dropped`, `capacity` | Evet | Evet |
+| `msg.snapshot()` | Canlı nesnenin tek kopyayla alınmış hali; birden fazla alanı aynı paketten okumak için | Evet | Evet |
 | `msg.rx_timestamp` | UTS'ten gelen son paketin zamanı | Evet | Evet |
 | `msg.rx_host_time` | Bu makinenin saatinde son paket zamanı | Evet | Evet |
 | `msg.rx_age` | Son paketten bu yana geçen süre | Evet | Evet |
@@ -164,3 +167,24 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 - **`CommLogger` ve `Comm.log`** ayrımı: logger seçimi test tarafına bırakıldı.
 - **Frame tipleri:** `RxFrame` iç tip. Testlerin olay (`WireReceived`) üzerinden çalışması önerilir.
 - **Üst düzey dışa aktarım:** Çözüldü. Test kodu ve proje tanımları her şeyi `from asl_testing import ...` ile alır (`asl_testing/__init__.py`, `__all__`). Dahili tipler (`RxFrame`, `Transport`, `Dispatcher`, `RxPoller`, `TxScheduler`) dışa açılmadı.
+
+## Mesaj geçmişi (`MessageHistory`, `Record`)
+
+`msg.rx_history` bir `MessageHistory`'dir; her kayıt bir `Record`.
+
+| Erişim | Ne yapar | Anlamlı mı | Tasarım |
+|---|---|---|---|
+| `history.mark() -> int` | Şu anki konum; sonrası okunur | Evet | Evet |
+| `history.since(mark) -> list[Record]` | `mark`'tan sonraki kayıtlar, eskiden yeniye | Evet | Evet |
+| `history.last() -> Record \| None` | Son kayıt | Evet | Evet |
+| `history.wait_for(predicate, after, timeout)` | `comm.wait_for`'un altındaki çağrı | Sınırlı | Evet |
+| `history.dropped` | Taşma yüzünden düşen kayıt sayısı | Evet | Evet |
+| `history.capacity`, `len(history)` | Kapasite, mevcut kayıt sayısı | Evet | Evet |
+| `history.clear()` | Geçmişi boşaltır | Sınırlı | Evet |
+| `record.snapshot()` | O paketin değerleriyle ayrı bir nesne | Evet | Evet |
+| `record.seq` | Bütün mesajlar arasında geliş sırası | Evet | Evet |
+| `record.timestamp` / `record.host_time` | UTS zamanı / bu makinenin saati | Evet | Evet |
+| `record.image`, `record.cls` | Ham bellek, mesaj sınıfı | Sınırlı | Evet |
+
+Ayarlar: sınıfta `_history = 64` (varsayılan), nesnede `history=` parametresi. Nesne yeniden oluşturulunca geçmiş boşalır.
+Açık nokta: `seq` UTS'in GET listesinin kronolojik olmasına dayanıyor; gerçek UTS ile doğrulanmalı.

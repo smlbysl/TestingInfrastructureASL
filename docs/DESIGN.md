@@ -127,6 +127,20 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `comm.wait_new(msg, timeout)`: yeni paket gelene kadar bekler; gelen paket sayısını ya da zaman aşımında 0 döner.
   Bir isteği göndermeden önce `msg.has_new()` çağrılır ki önceki paket cevap sanılmasın.
 
+## Mesaj geçmişi (rx_history)
+- Her RX nesnesi son N geçerli paketi sırayla tutar (`asl_testing/message/history.py`). Canlı nesne son paketi
+  gösterir; tek yoklamada gelen aradaki paketler geçmişte kalır (B2).
+- Kayıt (`Record`) `decode`'un nesneye yazdığı baytların aynısıdır; `MessageReceived.image` de aynı baytları taşır.
+  Kayıtlar değişmez; `snapshot()` ayrı, kayıtsız bir nesne verir.
+- Okuma veriyi tüketmez: her okuyan kendi `mark()`'ını tutar (B6). `has_new` / `wait_new` aynen kalır.
+- `comm.wait_for` / `history.wait_for` kilit + koşul değişkeniyle bekler, yeni kayıtta uyanır (5 ms yoklama yok).
+  Koşul her kaydın snapshot'ında, yeni kayıtlar için bir kez çalışır.
+- Kapasite: sınıfta `_history` (varsayılan 64), nesnede `history=`. Dolunca en eski düşer, `dropped` artar, ilk
+  taşmada bir kez WARNING. Geçmiş `RxState` içinde olduğu için nesne yeniden oluşturulunca boşalır.
+- `seq` bütün mesajlar için tek sayaçtır (`itertools.count`, GIL altında atomik); aynı zaman damgalı paketlerin
+  sırası buradan anlaşılır. UTS listesinin kronolojik olduğu varsayılıyor, doğrulanmalı.
+- TX geçmişi yok (yüksek frekanslı periyodik gönderim kapasiteyi doldurur); gerekirse aynı yapıyla eklenir.
+
 ## Son paketin zamanı (mesaj üzerinden)
 - `msg.rx_timestamp`: UTS'nin bildirdiği geliş zamanı (saniye).
 - `msg.rx_host_time`: paketin bu bilgisayarda alındığı tarih-saat (`time.time`).
@@ -159,6 +173,11 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 ## Thread modeli
 - 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim tek kilit altında: counter, checksum, byte, UTS isteği.
+- `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
+  paketi görür, yarım değer görmez (B1). Birden fazla alan için `msg.snapshot()`.
+- `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
+  nesneye sadece hook'un değiştirdiği özel alanlar geri yazılır (B9–B11).
+- Bu koruma GIL'e dayanır (B13); free-threaded Python'da geçerli değildir.
 - Periyodik gönderimde bir sonraki zaman `due + period` (kayma birikmez).
 - ctypes nesneleri hash'lenemez: scheduler tablosu ve zaman aşımı kümesi `id(msg)` ile tutulur.
 

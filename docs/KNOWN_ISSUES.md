@@ -16,7 +16,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 2. ~~B1: `decode` okuyuculara yarım değer gösteriyor~~ (çözüldü)
 3. K3: Özel alan tipleri projenin endian'ını takip etmiyor (çözüm tasarlandı, karar bekliyor)
 4. ~~B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor~~ (çözüldü)
-5. B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç
+5. ~~B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç~~ (çözüldü)
 6. B13: GIL kontrolü
 
 ---
@@ -73,6 +73,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 ### K4 — `snapshot()` / `from_buffer_copy` ile oluşan nesnede metadata yok
 - Bkz. B15. `__init__` çalışmadığı için `_channel`, `_rx`, `_tx` yok; `snap.channel` `AttributeError` verir.
+  Kural olarak dokümante edildi: snapshot sadece alan değerleri içindir.
 
 ---
 
@@ -81,20 +82,20 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 | No | Konu | Önem | Durum | Özet |
 |---|---|---|---|---|
 | B1 | `decode` yarım/sıfır durum gösteriyordu | Kritik | Çözüldü | `memset` + iki `memmove` GIL'i bırakıyordu. Artık yeni görüntü ayrı bir `bytearray`'de hazırlanıp tek `memoryview` atamasıyla yazılıyor. Test: `tests/test_threading.py` (eski kodda 0,3 sn'de binlerce bozuk okuma, yenisinde 0). |
-| B2 | Aynı poll'deki paketlerin ara değerleri kayboluyor | Yüksek | Açık | Test yalnızca son paketi görüyor. Düzeltme: mesaj başına history (ring buffer) + `comm.wait_for`. |
+| B2 | Aynı poll'deki paketlerin ara değerleri kayboluyordu | Yüksek | Çözüldü | `msg.rx_history` her geçerli paketi sırayla tutar (son N, varsayılan 64); `comm.wait_for(msg, koşul, after=mark)` her pakete bakar. Test: `tests/test_history.py`. |
 | B3 | Gömülü alanlar ve diziler kilit tabanlı korumayı boşa çıkarır | Tasarım | Çözüldü (B1 ile) | `msg.cmd` aynı belleği paylaşan alt nesne. B1'in tek kopyalı yazımı ile çözüldü; tek alan okuması tutarlı; mutex yaklaşımı reddedildi. |
-| B4 | Canlı nesneden çok alanlı okuma tutarsız | Tasarım | Açık | `s = msg.snapshot()` ile oku; dokümana kural olarak yazılmalı. |
-| B5 | `RxState` güncellemesi veriyle atomik değil | Düşük | Açık | Değer + zaman birlikte gerekiyorsa history kaydı kullanılmalı. |
-| B6 | `has_new()` paylaşılan tek imleç | Orta | Kısmen | `peek_new` / `peek_sent` eklendi. Asıl çözüm: çağırana ait `mark` / `since`. |
-| B7 | Batch içindeki paketler aynı zaman damgasını taşıyor | Orta | Açık | Global, monoton `seq` eklenmeli. UTS listesinin kronolojik olduğu doğrulanmalı. |
-| B8 | `msg.on_receive` callout'u canlı nesneyi değiştirebilir | Düşük | Karar bekliyor | Event ve history decode'un hazırladığı görüntüyü taşısın. |
+| B4 | Canlı nesneden çok alanlı okuma tutarsız | Tasarım | Çözüldü (kural) | `s = msg.snapshot()` eklendi; `USAGE.md` ve `DESIGN.md`'ye kural olarak yazıldı. `wait_for` koşulu da tek paketin kopyasında çalışır. |
+| B5 | `RxState` güncellemesi veriyle atomik değil | Düşük | Kural | Değer + zaman birlikte gerekiyorsa history kaydı (`rec.snapshot()`, `rec.timestamp`) kullanılır. |
+| B6 | `has_new()` paylaşılan tek imleç | Orta | Çözüldü | Her okuyan kendi `rx_history.mark()`'ını tutar, okuma veriyi tüketmez. `has_new` / `peek_new` aynen kalır. |
+| B7 | Batch içindeki paketler aynı zaman damgasını taşıyor | Orta | Kısmen | Kayıtlarda global, monoton `seq` var. Açık: UTS listesinin kronolojik olduğu doğrulanmalı. |
+| B8 | `msg.on_receive` callout'u canlı nesneyi değiştirebilir | Düşük | Çözüldü | `MessageReceived.image` ve history kaydı decode'un yazdığı baytları taşır; callout'un sonradan yaptığı değişiklik onlara yansımaz. Callout'un kalıp kalmayacağı ayrı bir karar. |
 | B9 | `pack()`: yeni değer + eski CRC gidebiliyordu | Yüksek | Çözüldü | Ölçüldü: 1 sn'de 5.730 paketin 2.259'u CRC hatalı. Artık özel alanlar tek bir kopyada hesaplanıyor, baytlar o kopyadan alınıyor; sadece hook'un değiştirdiği özel alanlar nesneye geri yazılıyor (eşzamanlı yazılan değerler korunuyor). Test: `tests/test_threading.py`. |
 | B10 | Değişken boyda `count` / uzunluk / CRC / gövde tutarsızlığı | Yüksek | Çözüldü | Ölçüldü: 4.246 paketin 2.258'i geçersiz. B9 ile aynı düzeltme; `body_size()` de kopyadan okunuyor. |
 | B11 | `MessageSent.image` ile `raw` farklı olabiliyordu | Düşük | Çözüldü | `TxScheduler.send` ikisini tek `msg._pack()` çağrısından alıyor. |
 | B12 | Periyodik gönderimde `after_send` yarışı | Orta | Bilinçli kullanım | Ayrıntı aşağıda; olası iyileştirme `DESIGN.md` → "Yapılabilecekler". |
 | B13 | Koruma GIL'e bağlı | Sınırlama | Açık | Free-threaded Python'da import sırasında hata verilsin. |
 | B14 | İki yönlü mesajda RX, TX için yazılan değerlerin üzerine yazar | Tasarım | Karar bekliyor | Seçenekler: RX'i history'den okumak / ayrı nesne / dokümante etmek. |
-| B15 | `snapshot()` nesnesinde metadata yok | Düşük | Açık | Zaman ve kanal kayıttan okunmalı. |
+| B15 | `snapshot()` nesnesinde metadata yok | Düşük | Kural | Snapshot sadece alan değerleri içindir; zaman kayıttan (`rec.timestamp`, `rec.host_time`), kanal canlı nesneden okunur. Dokümante edildi. |
 
 ---
 

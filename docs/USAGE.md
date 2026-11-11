@@ -101,6 +101,46 @@ motor.peek_sent()                    # sıfırlamadan bak
 
 `wait_sent` yalnızca başarılı UTS gönderimlerini sayar. Hedefin paketi aldığını doğrulamaz; bunun için cevabı `wait_new` ile beklemek gerekir.
 
+Bir yanıtta **belirli bir değeri** beklemek için `wait_for` kullan. `has_new` sadece "paket geldi mi" der;
+`wait_for` gelen her paketin değerine bakar:
+
+```python
+mark = status.rx_history.mark()            # bundan önceki paketler sayılmaz
+comm.send(req)
+rec = comm.wait_for(status, lambda s: s.speed == 10, timeout=1.0, after=mark)
+assert rec is not None, "speed 10 olmadı"
+```
+
+### Bütün paketleri görmek: mesaj geçmişi
+
+UTS her yoklamada o ana kadar biriken paketlerin hepsini verir. Aynı mesajdan birkaç paket gelirse hepsi
+sırayla nesneye yazılır ve `status.speed` sadece sonuncusunu gösterir. Aradaki değerler mesajın geçmişinde durur:
+
+```python
+mark = status.rx_history.mark()
+comm.start(motor)
+...
+values = [r.snapshot().speed for r in status.rx_history.since(mark)]
+assert values == [0, 10, 20, 30]           # sıra kontrolü
+assert status.rx_history.dropped == 0      # kapasite yetti mi
+```
+
+- `rx_history.mark()` şu anki konumu verir. `since(mark)` ve `wait_for(..., after=mark)` sadece sonrasına bakar.
+- Okumak hiçbir şeyi silmez. İki ayrı yer kendi `mark`'ıyla aynı geçmişi bağımsız okuyabilir (`has_new`'den farkı).
+- Her kayıt (`Record`): `seq` (geliş sırası, bütün mesajlar arasında), `timestamp` (UTS zamanı), `host_time`,
+  `snapshot()` (o paketin değerleri).
+- Kapasite mesaj başına son 64 paket. Sınıfta `_history = 256` ya da nesnede `motor_status(..., history=256)`.
+  Dolunca en eski düşer, `dropped` artar ve log'a bir kez uyarı yazılır.
+- Mesaj nesnesi yeniden oluşturulunca geçmiş boş başlar. Sadece gelen (RX) paketler kaydedilir.
+
+**Birden fazla alanı birlikte okumak:** `status.speed` ve `status.mode` iki ayrı okumadır, arada yeni paket
+gelebilir. Aynı paketin değerleri için tek kopya al:
+
+```python
+s = status.snapshot()
+assert s.speed == 10 and s.mode == 2
+```
+
 Zamanla ilgili bilgiler:
 
 ```python
@@ -283,6 +323,13 @@ comm.stop(motor)
 status.has_new()
 comm.send(req)
 assert comm.wait_new(status, timeout=0.5), "cevap yok"
+```
+
+**Bir değerin kısa süreliğine oluştuğunu yakalamak:**
+```python
+mark = status.rx_history.mark()
+comm.send(req)
+assert comm.wait_for(status, lambda s: s.errorBit == 1, timeout=0.5, after=mark), "hata biti hiç 1 olmadı"
 ```
 
 **Bozuk cevabı görmek:**
