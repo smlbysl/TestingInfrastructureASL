@@ -22,6 +22,7 @@ from asl_testing.channel.framing import Envelope, Framing, Splitter
 class ProtocolType(Enum):
     ETHERNET = "ethernet"
     RS422 = "rs422"
+    MIL1553 = "mil1553"
     CAN = "can"
 
 
@@ -60,6 +61,11 @@ class EthernetChannel(Channel):
 @dataclass(eq=False)
 class Rs422Channel(Channel):
     protocol = ProtocolType.RS422
+
+
+@dataclass(eq=False)
+class Mil1553Channel(Channel):
+    protocol = ProtocolType.MIL1553
 
 
 class ChannelSet:

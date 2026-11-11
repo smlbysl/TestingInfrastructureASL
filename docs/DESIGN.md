@@ -18,11 +18,12 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     timing.py                Timing(period, tolerance), Direction
     state.py                 RxState (UTS zamanı, yeni paket), TxState
   channel/                   2. Kanal: nereden gider
-    channel.py               Channel, EthernetChannel, Rs422Channel, ChannelSet, ProtocolType
+    channel.py               Channel, EthernetChannel, Rs422Channel, Mil1553Channel, ChannelSet, ProtocolType
     framing.py               Splitter, Envelope, Framing
   protocol/                  Protokol: bir hat tipinin baytları UTS'e nasıl yazılır / UTS'ten nasıl okunur
     base.py                  Protocol (path, encode, decode, simulate), Received
     ethernet.py, rs422.py    EthernetProtocol, Rs422Protocol: {"message": [baytlar], "timestamp": t}
+    mil1553.py               Mil1553Protocol: {"message": [rt, subnet, word_count, word, ...]}
     defaults.py              hat tipi -> protokol nesnesi (varsayılanlar)
   uts/                       3. Sürücü: UTS'ye nasıl ulaşılır
     client.py                UtsClient (arayüz), UtsFrame
@@ -78,6 +79,13 @@ UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu 
   Protokol nesnesi olmayan bir tip eski bayt yolunu (`uts.transfer` / `uts.fetch`) kullanır.
 - Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
+- MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
+  olarak taşır, ör. `[30, 1, 3, 0x0001, 0x3344, 0x1122]`. `rt`, `subnet`, `word_count` mesajın ilk alanlarıdır
+  (projede `c_uint16`); protokol sadece mesaj baytlarını 16 bitlik değer listesine çevirir ve geri. Değerler
+  kontrol edilmez. Tanıma bugünkü signature ile: `Signature("rt", "subnet")`.
+  `byte_order` mesaj yapısının endian'ıyla aynı olmalı: little + "little" → 32 bit alanın düşük kelimesi önce,
+  big + "big" → yüksek kelime önce; uyuşmazsa her değerin baytları ters gider (`30` → `7680`).
+  Big-endian 1553 projesinde K3 (özel alanların endian'ı) etkili olur.
 - Açık: gerçek UTS'te alan adları ve timestamp birimi (`time_unit` = UTS birimi başına saniye).
 
 ## Kanal ve framing

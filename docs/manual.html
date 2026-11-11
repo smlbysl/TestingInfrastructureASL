@@ -551,7 +551,10 @@ comm.bus.unsubscribe(sub)</code></pre>
 <code>fetch(protocol, interface) -&gt; list[UtsFrame]</code> kalır.</p>
 <h4>Protokol nesneleri</h4>
 <p>Her hat tipinin baytları UTS'e nasıl yazdığını ve UTS'ten nasıl okuduğunu bir protokol nesnesi belirler:
-<code>EthernetProtocol</code>, <code>Rs422Protocol</code>. İkisinin biçimi bugün aynı: <code>{"message": [b0, b1, ...], "timestamp": t}</code>.
+<code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code> (kanal: <code>Mil1553Channel</code>). Ethernet ve RS422'nin biçimi bugün aynı:
+<code>{"message": [b0, b1, ...], "timestamp": t}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
+<code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır (<code>c_uint16</code>), tanıma
+<code>Signature("rt", "subnet")</code> ile yapılır. <code>Mil1553Protocol(byte_order=...)</code> mesaj yapısının endian'ıyla aynı olmalıdır.
 UTS'in zamanı saniye değilse <code>EthernetProtocol(time_unit=1e-6)</code> gibi verilir ve
 <code>Comm(uts, projects, protocols={ProtocolType.ETHERNET: ...})</code> ile kullanılır.</p>
 <p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
@@ -675,10 +678,10 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Giriş</td><td><code>Comm</code></td></tr>
   <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code>, <code>MessageHistory</code>, <code>Record</code></td></tr>
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
-  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>ProtocolType</code></td></tr>
+  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code>, <code>ProtocolType</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
   <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
-  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>
 <p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>
