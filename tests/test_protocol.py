@@ -46,6 +46,19 @@ class EthernetThroughCommTests(CommTestCase):
         self.assertEqual(self.uts.sent[-1][0], ProtocolType.RS422)
         self.assertEqual(self.uts.posted, [])
 
+    def test_malformed_item_does_not_drop_the_others(self):
+        rx = bambaşka(0x07, SRC, 0x40)
+        rx.has_new()
+        good = bambaşka(0x07, SRC, 0x40, direction=Direction.TX, request=(1, 2, 3, 4))
+        ch = rx.channel
+        with self.assertLogs("asl_testing.runtime.transport", "ERROR"):
+            with self.uts._lock:                                    # both items in the same GET
+                self.uts._items[("ethernet", ch.interface)].append({"no message": 1})
+                self.uts._items[("ethernet", ch.interface)].append(
+                    EthernetProtocol().simulate(ch.framing.envelope.on_send(good.pack()), None))
+            self.expect_new(rx)
+        self.assertEqual(list(rx.request), [1, 2, 3, 4])
+
 
 if __name__ == "__main__":
     unittest.main()

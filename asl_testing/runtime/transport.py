@@ -8,6 +8,7 @@ Knows channels and bytes only; nothing about messages, signatures or timing.
 Protocols are looked up by the channel's protocol type. A type without a protocol object yet (RS422,
 CAN) still uses the old byte path (uts.transfer / uts.fetch); they move over one by one.
 """
+import logging
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -20,6 +21,7 @@ from asl_testing.protocol.base import Protocol, Received
 from asl_testing.protocol.defaults import default_protocols
 
 _NO_SPLIT = Splitter()
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,14 @@ class Transport:
         protocol = self.protocols.get(kind)
         if protocol is None:                                    # not moved to a protocol object yet
             return [Received(item.data, item.timestamp) for item in self.uts.fetch(kind, interface)]
-        return [protocol.decode(item) for item in self.uts.get(protocol.path, interface)]
+        received = []
+        for item in self.uts.get(protocol.path, interface):
+            try:
+                received.append(protocol.decode(item))
+            except Exception:                   # one malformed item must not drop the others
+                _log.exception("%s:%d: UTS item not in %s format, skipped: %r",
+                               kind.name, interface, type(protocol).__name__, item)
+        return received
 
     @staticmethod
     def _identify(channels: list[Channel], wire: bytes) -> tuple[Optional[Channel], bytes]:
