@@ -37,8 +37,7 @@ class TxScheduler:
     def send(self, msg: BaseMessageStructure) -> bool:
         """Sends a message once. Returns False if the UTS request failed (LinkError is published)."""
         with self._send_lock:
-            raw = msg.pack()
-            image = bytes(msg)
+            raw, image = msg._pack()                # both from the same copy
             try:
                 wire = self.transport.send(msg._channel, raw)
             except Exception as error:

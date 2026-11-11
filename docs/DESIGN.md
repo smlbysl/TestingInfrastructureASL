@@ -127,6 +127,20 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `comm.wait_new(msg, timeout)`: yeni paket gelene kadar bekler; gelen paket sayısını ya da zaman aşımında 0 döner.
   Bir isteği göndermeden önce `msg.has_new()` çağrılır ki önceki paket cevap sanılmasın.
 
+## Mesaj geçmişi (rx_history)
+- Her RX nesnesi son N geçerli paketi sırayla tutar (`asl_testing/message/history.py`). Canlı nesne son paketi
+  gösterir; tek yoklamada gelen aradaki paketler geçmişte kalır (B2).
+- Kayıt (`Record`) `decode`'un nesneye yazdığı baytların aynısıdır; `MessageReceived.image` de aynı baytları taşır.
+  Kayıtlar değişmez; `snapshot()` ayrı, kayıtsız bir nesne verir.
+- Okuma veriyi tüketmez: her okuyan kendi `mark()`'ını tutar (B6). `has_new` / `wait_new` aynen kalır.
+- `comm.wait_for` / `history.wait_for` kilit + koşul değişkeniyle bekler, yeni kayıtta uyanır (5 ms yoklama yok).
+  Koşul her kaydın snapshot'ında, yeni kayıtlar için bir kez çalışır.
+- Kapasite: sınıfta `_history` (varsayılan 64), nesnede `history=`. Dolunca en eski düşer, `dropped` artar, ilk
+  taşmada bir kez WARNING. Geçmiş `RxState` içinde olduğu için nesne yeniden oluşturulunca boşalır.
+- `seq` bütün mesajlar için tek sayaçtır (`itertools.count`, GIL altında atomik); aynı zaman damgalı paketlerin
+  sırası buradan anlaşılır. UTS listesinin kronolojik olduğu varsayılıyor, doğrulanmalı.
+- TX geçmişi yok (yüksek frekanslı periyodik gönderim kapasiteyi doldurur); gerekirse aynı yapıyla eklenir.
+
 ## Son paketin zamanı (mesaj üzerinden)
 - `msg.rx_timestamp`: UTS'nin bildirdiği geliş zamanı (saniye).
 - `msg.rx_host_time`: paketin bu bilgisayarda alındığı tarih-saat (`time.time`).
@@ -159,6 +173,11 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 ## Thread modeli
 - 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim tek kilit altında: counter, checksum, byte, UTS isteği.
+- `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
+  paketi görür, yarım değer görmez (B1). Birden fazla alan için `msg.snapshot()`.
+- `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
+  nesneye sadece hook'un değiştirdiği özel alanlar geri yazılır (B9–B11).
+- Bu koruma GIL'e dayanır (B13); free-threaded Python'da geçerli değildir.
 - Periyodik gönderimde bir sonraki zaman `due + period` (kayma birikmez).
 - ctypes nesneleri hash'lenemez: scheduler tablosu ve zaman aşımı kümesi `id(msg)` ile tutulur.
 
@@ -210,13 +229,27 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - Length = signature olan sabit boylu mesajlarla değişken boylu (kanala göre) bir mesaj aynı kanaldaysa, değişken
   paketin boyu sabit bir mesajın boyuna eşit olduğunda paketi sabit mesaj alır (signature önce denenir; CRC de
   tutabilir). Bu boylar çakışmamalı ya da signature'a ayırt edici başka bir alan eklenmeli.
-- Periyodik gönderimde `after_send` yarışı: test thread'i istek bitini pack ile after_send arasında yazarsa
-  sıfırlama bu değeri siler (istek gitmez). Koruma yok; gerekirse "bir sonraki gönderimde bir kez" yardımcısı.
-- **RX doğrulamada kilitlenme (sonra dönülecek):** değişken boylu mesajda uzunluk alanı checksum boyundan küçük
-  gelirse (0 veya 1) `ChecksumType.on_receive` negatif ofsetle `from_buffer_copy` çağırır, `ValueError` fırlar,
-  yakalanmadığı için RxPoller thread'i ölür ve sonraki hiçbir paket alınmaz (InvalidReceived de gelmez).
-  Önerilen düzeltme: (1) `LengthType.on_receive` değişken boyda alt sınırı da kontrol etsin (uzunluk alanının
-  bittiği yer + checksum boyu); (2) `validate()` bir hook istisna fırlatırsa paketi geçersiz saysın; (3) RX döngüsü
-  tek paketteki hatayı loglayıp devam etsin; (4) karar bekliyor: paketin sonundaki fazla baytlar (paket boyu >
-  uzunluk alanı / sizeof) şu an kabul ediliyor, reddedilsin mi. Bu durumlar için testler de eklenecek.
+- Periyodik gönderimde `after_send` yarışı (B12): test thread'i istek bitini pack ile after_send arasında yazarsa
+  sıfırlama bu değeri siler (istek gitmez). **Bilinçli kullanım:** tek seferlik istek bitleri periyodik mesaj
+  üzerinden değiştirilecekse bu risk bilinerek yapılır; gerekmiyorsa `comm.send()` ile tek seferlik gönderim
+  kullanılır (yarış oluşmaz). Olası iyileştirme aşağıda.
+- **RX doğrulamada kilitlenme (K1, çözüldü):** değişken boylu mesajda uzunluk alanı checksum boyundan küçük
+  gelince RxPoller thread'i ölüyordu. Artık `LengthType.on_receive` alt sınırı (`min_length`) kontrol ediyor,
+  `validate()` hook istisnasında `False` dönüyor, RX döngüsü tek paketteki hatayı loglayıp devam ediyor.
+  Ayrıntı: `KNOWN_ISSUES.md` → K1. Paketin sonundaki fazla baytlar (K2) hâlâ karar bekliyor.
 - Sonraki fazlar: sinyal geçmişi + UI köprüsü, CAPL benzeri SimulationNode (on_message, on_timer).
+
+## Yapılabilecekler (olası iyileştirmeler)
+Zorunlu değil; ihtiyaç olursa ele alınacak fikirler.
+
+- **`after_send` yarışını daraltmak (B12):** `after_send` hook'ları da `on_send` gibi gönderilen paketin kopyasında
+  çalışır; değişiklik canlı nesneye **bit bit** uygulanır: bir bit, gönderildiği değerden bu yana canlı nesnede
+  değişmediyse hook'un sonucu yazılır, değiştiyse (test thread'i arada yazdı) canlı değer korunur.
+  - `startReq=1` gitti, kimse dokunmadı → 0'lanır; `startReq=0` gitti, test arada 1 yazdı → 1 kalır, sonraki
+    pakette gider; aynı bayttaki başka bitler (`mode`) korunur.
+  - Maliyet: `_sent()` içinde ~15 satır + test; yeni API yok, proje tipleri değişmez.
+  - Kısıtlar: pencere tamamen kapanmaz (okuma ile yazma arasında birkaç Python işlemi kalır; bugün tüm UTS isteği
+    süresince açık); aynı değerin yeniden yazılması (1 → 1) ayırt edilemez, iki istek tek pakette birleşir;
+    hook'un nesneye eklediği Python özellikleri (`msg.foo`) korunmaz, sadece alan değerleri geri yazılır.
+  - Alternatif: "bir sonraki gönderimde bir kez" yardımcısı (`msg.once(...)`); istek TX thread'inde uygulanıp geri
+    alınır, yarış yapısal olarak kalkar ama yeni API gerektirir.

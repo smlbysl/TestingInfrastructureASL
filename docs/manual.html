@@ -194,6 +194,15 @@ Döner değer aboneliktir; <code>comm.bus.unsubscribe(sub)</code> ile iptal edil
 <p><code>msg</code>'ye son <code>has_new()</code> çağrısından beri yeni geçerli paket gelene kadar bekler.
 Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında <code>0</code>.</p>
 
+<div class="sig">comm.wait_for(msg, predicate, timeout=1.0, after=None) <span class="ret">-&gt; Record | None</span></div>
+<p>Değerleri <code>predicate</code>'i sağlayan bir paket gelene kadar bekler. Her paket kontrol edilir, tek UTS yoklamasında
+gelip hemen üzerine yazılan paketler de. <code>after</code> verilmezse sadece bundan sonra gelenler sayılır;
+genelde istekten önce <code>mark = msg.rx_history.mark()</code> alınıp verilir. Zaman aşımında <code>None</code>.</p>
+<pre><code>mark = status.rx_history.mark()
+comm.send(req)
+rec = comm.wait_for(status, lambda s: s.speed == 10, timeout=1.0, after=mark)
+assert rec is not None</code></pre>
+
 <div class="sig">comm.wait_sent(msg, timeout=1.0, interval=0.005) <span class="ret">-&gt; int</span></div>
 <p>Aynısı gönderim için. Periyodik mesajda bir sonraki karenin gittiğini bekler. Başarısız UTS gönderimleri sayılmaz.</p>
 
@@ -257,6 +266,17 @@ Dönüş değeri yeni paket sayısıdır (sayaç temizlenir). Zaman aşımında 
 <p>Son çağrıdan beri gelen geçerli paket sayısı. <strong>Sayacı temizler.</strong></p>
 <div class="sig">msg.peek_new() <span class="ret">-&gt; int</span></div>
 <p>Aynısı, sayacı temizlemeden.</p>
+<div class="sig">msg.rx_history <span class="ret">-&gt; MessageHistory | None</span></div>
+<p>Gelen geçerli paketler, sırayla (son 64; sınıfta <code>_history</code>, nesnede <code>history=</code>). Canlı nesne sadece son
+paketi gösterir; aradakiler buradadır. Okumak hiçbir şeyi silmez, her okuyan kendi <code>mark</code>'ını tutar.
+<code>mark()</code>, <code>since(mark)</code>, <code>last()</code>, <code>dropped</code>. Her kayıt: <code>seq</code>, <code>timestamp</code>,
+<code>host_time</code>, <code>snapshot()</code>. Sadece TX olan mesajda <code>None</code>.</p>
+<pre><code>mark = status.rx_history.mark()
+...
+values = [r.snapshot().speed for r in status.rx_history.since(mark)]</code></pre>
+<div class="sig">msg.snapshot() <span class="ret">-&gt; aynı sınıftan nesne</span></div>
+<p>Canlı nesnenin tek kopyayla alınmış hali. Birden fazla alanı aynı paketten okumak için:
+<code>s = status.snapshot(); s.speed, s.mode</code>. Kopyada sadece alan değerleri vardır (kanal, durum, geçmiş yok).</p>
 <div class="sig">msg.rx_timestamp <span class="ret">-&gt; float | None</span></div>
 <p>UTS'in verdiği, son geçerli paketin zamanı.</p>
 <div class="sig">msg.rx_host_time <span class="ret">-&gt; float | None</span></div>
@@ -612,7 +632,14 @@ comm = Comm(uts, [ProjectBase], logger=my_logger)     # tüm katmanları tek log
 
 <div class="warn"><strong>has_new() ve has_sent() sayacı temizler</strong>
 Aynı mesajı iki yerde kontrol ediyorsanız biri diğerinin sayacını tüketir. Kontrol için <code>peek_new()</code> / <code>peek_sent()</code> kullanın,
-ya da tek bir yerde <code>has_new()</code> çağırıp sonucu paylaşın.</div>
+tek bir yerde <code>has_new()</code> çağırıp sonucu paylaşın, ya da her yer kendi <code>rx_history.mark()</code>'ını tutsun.</div>
+
+<div class="warn"><strong>Ara değerler canlı nesnede görünmez</strong>
+Tek yoklamada aynı mesajdan birkaç paket gelirse <code>msg.alan</code> sadece sonuncuyu gösterir. Bir değerin oluşup oluşmadığını
+<code>comm.wait_for</code> ya da <code>msg.rx_history.since(mark)</code> ile kontrol edin.</div>
+
+<div class="warn"><strong>İki alanı birlikte okurken snapshot alın</strong>
+<code>status.speed</code> ve <code>status.mode</code> ayrı okumalardır, arada yeni paket gelebilir. <code>s = status.snapshot()</code>.</div>
 
 <div class="warn"><strong>Gönderimden önce has_new() çağırın</strong>
 Önceden gelmiş bir paket, cevap olarak sayılır. İstek göndermeden hemen önce <code>has_new()</code> çağırın.</div>
@@ -637,7 +664,7 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
 <table>
   <tr><th>Grup</th><th>İsimler</th></tr>
   <tr><td>Giriş</td><td><code>Comm</code></td></tr>
-  <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code></td></tr>
+  <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code>, <code>MessageHistory</code>, <code>Record</code></td></tr>
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
   <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>ProtocolType</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>

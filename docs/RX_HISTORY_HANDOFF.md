@@ -114,7 +114,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 
 ### 4.1 RX tarafı
 
-#### B1 — `decode` okuyuculara yarım/sıfır durum gösteriyor  *(KRİTİK, ölçüldü)*
+#### B1 — `decode` okuyuculara yarım/sıfır durum gösteriyor  *(KRİTİK, ölçüldü — çözüldü, KNOWN_ISSUES.md)*
 - **Nerede:** `asl_testing/message/base.py` → `decode()`
   ```python
   ctypes.memset(address, 0, ctypes.sizeof(self))
@@ -187,7 +187,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 
 ### 4.2 TX tarafı
 
-#### B9 — `pack()` checksum ile gönderilen byte'lar arasında yarış  *(YÜKSEK, kod okumasıyla bulundu, ölçülmedi)*
+#### B9 — `pack()` checksum ile gönderilen byte'lar arasında yarış  *(YÜKSEK — ölçüldü ve çözüldü, KNOWN_ISSUES.md)*
 - **Nerede:** `BaseMessageStructure.pack()` → özel alanların `on_send`'i (length, counter, **checksum**) canlı obje
   üzerinde çalışır, ardından `data = bytes(self)` alınır.
 - **Mekanizma:** Periyodik mesaj TX thread'inde pack edilirken test thread'i bir alanı yazarsa (ör. `motor.speed = 5`)
@@ -236,7 +236,7 @@ Her madde: **Nerede**, **Mekanizma**, **Etki**, **Kanıt/doğrulama düzeyi**, *
 #### Referans: DESIGN.md'de zaten kayıtlı ilgili açıklar
 - Değişken boyda length alanı checksum boyundan küçük gelirse `ChecksumType.on_receive` negatif ofsetle
   `ValueError` fırlatıyor, yakalanmadığı için **RxPoller thread'i ölüyor**. History eklendiğinde bu daha görünür olur;
-  öncelikli düzeltilmeli (DESIGN.md'deki 4 maddelik öneri).
+  öncelikli düzeltilmeli (DESIGN.md'deki 4 maddelik öneri). **Çözüldü (K1, KNOWN_ISSUES.md).**
 - Paket sonundaki fazla baytlar şu an kabul ediliyor (`validate` sadece `len(raw) < size` kontrol ediyor).
 
 ---

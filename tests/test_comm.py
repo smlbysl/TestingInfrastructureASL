@@ -2,7 +2,7 @@
 import time
 
 from asl_testing import Direction, InvalidReceived, RxTimeout, Timing
-from projects.example_project.messages import comut, motor_cmd
+from projects.example_project.messages import comut, diag_log, motor_cmd
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
 
@@ -26,6 +26,26 @@ class CommTests(CommTestCase):
         while not invalid and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertEqual(len(invalid), 1)
+
+    def test_too_small_length_does_not_stop_the_receiver(self):          # K1
+        invalid = []
+        self.comm.subscribe(InvalidReceived, invalid.append)
+        rx = diag_log(DEST, SRC, 0x40)
+        rx.has_new()
+        tx = diag_log(DEST, SRC, 0x40, direction=Direction.TX)
+        tx.count = 2
+        bad = bytearray(tx.pack())
+        offset = tx.messageLength.offset_in(tx)
+        bad[offset:offset + 2] = (0).to_bytes(2, "little")
+        ch = rx.channel
+        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.device_sends(tx)                                               # a valid one right after
+        self.expect_new(rx)
+        deadline = time.monotonic() + self.timeout              # events are delivered by the bus thread
+        while not invalid and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(len(invalid), 1)
+        self.assertEqual(rx.count, 2)
 
     def test_missing_periodic_message_times_out(self):
         status = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=2))

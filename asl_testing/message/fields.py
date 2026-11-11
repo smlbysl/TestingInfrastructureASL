@@ -68,8 +68,12 @@ class LengthType(FieldType):
     def on_receive(self, msg, raw: bytes) -> bool:
         length = self.from_raw(msg, raw).val
         if msg._variable_size:
-            return length <= ctypes.sizeof(msg)  # the ctypes layout is the maximum
+            return self.min_length(msg) <= length <= ctypes.sizeof(msg)  # the ctypes layout is the maximum
         return length == ctypes.sizeof(msg)
+
+    def min_length(self, msg) -> int:
+        """Smallest valid length of a variable-size packet: up to the end of this field, plus the checksum."""
+        return self.offset_in(msg) + ctypes.sizeof(self) + msg._trailer_size()
 
 
 class CounterType(FieldType):
