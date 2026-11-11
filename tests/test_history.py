@@ -143,6 +143,26 @@ class HistoryThroughCommTests(CommTestCase):
         self.assertEqual(events[0].image, status.rx_history.last().image)
         self.assertEqual(status.speed, -1)
 
+    def test_wait_for_finds_a_value_in_the_middle(self):
+        status = motor_cmd(DEST, SRC, 0x30)
+        mark = status.rx_history.mark()
+        for speed in (0, 10, 20, 30):                                    # 10 is overwritten right away
+            tx = motor_cmd(DEST, SRC, 0x30, direction=Direction.TX)
+            tx.speed = speed
+            self.device_sends(tx)
+        rec = self.comm.wait_for(status, lambda s: s.speed == 10, timeout=self.timeout, after=mark)
+        self.assertIsNotNone(rec)
+        self.assertEqual(rec.snapshot().speed, 10)
+
+    def test_wait_for_without_after_ignores_older_packets(self):
+        status = motor_cmd(DEST, SRC, 0x30)
+        status.decode(packet(10))                                        # arrived before the wait
+        self.assertIsNone(self.comm.wait_for(status, lambda s: s.speed == 10, timeout=0.1))
+
+    def test_wait_for_on_a_tx_only_message_is_an_error(self):
+        with self.assertRaises(ValueError):
+            self.comm.wait_for(motor_cmd(SRC, DEST, 0x30, direction=Direction.TX), lambda s: True)
+
 
 if __name__ == "__main__":
     unittest.main()
