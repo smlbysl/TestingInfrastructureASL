@@ -2,16 +2,15 @@
 
 __author__ = "İsmail Baysal"
 
-from asl_testing.channel.channel import ProtocolType
-from asl_testing.uts.client import UtsClient, UtsFrame
+from asl_testing.uts.client import UtsClient
 
 
 class HttpUtsClient(UtsClient):
     def __init__(self, base_url: str):
         self.base_url = base_url
 
-    def transfer(self, protocol: ProtocolType, interface: int, data: bytes) -> None:
+    def post(self, path: str, interface: int, body: dict) -> None:
         raise NotImplementedError("UTS API not integrated yet")
 
-    def fetch(self, protocol: ProtocolType, interface: int) -> list[UtsFrame]:
+    def get(self, path: str, interface: int) -> list[dict]:
         raise NotImplementedError("UTS API not integrated yet")

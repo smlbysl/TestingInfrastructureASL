@@ -5,7 +5,8 @@ __author__ = "İsmail Baysal"
 import time
 import unittest
 
-from asl_testing import Direction, EthernetProtocol, LinkError, Rs422Protocol
+from asl_testing import Direction, EthernetProtocol, LinkError, Rs422Protocol, UnknownReceived
+from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
@@ -48,7 +49,6 @@ class EthernetThroughCommTests(CommTestCase):
         path, interface, body = self.uts.posted[-1]
         self.assertEqual((path, interface), ("ethernet", 1))
         self.assertEqual(body["message"][:2], [0x55, 0xAA])                    # the header is on the line
-        self.assertEqual(self.uts.sent, [])                                    # nothing on the byte level
 
     def test_rx_comes_from_get(self):
         rx = bambaşka(0x07, SRC, 0x40)
@@ -62,7 +62,16 @@ class EthernetThroughCommTests(CommTestCase):
         path, interface, body = self.uts.posted[-1]
         self.assertEqual((path, interface), ("rs422", 0))
         self.assertTrue(comut(SRC, DEST, 0x21).validate(bytes(body["message"])))  # the packet, as a list of bytes
-        self.assertEqual(self.uts.sent, [])                                    # nothing on the byte level
+
+    def test_packet_rejected_by_the_envelope_is_unknown_on_its_channel(self):
+        events = []
+        self.comm.subscribe(UnknownReceived, events.append)
+        self.comm.listen(MyChannels.DIAG)                                      # no RX message on DIAG here
+        self.uts.inject(MyChannels.DIAG, b"\x01\x02\x03")                    # no header
+        deadline = time.monotonic() + self.timeout
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual((events[0].channel, events[0].raw), (MyChannels.DIAG, b"\x01\x02\x03"))
 
     def test_rs422_rx_comes_from_get(self):
         rx = comut(DEST, SRC, 0x20)

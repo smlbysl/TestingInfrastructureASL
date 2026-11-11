@@ -35,8 +35,8 @@ class CommLoggerTests(CommTestCase):
         ch = rx.channel
         bad = bytearray(comut(DEST, SRC, 0x20, direction=Direction.TX).pack())
         bad[-1] ^= 0xFF
-        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
-        self.uts.inject(ch.protocol, ch.interface, b"\x99" * 12)
+        self.uts.inject(ch, bytes(bad))
+        self.uts.inject(ch, b"\x99" * 12)
         deadline = time.monotonic() + self.timeout
         while len(self.comm.unknown) < 1 and time.monotonic() < deadline:
             time.sleep(0.01)

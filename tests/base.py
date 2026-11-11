@@ -71,7 +71,7 @@ class CommTestCase(unittest.TestCase):
     def device_sends(self, msg) -> None:
         """Simulation only (FakeUtsClient): msg arrives as if the device had sent it."""
         ch = msg.channel
-        self.uts.inject(ch.protocol, ch.interface, ch.framing.envelope.on_send(msg.pack()))
+        self.uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
 
 
 @unittest.skipUnless(HARDWARE, "hardware tests: set ASL_HARDWARE=1")

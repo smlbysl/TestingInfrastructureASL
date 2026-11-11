@@ -42,7 +42,7 @@ class Dispatcher:
         return msg
 
     def _lookup(self, frame: RxFrame) -> Optional[BaseMessageStructure]:
-        if frame.channel is None:
+        if not frame.accepted:
             return None
         for project in self.projects:
             msg = project.lookup_signature(frame.channel, frame.data)

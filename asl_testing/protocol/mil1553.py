@@ -28,9 +28,7 @@ class Mil1553Protocol(Protocol):
     path = "mil1553"
 
     def __init__(self, byte_order: str = "little", time_unit: float = 1.0):
-        if byte_order not in ("little", "big"):
-            raise ValueError('byte_order must be "little" or "big"')
-        self.byte_order = byte_order
+        self.byte_order = byte_order                    # "little" or "big"
         self.time_unit = time_unit
 
     def encode(self, data: bytes) -> dict:

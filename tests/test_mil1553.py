@@ -46,14 +46,15 @@ class ListFormatTests(unittest.TestCase):
         protocol = Mil1553Protocol(time_unit=1e-6)
         self.assertAlmostEqual(protocol.decode(protocol.simulate(b"\x01\x00", 1.5)).timestamp, 1.5)
 
-    def test_byte_order_is_little_or_big(self):
+    def test_wrong_byte_order_fails_on_first_use(self):
         with self.assertRaises(ValueError):
-            Mil1553Protocol("middle")
+            Mil1553Protocol("middle").encode(b"\x01\x00")
 
 
-# A small 1553 project, defined here so the example project stays as it is.
+# Small 1553 projects, defined here so the example project stays as it is.
 class Bus(ChannelSet):
     A = Mil1553Channel(1)
+    B = Mil1553Channel(2, protocol=Mil1553Protocol(byte_order="big"))
 
 
 class Project1553(BaseMessageStructure, LittleEndianStructure):
@@ -69,6 +70,38 @@ class Project1553(BaseMessageStructure, LittleEndianStructure):
 class rt30_status(Project1553):
     _fields_ = [("mode", c_uint16), ("speed", c_uint32)]
     _defaults = {"wordCount": 3}
+
+
+class BigEndian1553(BaseMessageStructure, BigEndianStructure):
+    _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
+    _signature = Signature("rt", "subnet")
+    _channel = Bus.B
+
+
+class rt5_big(BigEndian1553):
+    _fields_ = [("speed", c_uint32)]
+    _defaults = {"rt": 5, "subnet": 2, "wordCount": 2}
+
+
+class BigEndianThroughCommTests(unittest.TestCase):
+    """The channel's protocol object is used by the transport and by the fake UTS alike."""
+
+    def setUp(self):
+        BigEndian1553.clear_registry()
+        self.uts = FakeUtsClient()
+        self.comm = Comm(self.uts, [BigEndian1553])
+        self.comm.open()
+        self.addCleanup(self.comm.close)
+
+    def test_send_and_receive(self):
+        self.assertTrue(self.comm.send(rt5_big(direction=Direction.TX, speed=0x11223344)))
+        self.assertEqual(self.uts.posted[-1][2], {"message": [5, 2, 2, 0x1122, 0x3344]})
+        status = rt5_big()
+        status.has_new()
+        self.uts.inject(Bus.B, rt5_big(direction=Direction.TX, speed=0x01020304).pack())
+        self.assertEqual(self.comm.wait_new(status, timeout=1.0), 1)
+        self.assertEqual(status.speed, 0x01020304)
+        self.assertEqual(list(self.comm.unknown), [])
 
 
 class ThroughCommTests(unittest.TestCase):
@@ -102,7 +135,7 @@ class ThroughCommTests(unittest.TestCase):
         status = rt30_status(30, 1)
         device = rt30_status(30, 1, direction=Direction.TX, mode=7)
         status.has_new()
-        self.uts.inject(Bus.A.protocol, Bus.A.interface, device.pack())
+        self.uts.inject(Bus.A, device.pack())
         self.assertEqual(self.comm.wait_new(status, timeout=1.0), 1)
         self.assertEqual(status.mode, 7)
 

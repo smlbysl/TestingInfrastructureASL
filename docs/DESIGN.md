@@ -21,7 +21,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     timing.py                Timing(period, tolerance), Direction
     state.py                 RxState (UTS zamanı, yeni paket), TxState
   channel/                   2. Kanal: nereden gider
-    channel.py               Channel, EthernetChannel, Rs422Channel, Mil1553Channel, ChannelSet, ProtocolType
+    channel.py               Channel (interface + protokol nesnesi + framing), kanal tipleri, ChannelSet
     framing.py               Splitter, Envelope, Framing
   protocol/                  Protokol: bir hat tipinin baytları UTS'e nasıl yazılır / UTS'ten nasıl okunur
     base.py                  Protocol (path, encode, decode, simulate), Received
@@ -29,13 +29,13 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     mil1553.py               Mil1553Protocol: {"message": [rt, subnet, word_count, word, ...]}
     defaults.py              hat tipi -> protokol nesnesi (varsayılanlar)
   uts/                       3. Sürücü: UTS'ye nasıl ulaşılır
-    client.py                UtsClient (arayüz), UtsFrame
+    client.py                UtsClient (arayüz: post, get, config, filtre)
     http.py                  HttpUtsClient (yer tutucu)
     fake.py                  FakeUtsClient
     control.py               UtsControl: config ve filtre (testten dikine, doğrudan çağrı)
     filters.py               filtre hesapları (mesaj -> hattaki byte konumu, değer)
   runtime/                   4. Çalışma zamanı: ne zaman ve nasıl taşınır
-    transport.py             envelope, adres başına sorgu, splitter, kanal tespiti
+    transport.py             kanal başına: envelope, protokol, UTS isteği, splitter
     rx.py                    RxPoller: sorgu, WireReceived, zaman aşımı
     tx.py                    TxScheduler: send (kilit), periyodik gönderim, WireSent
     dispatcher.py            lookup + decode + olay, unknown listesi
@@ -44,7 +44,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     types.py                 mesaj ve hat seviyesi olaylar
     bus.py                   EventBus: abone başına kuyruk + thread
   services/                  6. Olay aboneleri
-    history.py               CommLogger: mesajlaşma geçmişi (CSV)
+    comm_logger.py           CommLogger: gönderilen ve alınan paketlerin CSV kaydı
     errors.py                ErrorLog: UTS hataları, RX zaman aşımı, abone hataları (ayrı dosya)
     monitor/                 MonitorService: mesaj değerlerini zamanla izleme sayfası (canlı / CSV)
 projects/
@@ -68,7 +68,7 @@ Comm             katmanları kurar, open/close
 TxScheduler      ne zaman gönderilir        RxPoller   ne zaman sorgulanır + zaman aşımı
                                             Dispatcher registry ile eşleme, decode, olay
 EventBus         olayları abonelere dağıtır (CommLogger, ErrorLog, test dinleyicileri, ileride simülasyon/UI)
-Transport        kanal envelope'u, adres (protocol + interface) başına sorgu, splitter, kanal tespiti
+Transport        kanal başına: envelope, protokol, UTS isteği, splitter
 Protocol         hat tipine göre baytlar <-> UTS isteği / öğesi (encode, decode)
 UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu gibi taşır
 ```
@@ -78,8 +78,8 @@ UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu 
   verir, UTS isteğinin gövdesini alır (`encode`); UTS'in döndürdüğü öğeyi verir, baytları ve zamanı alır (`decode`).
 - Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
   eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
-- Transport protokolü kanalın tipiyle bulur (`default_protocols()`; `Comm(..., protocols=...)` ile değiştirilebilir).
-  Protokol nesnesi olmayan bir tip eski bayt yolunu (`uts.transfer` / `uts.fetch`) kullanır.
+- Protokol nesnesi kanalın parçasıdır (`channel.protocol`); verilmezse kanal tipinin varsayılanı. Transport ve
+  sahte UTS aynı nesneyi kanaldan alır, protokol ayarı tek yerde durur.
 - Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
 - MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
@@ -92,21 +92,22 @@ UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu 
 - Açık: gerçek UTS'te alan adları ve timestamp birimi (`time_unit` = UTS birimi başına saniye).
 
 ## Kanal ve framing
-- `Channel`: generic kanal tanımı = protokol (alt sınıf: `EthernetChannel`, `Rs422Channel`) + interface + `Framing`.
+- `Channel`: bir UTS interface'i = interface numarası + protokol nesnesi + `Framing`
+  (alt sınıflar: `EthernetChannel`, `Rs422Channel`, `Mil1553Channel`; varsayılan protokolü belirler).
   IP, port, baud gibi fiziksel ayarlar kanalda yok. Eşitlik kimliğe göre: her kanal bir kez tanımlanır.
 - `Framing(splitter, envelope)`, ikisi de isteğe bağlı; varsayılanları bir şey yapmaz.
-  - Splitter: akış seviyesi, kanal belli olmadan çalışır; bir adreste en fazla bir splitter.
-  - Envelope: paket seviyesi; `on_send` ekler, `on_receive` çıkarır, paket bu kanalın değilse `None`.
-- Proje kanallarını `ChannelSet` ile tanımlar (`project/channels.py`): isimleri verir, kuralları sınıf tanımlanırken
-  kontrol eder (adres başına en fazla bir splitter, en fazla bir envelope'suz kanal). `Comm`'a verilmez.
+  - Splitter: akış seviyesi; UTS'ten geleni paketlere böler.
+  - Envelope: paket seviyesi; `on_send` ekler, `on_receive` çıkarır, kabul etmezse `None` (paket bilinmeyen olur).
+- Proje kanallarını `ChannelSet` ile tanımlar (`project/channels.py`): isimleri verir, sınıf tanımlanırken bir
+  interface'in iki kez kullanılmadığını kontrol eder. `Comm`'a verilmez.
 - Kanal mesaja sınıf varsayılanı olarak verilir (`_channel = MyChannels.CONTROL`); nesne oluştururken verilmez.
-- Aynı adresi paylaşan kanallar: adres bir kez sorgulanır; RX'te kanallar sırayla denenir (envelope'lular önce,
-  envelope'suz en son), paketi kabul eden ilk kanal seçilir; hiçbiri kabul etmezse paket unknown olur.
-- Sorgulanan adresler: RX mesajı kayıtlı kanalların ve `comm.listen(kanal)` ile eklenenlerin adresleri.
-  RX mesajı olmayan bir kanalın paketleri, o kanal `listen` ile eklenmedikçe tanınmaz.
+- Bir interface'in tek kanalı var; gelen paketin kanalı her zaman bellidir. Envelope'u kabul etmeyen paket o kanalda
+  unknown olur.
+- Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her turda sabit sırayla
+  (protokol, interface).
 ```
-TX:  msg.pack() -> kanal envelope.on_send -> UTS (protocol, interface)
-RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive -> Dispatcher
+TX:  msg.pack() -> envelope.on_send -> protocol.encode -> uts.post(path, interface)
+RX:  uts.get(path, interface) -> protocol.decode -> splitter -> envelope.on_receive -> Dispatcher
 ```
 
 ## Monitor (services/monitor)
@@ -135,8 +136,8 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
   (`Envelope.offset`, varsayılan 0; örnek `EthHeader.offset = 8`).
 - UtsClient'ın yönetim metotları soyut değil (varsayılan `NotImplementedError`); FakeUtsClient bunları saklar,
   gelen paketlere uygulamaz.
-- Dikkat: ilk `add_filter` arayüzü "her şey geçer"den "sadece filtre geçer"e çevirir; aynı arayüzdeki (ve aynı adresi
-  paylaşan kanallardaki) filtreye eklenmemiş mesajlar artık gelmez.
+- Dikkat: ilk `add_filter` arayüzü "her şey geçer"den "sadece filtre geçer"e çevirir; aynı arayüzdeki
+  filtreye eklenmemiş mesajlar artık gelmez.
 
 ## Kanala göre tanıma (signature'sız aile)
 - Sınıfta açıkça `_signature = None` yazılırsa (aile ya da proje) RX mesajı sadece kanalından tanınır:
@@ -248,7 +249,7 @@ RX:  UTS (adres) -> adresin splitter'ı -> kanallar sırayla envelope.on_receive
 - `Counter8` 16 bitlik alanda tutuluyor; ICD ile kontrol edilmeli.
 - Unknown paket WARNING olarak loglanıyor; `listen` edilen kanalda beklenen paketler için seviye düşürülebilir.
 - Her mesajın genel loga DEBUG yazılması (CSV ile tekrar) kalacak mı.
-- UTS filtresi: arayüz başına (aynı adresi paylaşan kanallar paylaşır); kısmi bit maskeli signature byte'ını UTS'nin
+- UTS filtresi: arayüz (kanal) başına; kısmi bit maskeli signature byte'ını UTS'nin
   destekleyip desteklemediği; config alan adları/tipleri (doğrulama yok); gerçek HTTP gövdeleri; seri akışta filtre
   konumunun anlamı; okuma-ekleme-yazma tek işlem değil (aynı anda iki thread add_filter çağırırsa biri kaybolabilir);
   alım tamponunu boşaltma (clear) RX thread'iyle yarış yüzünden eklenmedi.

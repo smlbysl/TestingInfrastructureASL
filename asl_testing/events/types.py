@@ -13,7 +13,6 @@ from typing import Optional
 
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.channel.channel import Channel
-from asl_testing.channel.channel import ProtocolType
 
 
 @dataclass(frozen=True)
@@ -50,8 +49,8 @@ class InvalidReceived(MessageEvent):
 
 @dataclass(frozen=True)
 class UnknownReceived:
-    """Matched no message; channel is None if no envelope accepted it."""
-    channel: Optional[Channel]
+    """Matched no message (or the channel's envelope rejected it)."""
+    channel: Channel
     raw: bytes
     host_time: float
     timestamp: Optional[float] = None
@@ -88,9 +87,7 @@ class LinkError:
 @dataclass(frozen=True)
 class WireReceived:
     """A packet from the line, before it is matched to a message."""
-    channel: Optional[Channel]          # None: no envelope accepted it
-    protocol: ProtocolType
-    interface: int
+    channel: Channel
     wire: bytes
     timestamp: Optional[float]          # UTS time in seconds
     host_time: float

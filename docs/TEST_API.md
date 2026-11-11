@@ -101,12 +101,12 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `ch.name`, `ch.interface`, `ch.protocol` | Kimlik | Evet | Evet |
-| `ch.address` | (protokol, interface) | Evet (adres bazlı kontrol için) | Evet |
+| `ch.name`, `ch.interface` | Kimlik | Evet | Evet |
+| `ch.protocol` | Kanalın protokol nesnesi (`EthernetProtocol()` vb.); `protocol=` ile verilir | Evet | Evet |
+| `ch.key` | UTS interface'i: `(protocol.path, interface)` | Sınırlı | Evet |
 | `ch.framing` | Splitter ve envelope | Evet (özel çerçeve için) | Evet |
-| `ch.has_envelope`, `ch.has_splitter` | Bayraklar | Sınırlı | Evet |
 | `ChannelSet.all()` | Projedeki tüm kanallar | Evet | Evet |
-| `ChannelSet` kuralları (`check_channels`) | Tanım sırasında doğrulama | Evet (hata mesajı) | Evet |
+| `ChannelSet` kuralı (`check_channels`) | Bir interface, bir kanal; tanım sırasında kontrol | Evet (hata mesajı) | Evet |
 | `EthernetChannel`, `Rs422Channel`, `Mil1553Channel` | Kanal tipleri (protokole göre) | Evet (proje tanımı) | Evet |
 
 ### Protokoller
@@ -116,8 +116,7 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `EthernetProtocol(time_unit)`, `Rs422Protocol(time_unit)` | Bayt listesi: `{"message": [...], "timestamp": t}` | Evet (zaman birimi farklıysa) | Evet |
 | `Mil1553Protocol(byte_order, time_unit)` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]` | Evet (big-endian projede) | Evet |
 | `protocol.encode(data)` / `decode(item)` / `simulate(data, ts)` | Bayt ↔ UTS gövdesi / öğesi | Sınırlı (protokol testi) | Evet |
-| `Comm(..., protocols={ProtocolType: Protocol})` | Varsayılan protokol nesnelerini değiştirir | Evet | Evet |
-| `FakeUtsClient.protocols` | Sahte UTS'in kullandığı protokol nesneleri; `Comm`'a verilenle aynı olmalı | Evet (simülasyonda) | Açık: tek kaynağa indirilmeli |
+| `Mil1553Channel(1, protocol=Mil1553Protocol(...))` | Varsayılan olmayan protokol nesnesi kanalla verilir | Evet | Evet |
 
 ## 5. Çerçeveleme (`Framing`, `Splitter`, `Envelope`)
 
@@ -148,7 +147,7 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `FakeUtsClient.inject(protocol, interface, bytes)` | Simülasyonda RX baytı üretir | Evet (sahte cihaz) | Evet |
+| `FakeUtsClient.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokolüyle) | Evet (sahte cihaz) | Evet |
 | `FakeUtsClient.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
 | `comm.control.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
 | `comm.control.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |

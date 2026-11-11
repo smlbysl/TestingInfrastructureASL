@@ -31,7 +31,7 @@ device_answer = comut(DEST, SRC, 0x20, direction=Direction.TX)   # the device's 
 def device(event: MessageSent) -> None:
     device_answer.comut[0] = event.snapshot().request[0] + 1
     ch = device_answer.channel
-    uts.inject(ch.protocol, ch.interface, device_answer.pack())   # appears in the UTS receive buffer
+    uts.inject(ch, device_answer.pack())   # appears in the UTS receive buffer
 
 
 comm.subscribe(MessageSent, device, where=req)

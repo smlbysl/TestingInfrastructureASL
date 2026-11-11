@@ -144,7 +144,7 @@ def layer_diagram() -> str:
 
          band(20, 410, W, 64, "Model", "msg"),
          chip(150, 430, 300, "channel/  Channel, ChannelSet, Framing",
-              "Ethernet/Rs422/Mil1553Channel, Envelope, Splitter"),
+              "kanal = interface + protokol nesnesi + framing"),
          chip(470, 430, 480, "message/  BaseMessageStructure, FieldType, Signature, Registry",
               "RxState / TxState, MessageHistory, Timing, Direction"),
          arrow(990, 30, 990, 470, ""),
@@ -242,13 +242,13 @@ def rx_sequence() -> str:
                  ("Framing", "core"), ("Dispatcher", "run"), ("Mesaj", "msg"), ("EventBus", "evt")]
     steps = [
         ("RxPoller", "RxPoller", "her poll_interval", "note"),
-        ("RxPoller", "Transport", "poll(adres, kanallar)", "call"),
+        ("RxPoller", "Transport", "poll(kanal)", "call"),
         ("Transport", "UtsClient", "get(path, if)", "call"),
         ("UtsClient", "Transport", "öğeler", "ret"),
         ("Transport", "Protocol", "decode(öğe)", "call"),
         ("Protocol", "Transport", "bayt + zaman", "ret"),
         ("Transport", "Framing", "split, envelope", "call"),
-        ("Framing", "Transport", "kanal, mesaj baytları", "ret"),
+        ("Framing", "Transport", "mesaj baytları / ret", "ret"),
         ("Transport", "RxPoller", "RxFrame listesi", "ret"),
         ("RxPoller", "EventBus", "WireReceived", "call"),
         ("RxPoller", "Dispatcher", "dispatch(frame)", "call"),
@@ -259,7 +259,7 @@ def rx_sequence() -> str:
         ("Dispatcher", "EventBus", "Message / Invalid / UnknownReceived", "call"),
         ("RxPoller", "RxPoller", "zaman aşımı: RxTimeout / RxRestored", "self"),
     ]
-    return sequence(lifelines, steps, "Alım (RX): RxPoller thread'i her döngüde bu akışı her adres için çalıştırır",
+    return sequence(lifelines, steps, "Alım (RX): RxPoller thread'i her döngüde bu akışı her kanal için, sabit sırayla çalıştırır",
                     col=122)
 
 
@@ -392,15 +392,16 @@ def page() -> str:
          "BaseMessageStructure, Dispatcher, RxPoller"],
         ["<code>RxState</code> / <code>TxState</code>", "Sayaçlar ve zamanlar (has_new, has_sent, rx_age).", "Mesaj içeriği", "BaseMessageStructure"],
         ["<code>MessageHistory</code>", "Son N alınan paketin kaydı; mark / since / wait_for.", "Kanal, UTS", "BaseMessageStructure, Comm"],
-        ["<code>Channel</code> / <code>ChannelSet</code>", "Protokol tipi + interface + framing; kanal kuralları.", "Mesajlar", "Proje, Transport"],
+        ["<code>Channel</code> / <code>ChannelSet</code>", "Bir UTS interface'i: numara, protokol nesnesi, framing; "
+         "bir interface bir kanal kuralı.", "Mesajlar", "Proje, Transport, FakeUtsClient"],
         ["<code>Envelope</code> / <code>Splitter</code>", "Başlık ekleme / çıkarma; akıştan paket ayırma.", "Mesaj, UTS JSON'u", "Transport"],
         ["<code>Protocol</code> alt sınıfları", "Hattaki baytlar ↔ UTS gövdesi / öğesi (encode, decode, simulate).",
          "Mesaj, signature, envelope, zamanlama", "Transport, FakeUtsClient"],
         ["<code>UtsClient</code>", "UTS'e HTTP ile ulaşmak (post, get, config, filter).", "Gövdenin anlamı", "Transport, UtsControl"],
-        ["<code>FakeUtsClient</code>", "UTS yerine geçer: gönderilenleri tutar, inject ile cihazı oynar.", "Gerçek zaman davranışı",
+        ["<code>FakeUtsClient</code>", "UTS yerine geçer: gönderilenleri tutar; inject(kanal, ...) ile cihazı oynar, kanalın protokolünü kullanır.", "Gerçek zaman davranışı",
          "Testler, örnekler"],
         ["<code>UtsControl</code>", "Interface ayarı ve alım filtresi; testten doğrudan, senkron.", "RX / TX thread'leri", "Comm.control"],
-        ["<code>Transport</code>", "Kanal ↔ UTS: envelope, protokol, splitter, kanal tespiti.", "Mesaj, signature, zamanlama",
+        ["<code>Transport</code>", "Kanal ↔ UTS: envelope, kanalın protokolü, splitter.", "Mesaj, signature, zamanlama",
          "TxScheduler, RxPoller"],
         ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "UTS JSON'u", "Comm"],
         ["<code>RxPoller</code>", "Yoklama döngüsü, WireReceived, RX zaman aşımı.", "Mesaj tanıma kuralı", "Comm"],
@@ -421,8 +422,8 @@ def page() -> str:
         ["<code>RxTimeout</code>, <code>RxRestored</code>", "RxPoller", "Periyodik RX mesajı gecikti / yeniden geldi"],
     ])
     extend = table(["Ne eklenir", "Nerede", "Ne yazılır"], [
-        ["Yeni hat tipi (ör. CAN)", "<code>protocol/</code>, <code>channel/channel.py</code>, <code>protocol/defaults.py</code>",
-         "<code>Protocol</code> alt sınıfı (path, encode, decode, simulate), kanal sınıfı, varsayılan eşleme"],
+        ["Yeni hat tipi (ör. CAN)", "<code>protocol/</code>, <code>channel/channel.py</code>",
+         "<code>Protocol</code> alt sınıfı (path, encode, decode, simulate) ve <code>default_protocol</code>'ü o sınıf olan kanal sınıfı"],
         ["Yeni özel alan (ör. farklı CRC)", "Projenin <code>types.py</code>'si", "<code>ChecksumType</code> / <code>FieldType</code> alt sınıfı"],
         ["Proje başlığı", "Projenin <code>framing.py</code>'si", "<code>Envelope</code> alt sınıfı (on_send, on_receive, offset)"],
         ["Akış ayırma", "Projenin <code>framing.py</code>'si", "<code>Splitter</code> alt sınıfı (split)"],
@@ -434,11 +435,11 @@ def page() -> str:
   comm.py            Comm
   message/           base, fields, signature, registry, state, history, timing
   channel/           channel (Channel, ChannelSet, kanal tipleri), framing (Envelope, Splitter)
-  protocol/          base (Protocol), ethernet, rs422, mil1553, defaults
+  protocol/          base (Protocol), ethernet, rs422, mil1553
   uts/               client (UtsClient), http, fake, control (UtsControl), filters
   runtime/           transport, rx (RxPoller), tx (TxScheduler), dispatcher, clock
   events/            bus (EventBus), types
-  services/          history (CommLogger), errors (ErrorLog), monitor/
+  services/          comm_logger (CommLogger), errors (ErrorLog), monitor/
 projects/example_project/   channels, header (proje, aileler), messages, types, framing
 tests/               base (CommTestCase, HardwareTestCase), test_*.py, conftest.py
 examples/            example, example_send_receive, monitor_demo
@@ -504,7 +505,7 @@ yazan aile kanalıyla tanınır (kanal başına bir RX mesajı).</li>
 
 <h2 id="rx">Alım akışı</h2>
 {rx_sequence()}
-<p>Tanıma sırası: önce bütün projelerde signature eşleşmesi, sonra kanalıyla tanınan aile. Eşleşme yoksa paket
+<p>Paketin kanalı geldiği interface'tir. Envelope kabul etmezse paket o kanalda bilinmeyen olur. Tanıma sırası: önce bütün projelerde signature eşleşmesi, sonra kanalıyla tanınan aile. Eşleşme yoksa paket
 <code>comm.unknown</code> listesine ve <code>UnknownReceived</code> olayına gider. Bir paketin işlenmesinde hata olursa
 loglanır, döngü sıradaki pakete geçer.</p>
 
@@ -525,9 +526,7 @@ yayınlayanı ya da diğer aboneleri bekletmez. Sıra: önce hat olayı (<code>W
 <h2 id="acik">Açık noktalar</h2>
 <ul>
 <li><b>Gerçek UTS:</b> <code>HttpUtsClient</code> taslak; JSON alan adları, zaman birimi, config / filtre gövdeleri UTS API'sine bağlı.</li>
-<li><b>Kanal = interface:</b> bugün aynı interface'te birden fazla kanal (başlıklı / başlıksız) tanımlanabiliyor. Her interface'in tek kanal
-olması kararlaştırıldı; bunun sadeleştireceği kod ayrı bir adımda uygulanacak.</li>
-<li><b>Protokol nesnesi iki yerde:</b> <code>Comm(protocols=...)</code> ile verilen nesneyi <code>FakeUtsClient</code> bilmiyor; tek kaynağa indirilmeli.</li>
+<li><b>CAN ve diğer hatlar:</b> protokol ve kanal sınıfı yok; eklemek için bkz. Genişletme noktaları.</li>
 <li><b>K3:</b> özel alan tipleri big-endian mesajda little-endian kalıyor (1553 big-endian projeyi etkiler).</li>
 <li>Diğerleri: <code>docs/KNOWN_ISSUES.md</code>.</li>
 </ul>

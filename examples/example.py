@@ -24,7 +24,7 @@ SRC, DEST = 0x0001, 0x0002
 def device_sends(uts: FakeUtsClient, msg) -> None:
     """Plays the device: the packet, with the channel's envelope, appears in the UTS receive buffer."""
     ch = msg.channel
-    uts.inject(ch.protocol, ch.interface, ch.framing.envelope.on_send(msg.pack()))
+    uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
 
 
 def main() -> None:
@@ -46,7 +46,6 @@ def main() -> None:
     wire_rx, wire_tx = [], []
     comm.subscribe(WireReceived, lambda ev: wire_rx.append((str(ev.channel), ev.wire)))
     comm.subscribe(WireSent, lambda ev: wire_tx.append((str(ev.channel), ev.wire)))
-    comm.listen(MyChannels.RAW)        # no RX message on RAW: listen to see its packets
 
     comm.open()
 
@@ -74,9 +73,9 @@ def main() -> None:
 
     bad = bytearray(remote.pack())
     bad[comut.checksum.offset] ^= 0xFF                                   # broken CRC
-    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(bad))
-    uts.inject(MyChannels.CONTROL.protocol, 0, bytes(16))                # matches no message
-    uts.inject(MyChannels.RAW.protocol, 1, b"\x01\x02\x03")               # no header on ETHERNET:1 -> RAW
+    uts.inject(MyChannels.CONTROL, bytes(bad))
+    uts.inject(MyChannels.CONTROL, bytes(16))                            # matches no message
+    uts.inject(MyChannels.DIAG, b"\x01\x02\x03")                          # no header: DIAG rejects it
     time.sleep(0.05)
 
     print(f"  status.comut[0] = 0x{status.comut[0]:X}, uts time = {status.rx_state.timestamp:.3f}")
@@ -115,7 +114,7 @@ def main() -> None:
               f"values={list(report.values[:report.count])}")
     bad = bytearray(remote_report.pack())
     bad[-1] ^= 0xFF
-    uts.inject(MyChannels.SER2.protocol, 2, bytes(bad))
+    uts.inject(MyChannels.SER2, bytes(bad))
     time.sleep(0.05)
     print(f"  broken CRC -> invalid (not unknown): errors={report.rx_state.errors}")
 

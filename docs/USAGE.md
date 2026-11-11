@@ -214,7 +214,7 @@ Cihazın gönderdiği paket, kanalın başlığıyla birlikte enjekte edilir:
 ```python
 ch = status.channel
 wire = ch.framing.envelope.on_send(status.pack())      # başlık varsa eklenir, yoksa değişmez
-uts.inject(ch.protocol, ch.interface, wire)
+uts.inject(ch, wire)
 ```
 
 `inject` paketi kanalın protokolüne göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
@@ -230,7 +230,7 @@ Bozuk paket göndermek için baytları değiştirip enjekte edersin:
 ```python
 bad = bytearray(wire)
 bad[-1] ^= 0xFF                                        # son bayt (CRC) bozuk
-uts.inject(ch.protocol, ch.interface, bytes(bad))
+uts.inject(ch, bytes(bad))
 ```
 
 Sonuç `InvalidReceived` olarak görülür.
@@ -321,7 +321,9 @@ class MyChannels(ChannelSet):
     BUS_A   = Mil1553Channel(1)                                 # 1553, interface 1
 ```
 
-Mesaj kanalını sınıf varsayılanından (`_channel = MyChannels.CONTROL`) ya da nesne oluştururken (`channel=`) alır.
+- Bir interface'in tek kanalı vardır. Aynı interface iki kez tanımlanırsa `ChannelSet` tanımlanırken hata verir.
+  Farklı protokollerde aynı numara (Ethernet 1, 1553 1) farklı interface'tir.
+- Mesaj kanalını sınıf varsayılanından (`_channel = MyChannels.CONTROL`) ya da nesne oluştururken (`channel=`) alır.
 
 ### Protokol: UTS'e ne gider
 
@@ -334,26 +336,18 @@ Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde a
 | `Rs422Channel` | `Rs422Protocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
 | `Mil1553Channel` | `Mil1553Protocol` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
 
-UTS'in zamanı saniye değilse ya da 1553 projesi big-endian ise protokol nesnesi `Comm`'a verilir:
+Protokol nesnesi kanalın parçasıdır. Verilmezse kanal tipinin varsayılanı kullanılır. UTS'in zamanı saniye değilse
+ya da 1553 projesi big-endian ise nesne kanal tanımında verilir:
 
 ```python
-from asl_testing import Comm, ProtocolType, EthernetProtocol, Rs422Protocol, Mil1553Protocol
+from asl_testing import EthernetProtocol, Mil1553Protocol
 
-comm = Comm(uts, [ProjectBase], protocols={
-    ProtocolType.ETHERNET: EthernetProtocol(time_unit=1e-6),   # UTS mikrosaniye veriyor
-    ProtocolType.RS422:    Rs422Protocol(time_unit=1e-6),
-    ProtocolType.MIL1553:  Mil1553Protocol(byte_order="big", time_unit=1e-6),
-})
+class MyChannels(ChannelSet):
+    DIAG  = EthernetChannel(1, Framing(envelope=EthHeader()), protocol=EthernetProtocol(time_unit=1e-6))
+    BUS_A = Mil1553Channel(1, protocol=Mil1553Protocol(byte_order="big", time_unit=1e-6))
 ```
 
-`protocols` verilirse varsayılanların yerine geçer; kullanılan bütün tipler yazılmalıdır.
-
-Sahte UTS kendi protokol nesnelerini tutar. `Comm`'a farklı bir protokol verildiyse sahte UTS'e de aynısı verilmelidir,
-yoksa `inject` edilen paket yanlış çevrilir ve bilinmeyen paket olur:
-
-```python
-uts.protocols[ProtocolType.MIL1553] = Mil1553Protocol(byte_order="big")
-```
+Gönderim, alım ve sahte UTS (`uts.inject(kanal, ...)`) aynı nesneyi kanaldan alır; ayrıca bir yere verilmez.
 
 ### 1553 mesajı tanımlamak
 
@@ -380,8 +374,8 @@ class rt30_status(Bus1553):
 
 - `Envelope.on_send` gönderimde başlık ekler, `Envelope.on_receive` alımda başlığı kontrol edip çıkarır. Paket bu kanala ait değilse `None` döner.
 - `Splitter` UTS'ten gelen akışı paketlere böler (ör. RS422'de bir GET öğesinde birden fazla paket). Protokol çözdükten sonra çalışır.
-- Bugün aynı interface'te başlıklı ve başlıksız iki kanal tanımlanabiliyor (örnek projede `DIAG` ve `RAW`); başlıklar paketleri ayırır.
-  Kanal tanımı sırasında kontrol edilir: bir interface'te en fazla bir başlıksız kanal ve bir splitter olabilir.
+- Envelope'u kabul etmeyen paket, geldiği kanalda bilinmeyen paket olur (`UnknownReceived`, `comm.unknown`).
+- RX mesajı olmayan bir kanalın paketlerini görmek için `comm.listen(kanal)`.
 
 ---
 

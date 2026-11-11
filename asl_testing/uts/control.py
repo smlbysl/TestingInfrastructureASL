@@ -30,11 +30,11 @@ class UtsControl:
 
     def get_config(self, target: Target) -> dict[str, Any]:
         ch = _channel(target)
-        return self.uts.get_config(ch.protocol, ch.interface)
+        return self.uts.get_config(ch.protocol.path, ch.interface)
 
     def set_config(self, target: Target, **settings) -> None:
         ch = _channel(target)
-        self.uts.set_config(ch.protocol, ch.interface, settings)
+        self.uts.set_config(ch.protocol.path, ch.interface, settings)
         self.log.info("%s: config %s", ch, settings)
 
     # ---------------------------------------------------------------- filters
@@ -42,40 +42,40 @@ class UtsControl:
     def get_filter(self, target: Target) -> tuple[str, FilterGroups]:
         """(kind, groups) of the interface; kind "NONE" means no filter."""
         ch = _channel(target)
-        return self.uts.get_filter(ch.protocol, ch.interface)
+        return self.uts.get_filter(ch.protocol.path, ch.interface)
 
     def set_filter(self, target: Target, groups: FilterGroups, kind: str = "INCLUSIVE") -> None:
         """Writes the whole filter."""
         ch = _channel(target)
-        self.uts.set_filter(ch.protocol, ch.interface, kind, groups)
+        self.uts.set_filter(ch.protocol.path, ch.interface, kind, groups)
         self.log.info("%s: filter %s %s", ch, kind, groups)
 
     def clear_filter(self, target: Target) -> None:
         """Removes the filter; every packet passes."""
         ch = _channel(target)
-        self.uts.set_filter(ch.protocol, ch.interface, "NONE", [])
+        self.uts.set_filter(ch.protocol.path, ch.interface, "NONE", [])
         self.log.info("%s: filter cleared", ch)
 
     def add_filter(self, msg: BaseMessageStructure) -> None:
         """Adds the message's signature bytes to the filter (read, add, write). Adding twice changes nothing."""
         ch = msg.channel
         group = signature_filter(msg, ch.framing.envelope.offset)
-        kind, groups = self.uts.get_filter(ch.protocol, ch.interface)
+        kind, groups = self.uts.get_filter(ch.protocol.path, ch.interface)
         if group in groups:
             return
         groups = groups + [group]
-        self.uts.set_filter(ch.protocol, ch.interface, "INCLUSIVE", groups)
+        self.uts.set_filter(ch.protocol.path, ch.interface, "INCLUSIVE", groups)
         self.log.info("%s: filter + %s %s", ch, type(msg).__name__, group)
 
     def remove_filter(self, msg: BaseMessageStructure) -> None:
         """Removes the message's group; with no group left the filter is removed."""
         ch = msg.channel
         group = signature_filter(msg, ch.framing.envelope.offset)
-        kind, groups = self.uts.get_filter(ch.protocol, ch.interface)
+        kind, groups = self.uts.get_filter(ch.protocol.path, ch.interface)
         if group not in groups:
             return
         groups = [g for g in groups if g != group]
-        self.uts.set_filter(ch.protocol, ch.interface, "INCLUSIVE" if groups else "NONE", groups)
+        self.uts.set_filter(ch.protocol.path, ch.interface, "INCLUSIVE" if groups else "NONE", groups)
         self.log.info("%s: filter - %s", ch, type(msg).__name__)
 
 

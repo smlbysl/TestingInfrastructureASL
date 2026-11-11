@@ -29,8 +29,7 @@ from asl_testing.message.signature import Signature
 from asl_testing.message.timing import Direction, Timing
 
 # channels and framing
-from asl_testing.channel.channel import (Channel, ChannelSet, EthernetChannel, Mil1553Channel, ProtocolType,
-                                         Rs422Channel)
+from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, Mil1553Channel, Rs422Channel
 from asl_testing.channel.framing import Envelope, Framing, Splitter
 
 # protocols (one class per bus type)
@@ -45,23 +44,23 @@ from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, 
                                       RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
 
 # UTS
-from asl_testing.uts.client import UtsClient, UtsError, UtsFrame
+from asl_testing.uts.client import UtsClient, UtsError
 from asl_testing.uts.control import UtsControl
 from asl_testing.uts.fake import FakeUtsClient
 from asl_testing.uts.http import HttpUtsClient
 
 # services
 from asl_testing.services.errors import ErrorLog
-from asl_testing.services.history import CommLogger
+from asl_testing.services.comm_logger import CommLogger
 from asl_testing.services.monitor import MonitorService
 
 __all__ = [
     "Comm", "BaseMessageStructure", "Signature", "Timing", "Direction",
     "FieldType", "LengthType", "CounterType", "ChecksumType", "AsciiType", "MessageHistory", "Record",
-    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "Mil1553Channel", "ProtocolType",
+    "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "Mil1553Channel",
     "Framing", "Envelope", "Splitter", "Protocol", "Received", "EthernetProtocol", "Rs422Protocol", "Mil1553Protocol",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
-    "UtsClient", "UtsError", "UtsFrame", "UtsControl", "FakeUtsClient", "HttpUtsClient",
+    "UtsClient", "UtsError", "UtsControl", "FakeUtsClient", "HttpUtsClient",
     "ErrorLog", "CommLogger", "MonitorService",
 ]

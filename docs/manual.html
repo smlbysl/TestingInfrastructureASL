@@ -442,14 +442,13 @@ Bir alanın değeri gönderim veya alımla birlikte kendiliğinden değişiyorsa
 Yalnızca bir sabit değer değişiyorsa <code>_defaults</code> yeterlidir.</div>
 
 <h2 id="kanal">Kanal (Channel, ChannelSet)</h2>
-<p>Kanal, UTS'teki bir interface'in (protokol + interface numarası) ve o hattaki çerçeveleme ayarlarının adıdır.
-Kanallar bir <code>ChannelSet</code> içinde, proje düzeyinde tanımlanır.</p>
+<p>Kanal, UTS'teki bir interface'tir: interface numarası, o hattın protokol nesnesi ve çerçeveleme ayarları.
+Bir interface'in tek kanalı vardır. Kanallar bir <code>ChannelSet</code> içinde, proje düzeyinde tanımlanır.</p>
 <pre><code>from asl_testing import ChannelSet, EthernetChannel, Rs422Channel, Mil1553Channel, Framing
 
 class MyChannels(ChannelSet):
     CONTROL = Rs422Channel(0)
     DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
-    RAW     = EthernetChannel(1)
     SER2    = Rs422Channel(2)
     BUS_A   = Mil1553Channel(1)</code></pre>
 
@@ -462,13 +461,11 @@ Test kodu bunu görmez; <code>send</code>, <code>start</code>, <code>wait_for</c
   <tr><td><code>Rs422Channel</code></td><td><code>Rs422Protocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
   <tr><td><code>Mil1553Channel</code></td><td><code>Mil1553Protocol</code></td><td><code>{"message": [rt, subnet, word_count, word, ...], "timestamp": t}</code></td></tr>
 </table>
-<p>UTS'in zamanı saniye değilse ya da 1553 projesi big-endian ise protokol nesneleri <code>Comm</code>'a verilir. Sahte UTS kullanılıyorsa
-aynı nesneler <code>uts.protocols</code>'a da yazılır; yoksa <code>inject</code> edilen paket yanlış çevrilir.</p>
-<pre><code>protocols = {ProtocolType.ETHERNET: EthernetProtocol(time_unit=1e-6),
-             ProtocolType.RS422:    Rs422Protocol(time_unit=1e-6),
-             ProtocolType.MIL1553:  Mil1553Protocol(byte_order="big", time_unit=1e-6)}
-comm = Comm(uts, [ProjectBase], protocols=protocols)
-uts.protocols.update(protocols)            # sadece FakeUtsClient için</code></pre>
+<p>Protokol nesnesi kanalın parçasıdır; verilmezse kanal tipinin varsayılanı kullanılır. UTS'in zamanı saniye değilse ya da
+1553 projesi big-endian ise nesne kanal tanımında verilir. Gönderim, alım ve sahte UTS aynı nesneyi kanaldan alır.</p>
+<pre><code>class MyChannels(ChannelSet):
+    DIAG  = EthernetChannel(1, Framing(envelope=EthHeader()), protocol=EthernetProtocol(time_unit=1e-6))
+    BUS_A = Mil1553Channel(1, protocol=Mil1553Protocol(byte_order="big", time_unit=1e-6))</code></pre>
 
 <h3 id="mil1553">MIL-STD-1553 mesajı</h3>
 <p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
@@ -493,22 +490,21 @@ class rt30_status(Bus1553):
 <table>
   <tr><th>Üye</th><th>Anlamı</th></tr>
   <tr><td><code>ch.name</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi).</td></tr>
-  <tr><td><code>ch.protocol</code></td><td><code>ProtocolType.ETHERNET</code>, <code>RS422</code>, <code>MIL1553</code> (ya da <code>CAN</code>).</td></tr>
+  <tr><td><code>ch.protocol</code></td><td>Protokol nesnesi: <code>EthernetProtocol()</code>, <code>Rs422Protocol()</code>, <code>Mil1553Protocol()</code> ya da <code>protocol=</code> ile verilen.</td></tr>
   <tr><td><code>ch.interface</code></td><td>Hattın numarası.</td></tr>
-  <tr><td><code>ch.address</code></td><td><code>(protokol, interface)</code> çifti. Aynı adresi paylaşan kanallar aynı UTS okumasını kullanır.</td></tr>
+  <tr><td><code>ch.key</code></td><td><code>(protocol.path, interface)</code>, ör. <code>("rs422", 0)</code>: UTS'teki interface.</td></tr>
   <tr><td><code>ch.framing</code></td><td><code>Framing(splitter, envelope)</code>.</td></tr>
-  <tr><td><code>ch.has_envelope</code>, <code>ch.has_splitter</code></td><td>Çerçeveleme tanımlı mı.</td></tr>
   <tr><td><code>ChannelSet.all()</code></td><td>Setin bütün kanalları.</td></tr>
 </table>
 
-<div class="warn"><strong>Kurallar (tanım sırasında denetlenir)</strong>
-Bir adreste en fazla bir başlıksız (envelope'u olmayan) kanal olabilir; çünkü başlıksız kanal her paketi kabul eder.
-Bir adreste en fazla bir splitter olabilir. İhlalde <code>ValueError</code>.</div>
+<div class="warn"><strong>Kural (tanım sırasında denetlenir)</strong>
+Bir interface iki kanalda kullanılamaz; ihlalde <code>ValueError</code>. Farklı protokollerde aynı numara (Ethernet 1, 1553 1)
+farklı interface'tir.</div>
 
 <h3>Kanal nasıl seçilir?</h3>
 <ul>
   <li><b>Gönderim:</b> Mesajın <code>_channel</code> değeri belirler. Başka seçim yapılmaz; kanalın envelope'u varsa gönderimde başlık eklenir.</li>
-  <li><b>Alım:</b> Paket, adresin kanallarına sırayla sorulur. Envelope'lu kanallar önce gelir, başlıksız kanal en sonda. İlk kabul eden kanalın kanalı olur.</li>
+  <li><b>Alım:</b> Paket geldiği interface'in kanalına aittir. Kanalın envelope'u kabul etmezse paket o kanalda bilinmeyen olur.</li>
 </ul>
 
 <h2 id="cerceve">Çerçeveleme (Envelope, Splitter)</h2>
@@ -536,8 +532,8 @@ Bir adreste en fazla bir splitter olabilir. İhlalde <code>ValueError</code>.</d
             return None
         return wire[self.SIZE:]</code></pre>
 <div class="warn"><strong>Kritik kural</strong>
-<code>on_receive</code> yalnızca kendi paketini kabul etmeli, diğerlerinde <code>None</code> dönmelidir. Her paketi kabul eden bir envelope,
-aynı adresteki başka kanalın paketlerini sessizce yutar.</div>
+<code>on_receive</code> yalnızca kendi paketini kabul etmeli, diğerlerinde <code>None</code> dönmelidir. Kabul edilmeyen paket
+o kanalda bilinmeyen paket olarak görünür.</div>
 
 <h3>Splitter: akıştan çerçeve çıkarma</h3>
 <p>RS-422 gibi akış protokollerinde UTS bir okumada birden fazla paket ya da yarım paket döndürebilir. Splitter bunları ayırır.</p>
@@ -546,7 +542,7 @@ aynı adresteki başka kanalın paketlerini sessizce yutar.</div>
   <tr><td><code>split(data) -&gt; list[bytes]</code></td><td>Gelen veriyi tam paketlere böler. Varsayılan: veri tek paket.</td></tr>
 </table>
 <div class="note"><strong>Not</strong>
-Splitter adres düzeyinde çalışır, kanal seçiminden önce. Bu yüzden bir adreste en fazla bir tane olabilir.</div>
+Splitter protokolün çözdüğü veride, envelope'tan önce çalışır.</div>
 
 <h3>Framing</h3>
 <pre><code>Framing(splitter=Splitter(), envelope=Envelope())    # varsayılanlar: hiçbir şey yapmaz</code></pre>
@@ -589,21 +585,19 @@ comm.bus.unsubscribe(sub)</code></pre>
 <h2 id="uts">UTS (istemci, simülasyon, yönetim)</h2>
 
 <h3>UtsClient: gerçek hat</h3>
-<p>Gerçek cihaz için bir istemci yazılır. Ethernet ve RS422 için kullanılan iki metot:</p>
+<p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot:</p>
 <div class="sig">post(path, interface, body) <span class="ret">-&gt; None</span></div>
 <p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa <code>UtsError</code> fırlatır.</p>
 <div class="sig">get(path, interface) <span class="ret">-&gt; list[dict]</span></div>
 <p>Son çağrıdan beri gelen öğeleri döner; her öğeyi protokol çözer.</p>
-<p>Protokol nesnesi olmayan hat tipleri için bayt seviyesindeki <code>transfer(protocol, interface, data)</code> ve
-<code>fetch(protocol, interface) -&gt; list[UtsFrame]</code> kalır.</p>
 <h4>Protokol nesneleri</h4>
 <p>Her hat tipinin baytları UTS'e nasıl yazdığını ve UTS'ten nasıl okuduğunu bir protokol nesnesi belirler:
 <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code> (kanal: <code>Mil1553Channel</code>). Ethernet ve RS422'nin biçimi bugün aynı:
 <code>{"message": [b0, b1, ...], "timestamp": t}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
 <code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır (<code>c_uint16</code>), tanıma
 <code>Signature("rt", "subnet")</code> ile yapılır. <code>Mil1553Protocol(byte_order=...)</code> mesaj yapısının endian'ıyla aynı olmalıdır.
-UTS'in zamanı saniye değilse <code>EthernetProtocol(time_unit=1e-6)</code> gibi verilir ve
-<code>Comm(uts, projects, protocols={ProtocolType.ETHERNET: ...})</code> ile kullanılır.</p>
+Protokol nesnesi kanalın parçasıdır (<code>channel.protocol</code>); farklı ayar gerekiyorsa kanal tanımında verilir:
+<code>EthernetChannel(1, protocol=EthernetProtocol(time_unit=1e-6))</code>.</p>
 <p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
 <code>NotImplementedError</code> fırlatır; istemci yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
@@ -611,14 +605,15 @@ UTS'in zamanı saniye değilse <code>EthernetProtocol(time_unit=1e-6)</code> gib
 
 <h3>FakeUtsClient: simülasyon</h3>
 <p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
-<div class="sig">uts.inject(protocol, interface, data, timestamp=None) <span class="ret">-&gt; None</span></div>
-<p>Verilen baytları, cihazdan gelmiş gibi alım kuyruğuna koyar. Gönderim değildir: RX poller bir sonraki yoklamada alır.</p>
+<div class="sig">uts.inject(channel, data, timestamp=None) <span class="ret">-&gt; None</span></div>
+<p>Verilen baytları, cihazdan gelmiş gibi kanalın alım kuyruğuna koyar; kanalın protokolüyle UTS biçimine çevrilir.
+Gönderim değildir: RX poller bir sonraki yoklamada alır.</p>
 <pre><code>ch = status.channel
 wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
-uts.inject(ch.protocol, ch.interface, wire)           # cihaz bu paketi gönderdi
+uts.inject(ch, wire)                                  # cihaz bu paketi gönderdi
 
 bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
-uts.inject(ch.protocol, ch.interface, bytes(bad))     # -&gt; InvalidReceived
+uts.inject(ch, bytes(bad))                            # -&gt; InvalidReceived
 
 uts.posted[-1]        # ("rs422", 0, {"message": [...]}): son gönderilen istek</code></pre>
 
@@ -713,7 +708,7 @@ Tek yoklamada aynı mesajdan birkaç paket gelirse <code>msg.alan</code> sadece 
 <code>initialize()</code> bunları yeniden yazar ve kayıt anahtarı bozulur.</div>
 
 <div class="warn"><strong>Başlıksız kanal sona</strong>
-Aynı adreste iki başlıksız kanal tanımlanamaz. Başlıklı kanalların envelope'u yalnızca kendi paketini kabul etmelidir.</div>
+Bir interface'in tek kanalı vardır. Envelope yalnızca kendi paketini kabul etmeli; kabul etmediği paket o kanalda bilinmeyen olur.</div>
 
 <div class="warn"><strong>Değişken boyda iki alan</strong>
 Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu oradan okur. TX boyu <code>body_size()</code> ile belirlenir.</div>
@@ -725,10 +720,10 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Giriş</td><td><code>Comm</code></td></tr>
   <tr><td>Mesaj</td><td><code>BaseMessageStructure</code>, <code>Signature</code>, <code>Timing</code>, <code>Direction</code>, <code>MessageHistory</code>, <code>Record</code></td></tr>
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
-  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code>, <code>ProtocolType</code></td></tr>
+  <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
   <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
-  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>UtsFrame</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>
 <p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>

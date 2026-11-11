@@ -1,7 +1,7 @@
 """RxPoller: one thread that polls UTS at a fixed interval.
 
 Each cycle:
-1. reads every address that has RX messages or was added with listen()
+1. reads every channel that has RX messages or was added with listen()
 2. publishes WireReceived for each packet and passes it to the dispatcher
 3. checks periodic RX messages for timeout on the UTS clock (RxTimeout / RxRestored)
 
@@ -21,7 +21,7 @@ from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
 from asl_testing.events.types import LinkError, RxRestored, RxTimeout, WireReceived
 from asl_testing.message.base import BaseMessageStructure
-from asl_testing.channel.channel import Address, Channel, by_address
+from asl_testing.channel.channel import Channel
 
 
 class RxPoller:
@@ -53,26 +53,21 @@ class RxPoller:
                 found |= reg.channels
         return found
 
-    def addresses(self) -> dict[Address, list[Channel]]:
-        """Address -> its channels in RX order."""
-        return by_address(self.channels())
-
     def poll_once(self) -> None:
-        for address, channels in self.addresses().items():
+        for channel in sorted(self.channels(), key=lambda ch: ch.key):     # fixed order every cycle
             try:
-                frames = self.transport.poll(address, channels)
+                frames = self.transport.poll(channel)
             except Exception as error:
-                self.log.exception("UTS poll failed on %s", address)
-                self.bus.publish(LinkError(channels[0], "poll", error, time.time()))
+                self.log.exception("UTS poll failed on %s", channel)
+                self.bus.publish(LinkError(channel, "poll", error, time.time()))
                 continue
             for frame in frames:
                 self.clock.update(frame.timestamp)
-                self.bus.publish(WireReceived(frame.channel, frame.protocol, frame.interface, frame.wire,
-                                              frame.timestamp, frame.host_time))
+                self.bus.publish(WireReceived(frame.channel, frame.wire, frame.timestamp, frame.host_time))
                 try:
                     self.dispatcher.dispatch(frame)
                 except Exception:
-                    self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), address)
+                    self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), channel)
         self._check_timeouts()
 
     # ---------------------------------------------------------------- timeouts

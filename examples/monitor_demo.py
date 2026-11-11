@@ -42,7 +42,7 @@ def device(uts: FakeUtsClient, stop: threading.Event) -> None:
 
 def _send(uts: FakeUtsClient, msg) -> None:
     ch = msg.channel
-    uts.inject(ch.protocol, ch.interface, ch.framing.envelope.on_send(msg.pack()))
+    uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
 
 
 def main() -> None:

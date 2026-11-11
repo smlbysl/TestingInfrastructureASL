@@ -24,7 +24,7 @@ class CommTests(CommTestCase):
         bad = bytearray(wire)
         bad[-1] ^= 0xFF
         ch = comut(DEST, SRC, 0x20).channel
-        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.uts.inject(ch, bytes(bad))
         deadline = time.monotonic() + 0.5
         while not invalid and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -41,7 +41,7 @@ class CommTests(CommTestCase):
         offset = tx.messageLength.offset_in(tx)
         bad[offset:offset + 2] = (0).to_bytes(2, "little")
         ch = rx.channel
-        self.uts.inject(ch.protocol, ch.interface, bytes(bad))
+        self.uts.inject(ch, bytes(bad))
         self.device_sends(tx)                                               # a valid one right after
         self.expect_new(rx)
         deadline = time.monotonic() + self.timeout              # events are delivered by the bus thread

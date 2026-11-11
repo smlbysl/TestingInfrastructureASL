@@ -2,5 +2,5 @@
 
 __author__ = "İsmail Baysal"
 
-from asl_testing.services.history import CommLogger
+from asl_testing.services.comm_logger import CommLogger
 from asl_testing.services.errors import ErrorLog
