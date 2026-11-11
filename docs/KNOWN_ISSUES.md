@@ -91,7 +91,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 | B9 | `pack()`: yeni değer + eski CRC gidebiliyordu | Yüksek | Çözüldü | Ölçüldü: 1 sn'de 5.730 paketin 2.259'u CRC hatalı. Artık özel alanlar tek bir kopyada hesaplanıyor, baytlar o kopyadan alınıyor; sadece hook'un değiştirdiği özel alanlar nesneye geri yazılıyor (eşzamanlı yazılan değerler korunuyor). Test: `tests/test_threading.py`. |
 | B10 | Değişken boyda `count` / uzunluk / CRC / gövde tutarsızlığı | Yüksek | Çözüldü | Ölçüldü: 4.246 paketin 2.258'i geçersiz. B9 ile aynı düzeltme; `body_size()` de kopyadan okunuyor. |
 | B11 | `MessageSent.image` ile `raw` farklı olabiliyordu | Düşük | Çözüldü | `TxScheduler.send` ikisini tek `msg._pack()` çağrısından alıyor. |
-| B12 | Periyodik gönderimde `after_send` yarışı | Orta | Açık (ertelendi) | Ayrıntı aşağıda: "B12 — `after_send` istek bitini silebiliyor". |
+| B12 | Periyodik gönderimde `after_send` yarışı | Orta | Bilinçli kullanım | Ayrıntı aşağıda; olası iyileştirme `DESIGN.md` → "Yapılabilecekler". |
 | B13 | Koruma GIL'e bağlı | Sınırlama | Açık | Free-threaded Python'da import sırasında hata verilsin. |
 | B14 | İki yönlü mesajda RX, TX için yazılan değerlerin üzerine yazar | Tasarım | Karar bekliyor | Seçenekler: RX'i history'den okumak / ayrı nesne / dokümante etmek. |
 | B15 | `snapshot()` nesnesinde metadata yok | Düşük | Açık | Zaman ve kanal kayıttan okunmalı. |
@@ -99,7 +99,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 ---
 
 ### B12 — `after_send` istek bitini silebiliyor
-- **Önem:** Orta — **Durum:** Açık (ertelendi, B9–B11 düzeltmesi bunu çözmez)
+- **Önem:** Orta — **Durum:** Bilinçli kullanım (zorunlu düzeltme değil; B9–B11 düzeltmesi bunu çözmez)
 - **Nerede:** `TxScheduler.send` → `msg._pack()` … UTS gönderimi … `msg._sent()` → `FieldType.after_send`;
   örnek: `CmdByte.after_send` `startReq` bitini sıfırlıyor.
 - **Ne oluyor:** Periyodik bir mesaj TX thread'inde paketlenmiş ve gönderilmek üzereyken test thread'i
@@ -115,7 +115,9 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
      istek kuyruğa yazılır, TX thread'i bir sonraki `_pack` başında uygular ve gönderim bitince geri alır.
      İstek ve sıfırlama aynı thread'de olduğu için yarış kalmaz.
   3. İstek sayacı: bit yerine "istendi" sayacı tutulur; `after_send` sayacı sadece gönderilen kadar azaltır.
-- **Öneri:** 2. seçenek (yarışı yapısal olarak kaldırıyor, mevcut `CmdByte` tanımlarını değiştirmiyor).
+- **Karar:** Test tarafı bu yapıyı kullanmak zorunda değil; periyodik mesajda tek seferlik bit bilinçli kullanılır,
+  gerekmiyorsa `comm.send()` ile tek seferlik gönderim yapılır. Düşük maliyetli bir daraltma (after_send'i
+  kopyada çalıştırıp bit bit uygulamak) `DESIGN.md` → "Yapılabilecekler" bölümüne olası iyileştirme olarak yazıldı.
 
 ---
 
