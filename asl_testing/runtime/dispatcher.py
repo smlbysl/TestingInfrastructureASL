@@ -38,7 +38,7 @@ class Dispatcher:
             self.bus.publish(InvalidReceived(msg, frame.data, frame.host_time, b"", frame.timestamp))
             return None
         self.log.debug("RX %s on %s (%d bytes)", type(msg).__name__, frame.channel, len(frame.data))
-        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, bytes(msg), frame.timestamp))
+        self.bus.publish(MessageReceived(msg, frame.data, frame.host_time, msg._last_rx_image, frame.timestamp))
         return msg
 
     def _lookup(self, frame: RxFrame) -> Optional[BaseMessageStructure]:

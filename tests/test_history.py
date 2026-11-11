@@ -4,7 +4,7 @@ import threading
 import time
 import unittest
 
-from asl_testing import Direction
+from asl_testing import Direction, MessageReceived
 from projects.example_project.messages import diag_log, motor_cmd
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
@@ -127,6 +127,21 @@ class HistoryThroughCommTests(CommTestCase):
         while len(status.rx_history.since(mark)) < 4 and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertEqual([r.snapshot().speed for r in status.rx_history.since(mark)], [0, 10, 20, 30])
+
+    def test_event_carries_the_packet_of_the_record(self):
+        status = motor_cmd(DEST, SRC, 0x30)
+        status.on_receive(lambda m: setattr(m, "speed", -1))           # a callout changes the live object
+        events = []
+        self.comm.subscribe(MessageReceived, events.append)
+        tx = motor_cmd(DEST, SRC, 0x30, direction=Direction.TX)
+        tx.speed = 42
+        self.device_sends(tx)
+        deadline = time.monotonic() + self.timeout
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual(events[0].snapshot().speed, 42)                # the packet, not the changed object
+        self.assertEqual(events[0].image, status.rx_history.last().image)
+        self.assertEqual(status.speed, -1)
 
 
 if __name__ == "__main__":

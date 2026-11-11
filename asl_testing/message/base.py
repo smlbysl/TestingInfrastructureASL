@@ -108,6 +108,7 @@ class BaseMessageStructure(Structure):
         self._tx = TxState(tx or self._timing) if Direction.TX in self._direction else None
         self._on_receive: list[Callout] = []
         self._on_send: list[Callout] = []
+        self._last_rx_image = b""                           # bytes of the last decoded packet (set by decode)
 
         for field in self._special_fields():
             field.on_init(self)
@@ -323,6 +324,7 @@ class BaseMessageStructure(Structure):
         if self._rx is not None:
             self._rx.on_receive(timestamp)
             self._rx.history.push(Record(next_seq(), timestamp, time.time(), bytes(image), type(self)))
+        self._last_rx_image = bytes(image)                  # MessageReceived carries this packet, not a later one
         for callout in self._on_receive:
             callout(self)
         return True
