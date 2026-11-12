@@ -281,3 +281,63 @@ Zorunlu değil; ihtiyaç olursa ele alınacak fikirler.
     hook'un nesneye eklediği Python özellikleri (`msg.foo`) korunmaz, sadece alan değerleri geri yazılır.
   - Alternatif: "bir sonraki gönderimde bir kez" yardımcısı (`msg.once(...)`); istek TX thread'inde uygulanıp geri
     alınır, yarış yapısal olarak kalkar ama yeni API gerektirir.
+
+## Tasarım 1: mesaj başına kilit ve `update()` (tasarım aşamasında, uygulanmadı)
+
+**Sorun.** Periyodik gönderimde paketi TX thread'i hazırlıyor, test thread'i aynı mesaja yazıyor.
+- Birbirine bağlı iki alan (`speed`, `mode`) ayrı ayrı yazılırken paket araya girerse yarım güncellenmiş içerik gider
+  (CRC tutarlı, içerik karışık).
+- B12: test `startReq=1` yazdığında gönderim ile `after_send` arasına denk gelirse `after_send` isteği gönderilmeden siler.
+
+**Tasarım.** Her mesaj nesnesinin bir kilidi (`RLock`) var; bayrak, bekleyen listesi, gölge tampon yok.
+
+| İşlem | Kilidi ne kadar tutar |
+|---|---|
+| TX gönderim döngüsü: kancalar → kopya → hesap → POST → `after_send` | Bir gönderim süresi (bir UTS isteği) |
+| `msg.update(...)` | Sadece alanları yazarken |
+
+```python
+motor.update(speed=500, mode=2)
+motor.update(startReq=1)                            # istek kaybolmaz; bir sonraki pakette gider
+motor.update({"cmd.startReq": 1, "cmd.mode": 2})    # iç içe alan: nokta ile, sözlük olarak
+```
+
+- Alanlar adıyla yazılır; karşılaştırma yok, aynı değeri yazmak da istek sayılır.
+- Değer atama `_defaults` ile aynı kural: hedef `FieldType` ise `.val`'e yazılır.
+- `update` döndüğünde değerler canlı nesnededir.
+- B12: `update` ile `after_send` aynı kilidin içinde; `update` ya gönderimden önce (değer bu pakete girer) ya
+  `after_send`'ten sonra (bir sonraki pakete kalır) olur. İstek gönderilmeden silinmez.
+- Bedel: `update`, aynı mesaj o an gönderiliyorsa en fazla bir gönderim süresi bekler. TX thread'i `update` yüzünden
+  sadece alan yazma süresi kadar bekler. Kilit mesaj başına; diğer mesajlar etkilenmez.
+- Kilitlenme yok: `update` kilidin içinde başka kilit almaz; TX'te sıra her zaman genel gönderim kilidi, sonra mesaj
+  kilidi. `RLock` olduğu için kanca içinden aynı mesajın `update`'i kilitlenmez.
+
+**Kapsam dışı.**
+- Düz yazma (`motor.speed = 5`) kilitsiz kalır: CRC tutarlılığını `pack()`'teki kopya sağlar; alanlar arası tutarlılık
+  ve B12 koruması yoktur. Kural: birbirine bağlı alanlar ve istek bitleri `update` ile yazılır.
+- RX `decode` kilit almaz (tek kopyayla yazıyor). Alsaydı iki yönlü (`BOTH`) mesajda RX thread'i TX'in UTS isteğini beklerdi.
+- Kanca içinde başka bir mesajı `comm.send` ile göndermemek.
+
+**Tahmini maliyet.** `message/base.py` ~20 satır (`RLock`, `update`), `runtime/tx.py` ~3 satır (gönderim döngüsü
+`with msg._lock:`), testler ~80 satır, dokümanlar ~30 satır.
+
+**Değerlendirilen alternatifler.**
+- Sadece `update` + kopya için kısa kilit (B12'yi kapatmaz).
+- Bayrak + bekleyen değerler sözlüğü (B12'yi kapatır; `update` beklemez ama değer canlı nesneye gönderim bitince geçer,
+  ek durum tutar).
+- Gölge tampon + XOR ile birleştirme (aynı değerin tekrar yazılmasını göremez; daha fazla mekanik).
+
+**Açık kararlar.**
+1. İsim: `update` (ICD'de aynı adlı alan olursa çakışır; sınıf tanımında kontrol edilebilir) ya da başka bir ad.
+2. İç içe alanların nokta ile yazılan sözlükle verilmesi.
+3. `snapshot()` kilit alsın mı (aşağıdaki not).
+
+**`snapshot()` ve kilit.** `bytes(self)` tek bir bellek kopyası ve GIL altında yapılıyor; bir Python thread'inin tek
+bir alan yazması da tek adım. Bu yüzden snapshot hiçbir zaman yarım yazılmış bir alan görmez ve `decode` ile her zaman
+tutarlıdır (`decode` de tek kopyayla yazıyor). Görebileceği tek tutarsızlık başka bir thread'in **birden fazla alanlık**
+bir `update`'inin ortası. Bu sadece aynı TX mesajını iki ayrı thread kullanırken olur.
+- Kilit alırsa: `update`'in yarısını hiç görmez. Bedel: o mesaj o an gönderiliyorsa en fazla bir gönderim süresi bekler.
+  Sadece RX olan mesajları TX hiç kilitlemediği için onlarda beklemez.
+- Almazsa: bekleme yok; aynı mesajı tek thread yazıyorsa (normal kullanım) fark yok.
+- `Record.snapshot()` (geçmiş) ve `event.snapshot()` değişmeyen baytlardan kopyalar; kilit gerekmez.
+- Free-threaded Python'da (GIL yok, B13) tek kopyanın atomikliği garanti değildir; o durumda kilit şart olur.
