@@ -327,10 +327,10 @@ motor.update({"cmd.startReq": 1, "cmd.mode": 2})    # iç içe alan: nokta ile, 
   ek durum tutar).
 - Gölge tampon + XOR ile birleştirme (aynı değerin tekrar yazılmasını göremez; daha fazla mekanik).
 
-**Açık kararlar.**
-1. İsim: `update` (ICD'de aynı adlı alan olursa çakışır; sınıf tanımında kontrol edilebilir) ya da başka bir ad.
-2. İç içe alanların nokta ile yazılan sözlükle verilmesi.
-3. `snapshot()` kilit alsın mı (aşağıdaki not).
+**Kararlar (sonradan verildi, aşağıda "Tasarım 1'e eklenen kararlar").**
+1. İsim `update`; aynı adlı ICD alanı sınıf tanımında hata verir.
+2. İç içe alanlar noktalı sözlükle, yol önbellekli; blok biçimi de var.
+3. `snapshot()` sadece TX yönü olan mesajda kilit alır.
 
 **`snapshot()` ve kilit.** `bytes(self)` tek bir bellek kopyası ve GIL altında yapılıyor; bir Python thread'inin tek
 bir alan yazması da tek adım. Bu yüzden snapshot hiçbir zaman yarım yazılmış bir alan görmez ve `decode` ile her zaman
@@ -407,6 +407,16 @@ blok boyunca kilitler. Blok kuralları: kısa tutulur; içinden `comm.send` ça�
   mesajlarla devam eder. Böylece uzun bir blok sadece kendi mesajını geciktirir; diğer periyodik mesajlar ve RX etkilenmez.
 - Ertelenen mesaj periyodundan fazla geç kalırsa TX gecikme uyarısı (`TxLate`, Tasarım 2) verilir; blok sorunu sessiz kalmaz.
 - Tek seferlik `comm.send` (test ya da işleyici thread'i) kilidi bekleyerek alır: isteği yapan thread'in kendisi bekler.
-- Maliyet: `tx.py`'de ~6 satır (deneme, erteleme), test: uzun blok sürerken diğer periyodik mesajın gecikmemesi. `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
+- Maliyet: `tx.py`'de ~6 satır (deneme, erteleme), test: uzun blok sürerken diğer periyodik mesajın gecikmemesi.
+
+**Karar: `update` biçimleri ve iç içe alanlar.**
+- Argümanlı biçim: `msg.update(speed=500)` ve iç içe alanlar için noktalı sözlük
+  `msg.update({"speed": 500, "cmd.mode": 2})`. Noktalı yol, sınıf ve yol başına bir kez bölünüp önbelleğe alınır
+  (`functools.lru_cache`); alan arama ve `FieldType` kontrolü her çağrıda yapılır, yanlış ad `AttributeError` verir.
+- Blok biçimi: `with msg.update(): msg.cmd.mode = 2`. En hızlısı; ama düz atama olduğu için yanlış alan adı hata vermez
+  (nesneye yeni bir Python özelliği eklenir), bugünkü düz yazmayla aynı.
+- Ölçüm (`speed` + `cmd.mode` birlikte, yazma başına): düz atama kilitsiz 0,17 µs; blok 0,32 µs; noktalı sözlük yol
+  önbellekli 0,81 µs; iç içe sözlük `{"cmd": {"mode": 2}}` 1,02 µs; noktalı sözlük önbelleksiz 1,11 µs. Hepsi bir UTS
+  isteğinin (ms) binde birinden az; seçim kullanım ve güvenlik için. `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
 tek kopyayla yazdığı için gerekmez. `pack()`'teki kopya ve seçerek geri yazma kalır: düz yazmalar kilitsiz olduğu için
 CRC tutarlılığını onlar sağlar.
