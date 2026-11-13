@@ -398,7 +398,15 @@ fazla interface okunabiliyor mu? POST cevabında durum, UTS zamanı, istek numar
 
 **Tasarım 1'e eklenen kararlar.** Blok biçimi aynı isimle: `msg.update(a=1)` alanları yazar; `with msg.update(): ...`
 blok boyunca kilitler. Blok kuralları: kısa tutulur; içinden `comm.send` çağrılabilmesi için `tx.py`'de kilit sırası
-önce mesaj kilidi sonra `_send_lock` olur; uzun blok diğer periyodik mesajları bekletmesin diye TX periyodik mesajın
-kilidi doluysa onu kısa süre erteler (karar bekliyor). `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
+önce mesaj kilidi sonra `_send_lock` olur.
+
+**Karar: blok kısa tutulur ve TX bütün haberleşmeyi bekletmez.**
+- Kural: blok mümkün olduğunca kısa; içinde `sleep`, `wait_new`, `wait_for`, UTS'e giden çağrı olmaz.
+- Erteleme: TX thread'i periyodik bir mesajın kilidini beklemeden dener (`acquire(blocking=False)`). Doluysa o mesajın
+  zamanını kısa bir adım ileri alır (ör. 1 ms, periyottan uzun olmamak üzere), `_send_lock`'u hiç almadan diğer
+  mesajlarla devam eder. Böylece uzun bir blok sadece kendi mesajını geciktirir; diğer periyodik mesajlar ve RX etkilenmez.
+- Ertelenen mesaj periyodundan fazla geç kalırsa TX gecikme uyarısı (`TxLate`, Tasarım 2) verilir; blok sorunu sessiz kalmaz.
+- Tek seferlik `comm.send` (test ya da işleyici thread'i) kilidi bekleyerek alır: isteği yapan thread'in kendisi bekler.
+- Maliyet: `tx.py`'de ~6 satır (deneme, erteleme), test: uzun blok sürerken diğer periyodik mesajın gecikmemesi. `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
 tek kopyayla yazdığı için gerekmez. `pack()`'teki kopya ve seçerek geri yazma kalır: düz yazmalar kilitsiz olduğu için
 CRC tutarlılığını onlar sağlar.
