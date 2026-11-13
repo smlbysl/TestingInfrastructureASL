@@ -341,3 +341,64 @@ bir `update`'inin ortası. Bu sadece aynı TX mesajını iki ayrı thread kullan
 - Almazsa: bekleme yok; aynı mesajı tek thread yazıyorsa (normal kullanım) fark yok.
 - `Record.snapshot()` (geçmiş) ve `event.snapshot()` değişmeyen baytlardan kopyalar; kilit gerekmez.
 - Free-threaded Python'da (GIL yok, B13) tek kopyanın atomikliği garanti değildir; o durumda kilit şart olur.
+
+## Tasarım 2: UTS sürücü katmanı (tasarım aşamasında, uygulanmadı)
+
+**Bugün UTS'e kim istek atıyor.**
+
+| Kim | Thread | İstek | Sıra |
+|---|---|---|---|
+| Periyodik gönderim | TX | POST | `TxScheduler._send_lock` |
+| `comm.send` | Test | POST | Aynı `_send_lock` |
+| `comm.on_receive` işleyicisinden `comm.send` | Abone | POST | Aynı `_send_lock` |
+| Alım yoklaması | RX | GET, kanal başına, sırayla | Kendi içinde sıralı; TX ile aynı anda gidebilir |
+| `comm.control` (config, filtre) | Test | GET / POST | Sırasız; TX ve RX ile aynı anda gidebilir |
+
+TX gönderimleri kendi aralarında sıralı; RX yoklaması ve kontrol çağrıları bu sıranın dışında. UTS'e aynı anda en fazla
+bir POST, bir RX GET'i ve bir kontrol isteği gidebiliyor; UTS'in eşzamanlı istekleri nasıl karşıladığı bilinmiyor.
+RX döngüsü `poll_interval`'i turu bitirdikten sonra bekliyor: tur = aralık + (kanal sayısı × GET süresi)
+(3 kanal, 2 ms → 16 ms, ~190 GET/s). UTS yavaşladıkça yoklama aralığı da uzar.
+
+**Tek thread TX kapasitesi (ölçüm, sahte UTS 2 / 5 ms gecikmeyle).** Kapasite ~1 / istek süresi. Aşılınca periyotlar
+uyarısız uzuyor (2 ms'de 3 mesaj × 5 ms: 200 yerine 152 paket/s; 5 mesaj × 5 ms: 91). Geride kalınca
+`sonraki = önceki + periyot` kuralı kaçanları peş peşe göndermeye çalışıyor.
+
+**Tasarım.** `UtsDriver`, `UtsClient` ile aynı arayüzü sunar ve gerçek istemciyi sarar; Transport ve UtsControl değişmez,
+`Comm` istemciyi sürücüyle sarar. Sorumlulukları:
+1. Eşzamanlılık kuralı tek yerde: sınırsız (bugünkü) / tek istek (giden istek bitmeden diğeri gitmez) / en fazla N
+   (semafor). UTS ölçülene kadar ayarlanabilir; varsayılan bugünkü davranış.
+2. UTS düzeyinde bildirimler: istek hatası (`LinkError` tek kaynaktan), UTS yavaşladı / düzeldi, bağlantı koptu /
+   geldi, TX gecikmesi (`TxLate`). Her istek için olay yok; sayaçlar ve süre istatistikleri `driver.stats`'ta.
+3. UTS'in cevabı: `post` cevabı döndürür, sürücü protokolden bağımsız `UtsAck(ok, uts_time, ham_cevap)`'a çevirir;
+   `MessageSent` bunu taşır, başarısız onay gönderilmedi sayılır. Protokole özel kısım (ör. 1553 durum kelimesi)
+   gerekirse protokolün isteğe bağlı bir metoduyla okunur.
+4. İleride: bağlantıyı açık tutma, yeniden bağlanma, yeniden deneme, UTS destekliyorsa tek GET'te çok interface.
+
+**Tek istek kuralının bedeli.** RX yoklamaları aynı sıraya girer ve TX kapasitesinden yer (yukarıdaki ~190 GET/s).
+Seçilirse ya öncelik gerekir (TX, RX yoklamasının önüne geçer; kilit yerine öncelikli sıra) ya da daha seyrek / toplu
+yoklama.
+
+**Tasarım 1 ile ilişkisi.** Kilit sırası: mesaj kilidi → `_send_lock` → sürücü kilidi (en içte, içinde başka kilit yok;
+kilitlenme olmaz). Sürücü sıraya koyarsa TX bir RX isteğini bekleyebilir; mesaj kilidi ve `update` beklemesi o kadar
+uzar (birkaç ms).
+
+**Tahmini maliyet.** `uts/driver.py` ~80 satır, yeni olaylar ~15, `comm.py` ~5, testler ~120. API gelince `UtsAck` ~30;
+gerekirse öncelikli sıra ~40.
+
+**Sıra.** (1) Sürücüyü sarmalayıcı olarak eklemek: ayarlanabilir eşzamanlılık (varsayılan sınırsız), süre ölçümü,
+sorun bildirimleri; davranış değişmez, UTS ölçülebilir hale gelir. (2) Ölçümden sonra tek istek / öncelik kararı ve
+cevap biçimi.
+
+**TX zamanlaması için ayrıca.** (a) Gecikme algılama: gönderim periyodun belli oranından fazla geç kalırsa uyarı ve
+`TxLate` (~10 satır). (b) Geride kalınca kaçan periyotları peş peşe göndermek yerine atlamak ve takvimi şimdiye kaydırmak;
+kaçanlar sayılır (~5 satır).
+
+**Açık sorular (UTS).** Eşzamanlı istekleri kabul ediyor mu / sıraya mı koyuyor / hata mı veriyor? Bir GET ile birden
+fazla interface okunabiliyor mu? POST cevabında durum, UTS zamanı, istek numarası var mı?
+
+**Tasarım 1'e eklenen kararlar.** Blok biçimi aynı isimle: `msg.update(a=1)` alanları yazar; `with msg.update(): ...`
+blok boyunca kilitler. Blok kuralları: kısa tutulur; içinden `comm.send` çağrılabilmesi için `tx.py`'de kilit sırası
+önce mesaj kilidi sonra `_send_lock` olur; uzun blok diğer periyodik mesajları bekletmesin diye TX periyodik mesajın
+kilidi doluysa onu kısa süre erteler (karar bekliyor). `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
+tek kopyayla yazdığı için gerekmez. `pack()`'teki kopya ve seçerek geri yazma kalır: düz yazmalar kilitsiz olduğu için
+CRC tutarlılığını onlar sağlar.
