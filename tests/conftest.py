@@ -15,7 +15,7 @@ __author__ = "İsmail Baysal"
 import pytest
 
 from tests.base import HARDWARE, TIMEOUT, open_comm
-from tests.settings import make_uts
+from tests.settings import make_backend
 
 
 def pytest_collection_modifyitems(config, items):
@@ -28,15 +28,15 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture
-def uts():
-    """New UTS client (tests/settings.make_uts)."""
-    return make_uts()
+def backend():
+    """New backend (tests/settings.make_backend)."""
+    return make_backend()
 
 
 @pytest.fixture
-def comm(uts):
-    """Clean registry, opened Comm on the uts fixture; closed after the test."""
-    c = open_comm(uts)
+def comm(backend):
+    """Clean registry, opened Comm on the backend fixture; closed after the test."""
+    c = open_comm(backend)
     yield c
     c.close()
 

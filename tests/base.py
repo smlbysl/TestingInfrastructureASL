@@ -1,12 +1,12 @@
 """Base test classes: every test starts from the same clean state.
 
-CommTestCase      runs everywhere (the UTS client comes from tests/settings.make_uts)
+CommTestCase      runs everywhere (the backend comes from tests/settings.make_backend)
 HardwareTestCase  same, but only runs when ASL_HARDWARE=1 is set; otherwise skipped
 
 Each test:
 - clears the registry of the projects (messages of earlier tests are dropped,
   so create messages inside the test or in setUp, not at module level)
-- gets a new UTS client and a new, opened Comm (self.comm)
+- gets a new backend (self.backend) and a new, opened Comm (self.comm)
 - stops its periodic messages and closes Comm at the end, even if it fails
 
 Environment:
@@ -20,17 +20,17 @@ import os
 import unittest
 
 from asl_testing import Comm
-from tests.settings import PROJECTS, make_uts
+from tests.settings import PROJECTS, make_backend
 
 HARDWARE = os.environ.get("ASL_HARDWARE") == "1"
 TIMEOUT = float(os.environ.get("ASL_TIMEOUT", "1.0"))
 
 
-def open_comm(uts) -> Comm:
-    """Clean registry, opened Comm on the given UTS client (shared by the base classes and conftest.py)."""
+def open_comm(backend) -> Comm:
+    """Clean registry, opened Comm on the given backend (shared by the base classes and conftest.py)."""
     for project in PROJECTS:
         project.clear_registry()
-    comm = Comm(uts, PROJECTS)
+    comm = Comm(backend, PROJECTS)
     comm.open()
     return comm
 
@@ -39,8 +39,8 @@ class CommTestCase(unittest.TestCase):
     timeout = TIMEOUT
 
     def setUp(self):
-        self.uts = make_uts()
-        self.comm = open_comm(self.uts)
+        self.backend = make_backend()
+        self.comm = open_comm(self.backend)
         self.addCleanup(self.comm.close)
 
     # ---------------------------------------------------------------- helpers
@@ -69,9 +69,9 @@ class CommTestCase(unittest.TestCase):
         return count
 
     def device_sends(self, msg) -> None:
-        """Simulation only (FakeUtsClient): msg arrives as if the device had sent it."""
+        """Simulation only (FakeBackend): msg arrives as if the device had sent it."""
         ch = msg.channel
-        self.uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
+        self.backend.inject(ch, ch.framing.envelope.on_send(msg.pack()))
 
 
 @unittest.skipUnless(HARDWARE, "hardware tests: set ASL_HARDWARE=1")

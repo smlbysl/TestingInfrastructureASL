@@ -1,13 +1,13 @@
 """Comm: the entry point for test code; builds and connects the layers.
 
-    UtsClient -> Transport -> RxPoller / Dispatcher / TxScheduler -> EventBus
+    Backend -> Transport -> RxPoller / Dispatcher / TxScheduler -> EventBus
 
-    comm = Comm(FakeUtsClient(), [ProjectBase])
+    comm = Comm(FakeBackend(), [ProjectBase])
     comm.open()
     comm.send(req)                                  # once
     comm.start(cmd)                                 # periodic, until comm.stop(cmd)
     comm.wait_for(status, lambda s: s.speed == 10)
-    comm.control.add_filter(status)                 # UTS config and filters
+    comm.control.add_filter(status)                 # config and filters of the backend (UTS)
     comm.close()
 
 Every part logs on its own logger (asl_testing.*). Comm(..., logger=x) sends all of it to x.
@@ -22,8 +22,7 @@ from asl_testing.runtime.dispatcher import Dispatcher
 from asl_testing.runtime.rx import RxPoller
 from asl_testing.runtime.transport import RxFrame, Transport
 from asl_testing.runtime.tx import TxScheduler
-from asl_testing.uts.client import UtsClient
-from asl_testing.uts.control import UtsControl
+from asl_testing.backend.base import Backend, Response
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import MessageReceived
 from asl_testing.message.base import BaseMessageStructure
@@ -42,15 +41,16 @@ def _wait(check: Callable[[], int], timeout: float, interval: float) -> int:
 
 
 class Comm:
-    def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
+    def __init__(self, backend: Backend, projects: Sequence[type[BaseMessageStructure]],
                  poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
         self.log = logger or logging.getLogger(__name__)
         self.bus = EventBus(log=logger)
-        self.transport = Transport(uts)
+        self.backend = backend
+        self.transport = Transport(backend)
         self.dispatcher = Dispatcher(self.bus, projects, log=logger)
         self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
         self.tx = TxScheduler(self.transport, self.bus, log=logger)
-        self.control = UtsControl(uts, log=logger)
+        self.control = backend.control             # None if the backend has no config or filters
 
     # ---------------------------------------------------------------- life cycle
 
@@ -76,8 +76,8 @@ class Comm:
 
     # ---------------------------------------------------------------- TX
 
-    def send(self, msg: BaseMessageStructure) -> bool:
-        """Sends a message once."""
+    def send(self, msg: BaseMessageStructure) -> Response:
+        """Sends a message once; the response is True in a condition if the request succeeded."""
         return self.tx.send(msg)
 
     def start(self, msg: BaseMessageStructure) -> None:

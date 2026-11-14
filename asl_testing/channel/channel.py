@@ -1,9 +1,11 @@
-"""Channel: one UTS interface, its protocol object and its framing.
+"""Channel: one interface of a bus and its framing.
 
     class MyChannels(ChannelSet):
         CONTROL = Rs422Channel(0)
         DIAG    = EthernetChannel(1, Framing(envelope=EthHeader()))
-        BUS_A   = Mil1553Channel(1, protocol=Mil1553Protocol(byte_order="big"))
+        BUS_A   = Mil1553Channel(1, byte_order="big")
+
+A channel names the bus and the interface; how its bytes are carried is the backend's business.
 
 Messages get their channel as a class default (_channel). Equality is identity: each channel is
 defined once in the project, and an interface has one channel. Physical settings (IP, port, baud rate)
@@ -13,50 +15,43 @@ are not part of a channel.
 __author__ = "İsmail Baysal"
 
 from dataclasses import dataclass, field
-from typing import ClassVar, Iterable, Iterator, Optional
+from typing import ClassVar, Iterable, Iterator
 
 from asl_testing.channel.framing import Framing
-from asl_testing.protocol.base import Protocol
-from asl_testing.protocol.ethernet import EthernetProtocol
-from asl_testing.protocol.mil1553 import Mil1553Protocol
-from asl_testing.protocol.rs422 import Rs422Protocol
 
 
 @dataclass(eq=False)
 class Channel:
     interface: int
     framing: Framing = field(default_factory=Framing)
-    protocol: Optional[Protocol] = None         # None: an instance of default_protocol
     name: str = ""                              # set by ChannelSet
 
-    default_protocol: ClassVar[type[Protocol]]
-
-    def __post_init__(self):
-        if self.protocol is None:
-            self.protocol = self.default_protocol()
+    bus: ClassVar[str]                          # bus type; the backend chooses its format by it
 
     @property
     def key(self) -> tuple[str, int]:
-        """The UTS interface: (protocol path, interface number)."""
-        return (self.protocol.path, self.interface)
+        """The interface: (bus, interface number)."""
+        return (self.bus, self.interface)
 
     def __str__(self) -> str:
-        return self.name or f"{self.protocol.path}:{self.interface}"
+        return self.name or f"{self.bus}:{self.interface}"
 
 
 @dataclass(eq=False)
 class EthernetChannel(Channel):
-    default_protocol = EthernetProtocol
+    bus = "ethernet"
 
 
 @dataclass(eq=False)
 class Rs422Channel(Channel):
-    default_protocol = Rs422Protocol
+    bus = "serial"
 
 
 @dataclass(eq=False)
 class Mil1553Channel(Channel):
-    default_protocol = Mil1553Protocol
+    bus = "mil1553"
+
+    byte_order: str = "little"                  # of the 16-bit words; must match the message structures
 
 
 class ChannelSet:
@@ -78,10 +73,10 @@ class ChannelSet:
 
 
 def check_channels(channels: Iterable[Channel]) -> None:
-    """One channel per UTS interface."""
+    """One channel per interface."""
     seen: dict[tuple[str, int], Channel] = {}
     for ch in channels:
         if ch.key in seen:
-            raise ValueError(f"{seen[ch.key]} and {ch} use the same interface {ch.protocol.path}:{ch.interface}; "
+            raise ValueError(f"{seen[ch.key]} and {ch} use the same interface {ch.bus}:{ch.interface}; "
                              f"an interface has one channel")
         seen[ch.key] = ch

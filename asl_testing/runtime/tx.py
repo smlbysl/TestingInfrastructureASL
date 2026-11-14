@@ -1,6 +1,6 @@
 """TxScheduler: one-shot sends and one thread for all periodic messages.
 
-send(msg)      pack, envelope and UTS request under one lock, so the scheduler and the test
+send(msg)      pack, envelope and backend request under one lock, so the scheduler and the test
                cannot mix up the counter; then after_send, WireSent and MessageSent
 start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up
 A message that is no longer registered (replaced by a new object) is dropped from the table.
@@ -12,6 +12,7 @@ import threading
 import time
 from typing import Optional
 
+from asl_testing.backend.base import BackendError, Response
 from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
 from asl_testing.events.types import LinkError, MessageSent, WireSent
@@ -32,22 +33,25 @@ class TxScheduler:
 
     # ---------------------------------------------------------------- sending
 
-    def send(self, msg: BaseMessageStructure) -> bool:
-        """Sends a message once; False if the UTS request failed (LinkError is published)."""
+    def send(self, msg: BaseMessageStructure) -> Response:
+        """Sends a message once; the response is False in a condition if the request failed (LinkError is published)."""
         with self._send_lock:
             raw, image = msg._pack()
             try:
-                wire = self.transport.send(msg._channel, raw)
-            except Exception as error:
-                self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
+                wire, response = self.transport.send(msg._channel, raw)
+                error = None if response.ok else BackendError(response)
+            except Exception as failure:
+                response, error = Response(ok=False, message=str(failure)), failure
+            if error is not None:
+                self.log.error("UTS send of %s failed on %s: %r", type(msg).__name__, msg._channel, error)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
-                return False
+                return response
             msg._sent()
         self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))
         self.bus.publish(MessageSent(msg, raw, now, image))
-        return True
+        return response
 
     # ---------------------------------------------------------------- periodic
 

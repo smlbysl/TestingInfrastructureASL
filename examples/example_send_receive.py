@@ -10,14 +10,14 @@ __author__ = "İsmail Baysal"
 
 import time
 
-from asl_testing import Comm, FakeUtsClient, MessageReceived, MessageSent, Direction
+from asl_testing import Comm, FakeBackend, MessageReceived, MessageSent, Direction
 from projects.example_project.messages import comut, request
 from projects.example_project.header import ProjectBase
 
 SRC, DEST = 0x01, 0x02
 
-uts = FakeUtsClient()
-comm = Comm(uts, [ProjectBase], poll_interval=0.01)
+backend = FakeBackend()
+comm = Comm(backend, [ProjectBase], poll_interval=0.01)
 
 # --- Message objects -------------------------------------------------------------
 req = request(SRC, DEST, 0x10, direction=Direction.TX)      # we send this
@@ -31,7 +31,7 @@ device_answer = comut(DEST, SRC, 0x20, direction=Direction.TX)   # the device's 
 def device(event: MessageSent) -> None:
     device_answer.comut[0] = event.snapshot().request[0] + 1
     ch = device_answer.channel
-    uts.inject(ch, device_answer.pack())   # appears in the UTS receive buffer
+    backend.inject(ch, device_answer.pack())   # appears in the receive buffer of the backend
 
 
 comm.subscribe(MessageSent, device, where=req)
@@ -55,6 +55,6 @@ with comm:                                        # open(): RX poller + TX sched
     comm.send(req)
     time.sleep(0.1)                               # give the poller time to fetch the answer
 
-print(f"\nsent to UTS     : {len(uts.posted)} request(s), first on {uts.posted[0][0]}:{uts.posted[0][1]}")
+print(f"\nsent            : {len(backend.sent)} packet(s), first on {backend.sent[0][0]}")
 print(f"status.comut[0] : {status.comut[0]}")
 print(f"status rx_state : count={status.rx_state.count}, uts time={status.rx_state.timestamp:.3f}")

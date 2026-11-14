@@ -99,7 +99,7 @@ def sequence(lifelines: list[tuple[str, str]], steps: list[tuple], label: str, c
 def context_diagram() -> str:
     b = [
         box(20, 40, 190, 92, "Test kodu", ["tests/, HardwareTestCase", "projects/ (mesaj tanımı)"], "test"),
-        box(260, 40, 230, 92, "asl_testing", ["mesaj modeli, kanal,", "protokol, RX/TX thread'leri"], "core"),
+        box(260, 40, 230, 92, "asl_testing", ["mesaj modeli, kanal,", "backend, RX/TX thread'leri"], "core"),
         box(560, 40, 190, 92, "UTS", ["Windows HTTP servisi", "POST / GET, config"], "uts"),
         box(800, 40, 180, 92, "Hedef donanım", ["test edilen yazılım", "(gömülü)"], "test"),
         arrow(210, 86, 258, 86, "çağrı", ly=78, lx=214),
@@ -122,13 +122,13 @@ def layer_diagram() -> str:
          band(20, 90, W, 64, "Giriş ve|servisler", "svc"),
          chip(150, 110, 220, "comm.py  Comm", "katmanları kurar, open / close"),
          chip(390, 110, 260, "services/", "CommLogger, ErrorLog, MonitorService"),
-         chip(670, 110, 280, "uts/control.py  UtsControl", "config ve filtre, doğrudan çağrı"),
+         chip(670, 110, 280, "backend/uts/control.py  UtsControl", "config ve filtre, doğrudan çağrı"),
 
          band(20, 170, W, 64, "Çalışma|zamanı", "run"),
          chip(150, 190, 150, "TxScheduler", "gönderim, periyot"),
          chip(310, 190, 150, "RxPoller", "yoklama, zaman aşımı"),
          chip(470, 190, 150, "Dispatcher", "tanıma, decode"),
-         chip(630, 190, 150, "Transport", "kanal ↔ UTS"),
+         chip(630, 190, 150, "Transport", "kanal ↔ backend"),
          chip(790, 190, 160, "UtsClock", "UTS saati tahmini"),
 
          band(20, 250, W, 64, "Olaylar", "evt"),
@@ -136,15 +136,15 @@ def layer_diagram() -> str:
          chip(430, 270, 520, "MessageReceived, MessageSent, InvalidReceived, UnknownReceived,",
               "WireReceived, WireSent, RxTimeout, RxRestored, LinkError"),
 
-         band(20, 330, W, 64, "Hat", "uts"),
-         chip(150, 350, 400, "protocol/  Protocol: encode / decode / simulate",
-              "EthernetProtocol, Rs422Protocol, Mil1553Protocol"),
-         chip(570, 350, 380, "uts/  UtsClient: post / get / config / filter",
-              "HttpUtsClient (taslak), FakeUtsClient"),
+         band(20, 330, W, 64, "Backend", "uts"),
+         chip(150, 350, 300, "backend/  Backend: send / receive",
+              "Response, Received, FakeBackend"),
+         chip(470, 350, 480, "backend/uts/  UtsBackend, codec'ler, UtsApi",
+              "WrapperUtsApi (şablon), FakeUtsBackend, UtsControl"),
 
          band(20, 410, W, 64, "Model", "msg"),
          chip(150, 430, 300, "channel/  Channel, ChannelSet, Framing",
-              "kanal = interface + protokol nesnesi + framing"),
+              "kanal = bus + interface + framing"),
          chip(470, 430, 480, "message/  BaseMessageStructure, FieldType, Signature, Registry",
               "RxState / TxState, MessageHistory, Timing, Direction"),
          arrow(990, 30, 990, 470, ""),
@@ -197,7 +197,7 @@ def bytes_diagram() -> str:
     names = [("Mesaj nesnesi", ["ctypes düzeni", "alanlar, CRC, uzunluk"], "msg", "message/"),
              ("Mesaj baytları", ["pack(): gövde + CRC", "decode(): geri yazılır"], "msg", "message/ (pack, decode)"),
              ("Hattaki baytlar", ["Envelope: başlık", "Splitter: akış → paket"], "core", "channel/ (Framing)"),
-             ("UTS gövdesi (JSON)", ["Protocol.encode", "Protocol.decode"], "uts", "protocol/ (Protocol)")]
+             ("UTS gövdesi (JSON)", ["codec.encode", "codec.decode"], "uts", "backend/uts/ (codec)")]
     out = []
     for x, (title, lines, kind, module) in zip(xs, names):
         out.append(box(x, 20, w, 92, title, lines, kind))
@@ -214,7 +214,7 @@ def bytes_diagram() -> str:
 
 def tx_sequence() -> str:
     lifelines = [("Test", "test"), ("Comm", "svc"), ("TxScheduler", "run"), ("Mesaj", "msg"),
-                 ("Transport", "run"), ("Protocol", "core"), ("UtsClient", "uts"), ("EventBus", "evt")]
+                 ("Transport", "run"), ("UtsBackend", "uts"), ("UtsApi", "uts"), ("EventBus", "evt")]
     steps = [
         ("Test", "Comm", "send(msg)", "call"),
         ("Comm", "TxScheduler", "send(msg)", "call"),
@@ -225,28 +225,31 @@ def tx_sequence() -> str:
         ("Mesaj", "TxScheduler", "raw, image", "ret"),
         ("TxScheduler", "Transport", "send(channel, raw)", "call"),
         ("Transport", "Transport", "envelope.on_send", "self"),
-        ("Transport", "Protocol", "encode(wire)", "call"),
-        ("Protocol", "Transport", "gövde (dict)", "ret"),
-        ("Transport", "UtsClient", "post(path, if, gövde)", "call"),
-        ("Transport", "TxScheduler", "wire", "ret"),
+        ("Transport", "UtsBackend", "send(kanal, wire)", "call"),
+        ("UtsBackend", "UtsBackend", "codec.encode", "self"),
+        ("UtsBackend", "UtsApi", "post(yol, if, gövde)", "call"),
+        ("UtsApi", "UtsBackend", "Response", "ret"),
+        ("UtsBackend", "Transport", "Response", "ret"),
+        ("Transport", "TxScheduler", "wire, Response", "ret"),
         ("TxScheduler", "Mesaj", "_sent(): sayaç, after_send", "call"),
         ("TxScheduler", "EventBus", "WireSent, MessageSent", "call"),
-        ("TxScheduler", "Test", "True (hata: False + LinkError)", "ret"),
+        ("TxScheduler", "Test", "Response (hata: ok=False + LinkError)", "ret"),
     ]
     return sequence(lifelines, steps, "Gönderim (TX): tek seferlik send; periyodik gönderimde TxScheduler thread'i aynı send'i çağırır",
                     col=122)
 
 
 def rx_sequence() -> str:
-    lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsClient", "uts"), ("Protocol", "core"),
+    lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsBackend", "uts"), ("UtsApi", "uts"),
                  ("Framing", "core"), ("Dispatcher", "run"), ("Mesaj", "msg"), ("EventBus", "evt")]
     steps = [
         ("RxPoller", "RxPoller", "her poll_interval", "note"),
         ("RxPoller", "Transport", "poll(kanal)", "call"),
-        ("Transport", "UtsClient", "get(path, if)", "call"),
-        ("UtsClient", "Transport", "öğeler", "ret"),
-        ("Transport", "Protocol", "decode(öğe)", "call"),
-        ("Protocol", "Transport", "bayt + zaman", "ret"),
+        ("Transport", "UtsBackend", "receive(kanal)", "call"),
+        ("UtsBackend", "UtsApi", "get(yol, if)", "call"),
+        ("UtsApi", "UtsBackend", "öğeler", "ret"),
+        ("UtsBackend", "UtsBackend", "codec.decode", "self"),
+        ("UtsBackend", "Transport", "bayt + zaman listesi", "ret"),
         ("Transport", "Framing", "split, envelope", "call"),
         ("Framing", "Transport", "mesaj baytları / ret", "ret"),
         ("Transport", "RxPoller", "RxFrame listesi", "ret"),
@@ -364,7 +367,7 @@ LEGEND = ('<div class="legend">'
           '<span style="--f:var(--c-svc);--l:var(--c-svc-l)">giriş, servis</span>'
           '<span style="--f:var(--c-run);--l:var(--c-run-l)">çalışma zamanı</span>'
           '<span style="--f:var(--c-evt);--l:var(--c-evt-l)">olaylar</span>'
-          '<span style="--f:var(--c-core);--l:var(--c-core-l)">protokol, çerçeveleme</span>'
+          '<span style="--f:var(--c-core);--l:var(--c-core-l)">kanal, çerçeveleme</span>'
           '<span style="--f:var(--c-uts);--l:var(--c-uts-l)">UTS</span>'
           '<span style="--f:var(--c-msg);--l:var(--c-msg-l)">mesaj modeli</span></div>')
 
@@ -392,18 +395,22 @@ def page() -> str:
          "BaseMessageStructure, Dispatcher, RxPoller"],
         ["<code>RxState</code> / <code>TxState</code>", "Sayaçlar ve zamanlar (has_new, has_sent, rx_age).", "Mesaj içeriği", "BaseMessageStructure"],
         ["<code>MessageHistory</code>", "Son N alınan paketin kaydı; mark / since / wait_for.", "Kanal, UTS", "BaseMessageStructure, Comm"],
-        ["<code>Channel</code> / <code>ChannelSet</code>", "Bir UTS interface'i: numara, protokol nesnesi, framing; "
-         "bir interface bir kanal kuralı.", "Mesajlar", "Proje, Transport, FakeUtsClient"],
+        ["<code>Channel</code> / <code>ChannelSet</code>", "Bir interface: bus, numara, framing; "
+         "bir interface bir kanal kuralı.", "Mesajlar, UTS yolu ve JSON'u", "Proje, Transport, backend"],
         ["<code>Envelope</code> / <code>Splitter</code>", "Başlık ekleme / çıkarma; akıştan paket ayırma.", "Mesaj, UTS JSON'u", "Transport"],
-        ["<code>Protocol</code> alt sınıfları", "Hattaki baytlar ↔ UTS gövdesi / öğesi (encode, decode, simulate).",
-         "Mesaj, signature, envelope, zamanlama", "Transport, FakeUtsClient"],
-        ["<code>UtsClient</code>", "UTS'e HTTP ile ulaşmak (post, get, config, filter).", "Gövdenin anlamı", "Transport, UtsControl"],
-        ["<code>FakeUtsClient</code>", "UTS yerine geçer: gönderilenleri tutar; inject(kanal, ...) ile cihazı oynar, kanalın protokolünü kullanır.", "Gerçek zaman davranışı",
+        ["<code>Backend</code>", "Sınır: hattaki baytları taşır (send, receive); her sonuç bir Response.",
+         "Mesaj, signature, envelope, zamanlama", "Transport"],
+        ["<code>UtsBackend</code>", "Bus'a göre codec seçer, isteği UtsApi ile yapar.", "Mesaj, zamanlama", "Comm (kurulumda verilir)"],
+        ["Codec'ler", "Hattaki baytlar ↔ UTS gövdesi / öğesi; UTS yolu (serials, ethernet, 1553).",
+         "HTTP, mesaj, envelope", "UtsBackend"],
+        ["<code>UtsApi</code> / <code>WrapperUtsApi</code>", "UTS istekleri (post, get, config, filter); sonucu Response'a çevirir.", "Gövdenin anlamı", "UtsBackend, UtsControl"],
+        ["<code>FakeBackend</code> / <code>FakeUtsBackend</code>", "Cihaz yerine geçer: gönderilenleri tutar; inject(kanal, ...) ile cihazı oynar. "
+         "FakeUtsBackend gerçek codec'lerden geçer.", "Gerçek zaman davranışı",
          "Testler, örnekler"],
         ["<code>UtsControl</code>", "Interface ayarı ve alım filtresi; testten doğrudan, senkron.", "RX / TX thread'leri", "Comm.control"],
-        ["<code>Transport</code>", "Kanal ↔ UTS: envelope, kanalın protokolü, splitter.", "Mesaj, signature, zamanlama",
+        ["<code>Transport</code>", "Kanal ↔ backend: envelope, backend isteği, splitter.", "Mesaj, signature, zamanlama",
          "TxScheduler, RxPoller"],
-        ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "UTS JSON'u", "Comm"],
+        ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "Backend'in biçimi", "Comm"],
         ["<code>RxPoller</code>", "Yoklama döngüsü, WireReceived, RX zaman aşımı.", "Mesaj tanıma kuralı", "Comm"],
         ["<code>Dispatcher</code>", "Paketin mesajını bulur, decode eder, sonuç olayını yayınlar; bilinmeyenleri tutar.",
          "UTS, kanal biçimi", "RxPoller"],
@@ -414,7 +421,7 @@ def page() -> str:
     ])
     events = table(["Olay", "Yayınlayan", "Ne zaman"], [
         ["<code>WireSent</code>, <code>MessageSent</code>", "TxScheduler", "Başarılı gönderimden sonra"],
-        ["<code>LinkError</code>", "TxScheduler / RxPoller", "UTS isteği başarısız"],
+        ["<code>LinkError</code>", "TxScheduler / RxPoller", "Backend isteği başarısız"],
         ["<code>WireReceived</code>", "RxPoller", "Her gelen paket, tanınmadan önce"],
         ["<code>MessageReceived</code>", "Dispatcher", "Paket bir mesaja ait ve geçerli"],
         ["<code>InvalidReceived</code>", "Dispatcher", "Mesaja ait, boy / uzunluk / CRC tutmuyor"],
@@ -422,21 +429,22 @@ def page() -> str:
         ["<code>RxTimeout</code>, <code>RxRestored</code>", "RxPoller", "Periyodik RX mesajı gecikti / yeniden geldi"],
     ])
     extend = table(["Ne eklenir", "Nerede", "Ne yazılır"], [
-        ["Yeni hat tipi (ör. CAN)", "<code>protocol/</code>, <code>channel/channel.py</code>",
-         "<code>Protocol</code> alt sınıfı (path, encode, decode, simulate) ve <code>default_protocol</code>'ü o sınıf olan kanal sınıfı"],
+        ["Yeni bus (ör. CAN, CameraLink)", "<code>channel/channel.py</code>, <code>backend/uts/codecs.py</code>",
+         "<code>bus</code> adı olan kanal sınıfı; UTS için <code>Codec</code> alt sınıfı (path, to_list, to_bytes) ve <code>UtsBackend.codecs</code>'e kayıt"],
+        ["UTS yerine başka bir sistem", "<code>backend/</code>", "<code>Backend</code> alt sınıfı (send, receive); mesajlar, kanallar ve testler değişmez"],
         ["Yeni özel alan (ör. farklı CRC)", "Projenin <code>types.py</code>'si", "<code>ChecksumType</code> / <code>FieldType</code> alt sınıfı"],
         ["Proje başlığı", "Projenin <code>framing.py</code>'si", "<code>Envelope</code> alt sınıfı (on_send, on_receive, offset)"],
         ["Akış ayırma", "Projenin <code>framing.py</code>'si", "<code>Splitter</code> alt sınıfı (split)"],
         ["Yeni servis (ör. simülasyon düğümü)", "<code>services/</code>", "<code>comm.subscribe(...)</code> ile olay dinleyen sınıf"],
-        ["Gerçek UTS", "<code>uts/http.py</code>", "<code>post</code>, <code>get</code>, config ve filtre çağrıları"],
+        ["Gerçek UTS", "<code>backend/uts/api.py</code>", "<code>WrapperUtsApi.post</code>, <code>get</code>; sonra config ve filtre çağrıları"],
     ])
     tree = """asl_testing/
   __init__.py        tek import yüzeyi
   comm.py            Comm
   message/           base, fields, signature, registry, state, history, timing
   channel/           channel (Channel, ChannelSet, kanal tipleri), framing (Envelope, Splitter)
-  protocol/          base (Protocol), ethernet, rs422, mil1553
-  uts/               client (UtsClient), http, fake, control (UtsControl), filters
+  backend/           base (Backend, Response), fake (FakeBackend)
+  backend/uts/       backend (UtsBackend), codecs, api (UtsApi, WrapperUtsApi), control, filters, fake
   runtime/           transport, rx (RxPoller), tx (TxScheduler), dispatcher, clock
   events/            bus (EventBus), types
   services/          comm_logger (CommLogger), errors (ErrorLog), monitor/
@@ -491,11 +499,11 @@ yazan aile kanalıyla tanınır (kanal başına bir RX mesajı).</li>
 
 <h2 id="bayt">Baytların yolu</h2>
 {bytes_diagram()}
-{table(["Protokol", "UTS'e giden / gelen", "Not"], [
-        ["<code>EthernetProtocol</code>", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", ""],
-        ["<code>Rs422Protocol</code>", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", "Öğe akış parçası olabilir; splitter böler"],
-        ["<code>Mil1553Protocol</code>", "<code>{{\"message\": [rt, subnet, word_count, word, ...]}}</code>",
-         "16 bitlik değerler; <code>byte_order</code> yapının endian'ıyla aynı olmalı"],
+{table(["Codec (UTS yolu)", "UTS'e giden / gelen", "Not"], [
+        ["<code>EthernetCodec</code> (<code>/ethernet</code>)", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", ""],
+        ["<code>SerialCodec</code> (<code>/serials</code>)", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", "Öğe akış parçası olabilir; splitter böler"],
+        ["<code>Mil1553Codec</code> (<code>/1553</code>)", "<code>{{\"message\": [rt, subnet, word_count, word, ...]}}</code>",
+         "16 bitlik değerler; kanalın <code>byte_order</code>'ı yapının endian'ıyla aynı olmalı"],
     ])}
 
 <h2 id="tx">Gönderim akışı</h2>
@@ -525,8 +533,8 @@ yayınlayanı ya da diğer aboneleri bekletmez. Sıra: önce hat olayı (<code>W
 
 <h2 id="acik">Açık noktalar</h2>
 <ul>
-<li><b>Gerçek UTS:</b> <code>HttpUtsClient</code> taslak; JSON alan adları, zaman birimi, config / filtre gövdeleri UTS API'sine bağlı.</li>
-<li><b>CAN ve diğer hatlar:</b> protokol ve kanal sınıfı yok; eklemek için bkz. Genişletme noktaları.</li>
+<li><b>Gerçek UTS:</b> <code>WrapperUtsApi</code> şablon (<code>post</code> / <code>get</code> doldurulacak); JSON alan adları, zaman birimi, config / filtre gövdeleri UTS API'sine bağlı.</li>
+<li><b>CAN, CameraLink ve diğer hatlar:</b> kanal sınıfı ve codec yok; eklemek için bkz. Genişletme noktaları.</li>
 <li><b>K3:</b> özel alan tipleri big-endian mesajda little-endian kalıyor (1553 big-endian projeyi etkiler).</li>
 <li>Diğerleri: <code>docs/KNOWN_ISSUES.md</code>.</li>
 </ul>

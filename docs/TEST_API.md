@@ -20,7 +20,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 |---|---|---|---|
 | `Comm(uts, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
 | `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur | Evet | Evet |
-| `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
+| `send(msg) -> Response` | Tek gönderim; cevap koşulda başarılıysa doğru (`status`, `code`, `message` hatayı verir) | Evet | Evet |
 | `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
 | `on_receive(msg, handler)` | Mesaj alındığında handler (kendi thread'inde) | Evet | Evet |
 | `wait_new(msg, timeout)` | Yeni geçerli paket gelene kadar bekler | Evet | Evet |
@@ -102,21 +102,24 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `ch.name`, `ch.interface` | Kimlik | Evet | Evet |
-| `ch.protocol` | Kanalın protokol nesnesi (`EthernetProtocol()` vb.); `protocol=` ile verilir | Evet | Evet |
-| `ch.key` | UTS interface'i: `(protocol.path, interface)` | Sınırlı | Evet |
+| `ch.bus` | Bus tipi: `"ethernet"`, `"serial"`, `"mil1553"`; backend biçimi buna göre seçer | Evet | Evet |
+| `ch.key` | Interface: `(bus, interface)` | Sınırlı | Evet |
 | `ch.framing` | Splitter ve envelope | Evet (özel çerçeve için) | Evet |
 | `ChannelSet.all()` | Projedeki tüm kanallar | Evet | Evet |
 | `ChannelSet` kuralı (`check_channels`) | Bir interface, bir kanal; tanım sırasında kontrol | Evet (hata mesajı) | Evet |
-| `EthernetChannel`, `Rs422Channel`, `Mil1553Channel` | Kanal tipleri (protokole göre) | Evet (proje tanımı) | Evet |
+| `EthernetChannel`, `Rs422Channel`, `Mil1553Channel` | Kanal tipleri (bus'a göre) | Evet (proje tanımı) | Evet |
+| `Mil1553Channel(1, byte_order="big")` | 16 bitlik kelimelerin bayt sırası; mesaj yapısıyla aynı olmalı | Evet (big-endian projede) | Evet |
 
-### Protokoller
+### Backend
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `EthernetProtocol(time_unit)`, `Rs422Protocol(time_unit)` | Bayt listesi: `{"message": [...], "timestamp": t}` | Evet (zaman birimi farklıysa) | Evet |
-| `Mil1553Protocol(byte_order, time_unit)` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]` | Evet (big-endian projede) | Evet |
-| `protocol.encode(data)` / `decode(item)` / `simulate(data, ts)` | Bayt ↔ UTS gövdesi / öğesi | Sınırlı (protokol testi) | Evet |
-| `Mil1553Channel(1, protocol=Mil1553Protocol(...))` | Varsayılan olmayan protokol nesnesi kanalla verilir | Evet | Evet |
+| `Backend.send(channel, data)` / `receive(channel)` | Hattaki baytları taşır; sonuç `Response` | Sınırlı (yeni backend yazarken) | Evet |
+| `Response` (`ok`, `status`, `code`, `message`, `data`, `timestamp`, `elapsed`) | Bir isteğin sonucu; koşulda `ok` | Evet (`comm.send` dönüşü) | Evet |
+| `BackendError` | Başarısız isteğin hata tipi (`LinkError.error`); `.response` ayrıntıyı taşır | Evet | Evet |
+| `UtsBackend(api, time_unit)` | UTS backend'i: bus'a göre codec, istekler `api` üzerinden | Evet (gerçek cihaz) | Evet |
+| `UtsApi`, `WrapperUtsApi(wrapper, timeout)` | UTS istekleri; `WrapperUtsApi` eldeki `ApiWrapper` için şablon | Evet (doldurulacak) | Şablon |
+| Codec'ler (`backend/uts/codecs.py`) | Bayt ↔ UTS JSON: seri / Ethernet bayt listesi, 1553 16 bitlik liste | Sınırlı (biçim testi) | Evet |
 
 ## 5. Çerçeveleme (`Framing`, `Splitter`, `Envelope`)
 
@@ -147,13 +150,14 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `FakeUtsClient.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokolüyle) | Evet (sahte cihaz) | Evet |
-| `FakeUtsClient.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
+| `FakeBackend.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir | Evet (sahte cihaz) | Evet |
+| `FakeBackend.sent` | Gönderilenler: `(kanal, hattaki baytlar)` | Evet (simülasyonda kontrol) | Evet |
+| `FakeUtsBackend` (`inject`, `posted`) | Aynısı, UTS codec'lerinden geçerek; `posted`: `(yol, interface, gövde)` | Evet (UTS biçimi testi) | Evet |
+| `FakeUtsApi.put(path, interface, item)` | UTS'in döndüreceği öğeyi doğrudan ekler | Sınırlı | Evet |
+| `comm.control` | UTS backend'inin `UtsControl` nesnesi; backend'de yoksa `None` | Evet | Evet |
 | `comm.control.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
 | `comm.control.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |
 | `comm.control.get_filter / set_filter / clear_filter` | Ham filtre yönetimi | Sınırlı | Evet |
-| `UtsError` | UTS hata tipi | Evet | Evet |
-| `HttpUtsClient` | Gerçek HTTP istemcisi (henüz taslak) | Hayır (şu an) | Taslak |
 
 ## 8. Servisler
 

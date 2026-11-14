@@ -1,7 +1,7 @@
-"""Transport: moves bytes between a channel and its UTS interface.
+"""Transport: moves bytes between a channel and the backend.
 
-TX: envelope -> channel.protocol.encode -> uts.post
-RX: uts.get -> channel.protocol.decode -> splitter -> envelope -> RxFrame
+TX: envelope -> backend.send
+RX: backend.receive -> splitter -> envelope -> RxFrame
 Knows channels and bytes only, not messages, signatures or timing.
 """
 
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from asl_testing.channel.channel import Channel
-from asl_testing.uts.client import UtsClient
+from asl_testing.backend.base import Backend, BackendError, Response
 
 
 @dataclass(frozen=True)
@@ -20,27 +20,28 @@ class RxFrame:
     channel: Channel
     data: bytes                         # message bytes (envelope removed); the wire if rejected
     wire: bytes                         # bytes on the line
-    timestamp: Optional[float]          # UTS time in seconds
+    timestamp: Optional[float]          # backend time in seconds
     host_time: float                    # host time (time.time) of the poll
     accepted: bool = True               # False: the channel's envelope rejected the packet
 
 
 class Transport:
-    def __init__(self, uts: UtsClient):
-        self.uts = uts
+    def __init__(self, backend: Backend):
+        self.backend = backend
 
-    def send(self, channel: Channel, data: bytes) -> bytes:
-        """Sends message bytes on a channel; returns the bytes on the line."""
+    def send(self, channel: Channel, data: bytes) -> tuple[bytes, Response]:
+        """Sends message bytes on a channel; returns the bytes on the line and the backend's response."""
         wire = channel.framing.envelope.on_send(data)
-        self.uts.post(channel.protocol.path, channel.interface, channel.protocol.encode(wire))
-        return wire
+        return wire, self.backend.send(channel, wire)
 
     def poll(self, channel: Channel) -> list[RxFrame]:
-        """Reads what UTS received on the channel's interface since the last call."""
+        """Reads what the channel's interface received since the last call; BackendError if the request failed."""
         now = time.time()
+        response = self.backend.receive(channel)
+        if not response.ok:
+            raise BackendError(response)
         frames = []
-        for item in self.uts.get(channel.protocol.path, channel.interface):
-            received = channel.protocol.decode(item)
+        for received in response.data:
             for wire in channel.framing.splitter.split(received.data):
                 data = channel.framing.envelope.on_receive(wire)
                 accepted = data is not None

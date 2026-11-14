@@ -13,7 +13,7 @@ import ctypes
 import logging
 import time
 
-from asl_testing import Comm, FakeUtsClient, WireReceived, WireSent, Direction, Timing, CommLogger, ErrorLog
+from asl_testing import Comm, FakeUtsBackend, WireReceived, WireSent, Direction, Timing, CommLogger, ErrorLog
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut, diag_log, motor_cmd, request, ser_cmd, ser_report
 from projects.example_project.header import ProjectBase
@@ -21,7 +21,7 @@ from projects.example_project.header import ProjectBase
 SRC, DEST = 0x0001, 0x0002
 
 
-def device_sends(uts: FakeUtsClient, msg) -> None:
+def device_sends(uts: FakeUtsBackend, msg) -> None:
     """Plays the device: the packet, with the channel's envelope, appears in the UTS receive buffer."""
     ch = msg.channel
     uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
@@ -31,7 +31,7 @@ def main() -> None:
     # General log: every layer (and the test code) in one file; set once by the test side
     logging.basicConfig(filename="comm.log", filemode="w", level=logging.DEBUG,
                         format="%(asctime)s %(levelname)-7s %(name)-28s %(message)s")
-    uts = FakeUtsClient()
+    uts = FakeUtsBackend()                                # UTS format on a simulated UTS
     comm = Comm(uts, [ProjectBase], poll_interval=0.01)
     history = CommLogger(comm, "comm_history.csv")
     errors = ErrorLog(comm, "comm_errors.log")
@@ -168,12 +168,12 @@ def main() -> None:
     def unreachable(*args):
         raise ConnectionError("UTS unreachable")
 
-    uts.post = unreachable
-    print(f"\nUTS error: send returned {comm.send(sw_req2)}")
+    uts.api.post = unreachable
+    print(f"\nUTS error: send succeeded: {bool(comm.send(sw_req2))}")
     motor.cmd.startReq = 1
     comm.send(motor)
     print(f"  startReq after a failed send (kept for the next send): {motor.cmd.startReq}")
-    del uts.post
+    del uts.api.post
 
     comm.close()
     print(f"\nline level: {len(wire_tx)} WireSent, {len(wire_rx)} WireReceived")
