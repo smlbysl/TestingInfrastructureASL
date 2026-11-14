@@ -170,10 +170,10 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <p>Test kodunun tek giriş noktası. Katmanları kurar, bağlar ve test kodunu onlara yönlendirir.</p>
 
 <h3>Yaşam döngüsü</h3>
-<div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
+<div class="sig">Comm(backend, projects, poll_interval=0.01, channels=(), logger=None)</div>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
-  <tr><td><code>open()</code></td><td>RX poller ve TX scheduler thread'lerini başlatır.</td></tr>
+  <tr><td><code>open()</code></td><td>RX ve TX thread'lerini başlatır: kanal başına bir RX thread'i, periyodik mesajı olan kanal başına bir TX thread'i ve zaman aşımı denetçisi. Cevap vermeyen bir kanal diğerlerini bekletmez.</td></tr>
   <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır.</td></tr>
   <tr><td><code>with comm:</code></td><td><code>open()</code> ve <code>close()</code> yerine geçer.</td></tr>
 </table>

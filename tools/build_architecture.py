@@ -218,7 +218,7 @@ def tx_sequence() -> str:
     steps = [
         ("Test", "Comm", "send(msg)", "call"),
         ("Comm", "TxScheduler", "send(msg)", "call"),
-        ("TxScheduler", "TxScheduler", "_send_lock", "note"),
+        ("TxScheduler", "TxScheduler", "kanal kilidi", "note"),
         ("TxScheduler", "Mesaj", "_pack()", "call"),
         ("Mesaj", "Mesaj", "on_send kancaları", "self"),
         ("Mesaj", "Mesaj", "kopyada: uzunluk, sayaç, CRC", "self"),
@@ -235,7 +235,7 @@ def tx_sequence() -> str:
         ("TxScheduler", "EventBus", "WireSent, MessageSent", "call"),
         ("TxScheduler", "Test", "Response (hata: ok=False + LinkError)", "ret"),
     ]
-    return sequence(lifelines, steps, "Gönderim (TX): tek seferlik send; periyodik gönderimde TxScheduler thread'i aynı send'i çağırır",
+    return sequence(lifelines, steps, "Gönderim (TX): tek seferlik send; periyodik gönderimde kanalın TX thread'i aynı send'i çağırır",
                     col=122)
 
 
@@ -243,7 +243,7 @@ def rx_sequence() -> str:
     lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsBackend", "uts"), ("UtsApi", "uts"),
                  ("Framing", "core"), ("Dispatcher", "run"), ("Mesaj", "msg"), ("EventBus", "evt")]
     steps = [
-        ("RxPoller", "RxPoller", "her poll_interval", "note"),
+        ("RxPoller", "RxPoller", "kanalın thread'i", "note"),
         ("RxPoller", "Transport", "poll(kanal)", "call"),
         ("Transport", "UtsBackend", "receive(kanal)", "call"),
         ("UtsBackend", "UtsApi", "get(yol, if)", "call"),
@@ -262,7 +262,7 @@ def rx_sequence() -> str:
         ("Dispatcher", "EventBus", "Message / Invalid / UnknownReceived", "call"),
         ("RxPoller", "RxPoller", "zaman aşımı: RxTimeout / RxRestored", "self"),
     ]
-    return sequence(lifelines, steps, "Alım (RX): RxPoller thread'i her döngüde bu akışı her kanal için, sabit sırayla çalıştırır",
+    return sequence(lifelines, steps, "Alım (RX): her kanalın RX thread'i bu akışı kendi döngüsünde çalıştırır",
                     col=122)
 
 
@@ -270,16 +270,16 @@ def thread_diagram() -> str:
     b = [
         box(20, 20, 225, 150, "Test thread'i", ["alan yazar / okur", "send, start, stop", "has_new, wait_for",
                                                 "snapshot, rx_history"], "test"),
-        box(265, 20, 225, 150, "TxScheduler thread'i", ["periyodik mesajlar", "_pack, transport.send",
-                                                        "_sent, olay yayını"], "run"),
-        box(510, 20, 225, 150, "RxPoller thread'i", ["UTS get, decode", "dispatch, geçmiş", "zaman aşımı",
-                                                     "msg.on_receive kancaları"], "run"),
+        box(265, 20, 225, 150, "TX thread'leri", ["kanal başına bir (Tx-<kanal>)", "periyodik mesajlar", "_pack, transport.send",
+                                                  "_sent, olay yayını"], "run"),
+        box(510, 20, 225, 150, "RX thread'leri", ["kanal başına bir (Rx-<kanal>)", "yokla, decode, dispatch",
+                                                  "msg.on_receive kancaları", "denetçi: zaman aşımı"], "run"),
         box(755, 20, 225, 150, "Abone thread'leri", ["her subscribe için bir", "kendi kuyruğu", "CommLogger, ErrorLog,",
                                                      "Monitor, comm.on_receive"], "evt"),
         box(20, 210, 960, 120, "Paylaşılan veri ve korunması", [
             "Mesaj nesnesi (RX): decode yeni değerleri ayrı tamponda hazırlar, tek kopyayla yazar → okuyan eski ya da yeni paketi görür",
             "Mesaj nesnesi (TX): _pack özel alanları kopyada hesaplar, sadece değişen özel alanları geri yazar → CRC her zaman pakete uyar",
-            "Gönderim: TxScheduler._send_lock → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz",
+            "Gönderim: kanal başına kilit → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz; kanallar birbirini beklemez",
             "MessageHistory: kilit + koşul değişkeni; RxState / TxState sayaçları tek thread yazar, okuma tek adım",
             "Olaylar: değişmez kayıtlar, baytların kopyasını taşır; abone event.snapshot() ile okur"], "core", title_size=14),
     ]
@@ -410,8 +410,8 @@ def page() -> str:
         ["<code>UtsControl</code>", "Interface ayarı ve alım filtresi; testten doğrudan, senkron.", "RX / TX thread'leri", "Comm.control"],
         ["<code>Transport</code>", "Kanal ↔ backend: envelope, backend isteği, splitter.", "Mesaj, signature, zamanlama",
          "TxScheduler, RxPoller"],
-        ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "Backend'in biçimi", "Comm"],
-        ["<code>RxPoller</code>", "Yoklama döngüsü, WireReceived, RX zaman aşımı.", "Mesaj tanıma kuralı", "Comm"],
+        ["<code>TxScheduler</code>", "Tek seferlik gönderim; kanal başına periyodik thread ve gönderim kilidi; TX olayları.", "Backend'in biçimi", "Comm"],
+        ["<code>RxPoller</code>", "Kanal başına yoklama thread'i, WireReceived; denetçi: RX zaman aşımı.", "Mesaj tanıma kuralı", "Comm"],
         ["<code>Dispatcher</code>", "Paketin mesajını bulur, decode eder, sonuç olayını yayınlar; bilinmeyenleri tutar.",
          "UTS, kanal biçimi", "RxPoller"],
         ["<code>UtsClock</code>", "Paketlerdeki UTS zamanından şu anki UTS zamanını tahmin eder.", "Mesajlar", "RxPoller"],
@@ -508,7 +508,7 @@ yazan aile kanalıyla tanınır (kanal başına bir RX mesajı).</li>
 
 <h2 id="tx">Gönderim akışı</h2>
 {tx_sequence()}
-<p>Periyodik mesajda TxScheduler thread'i zamanı gelen her mesaj için aynı <code>send</code>'i çağırır; bir sonraki zaman
+<p>Periyodik mesajda kanalın TX thread'i zamanı gelen her mesaj için aynı <code>send</code>'i çağırır; bir sonraki zaman
 <code>önceki zaman + periyot</code> olarak ilerler, gecikme birikmez.</p>
 
 <h2 id="rx">Alım akışı</h2>

@@ -1,7 +1,8 @@
-"""TxScheduler: one-shot sends and one thread for all periodic messages.
+"""TxScheduler: one-shot sends and one TX thread per channel for its periodic messages.
 
-send(msg)      pack, envelope and backend request under one lock, so the scheduler and the test
-               cannot mix up the counter; then after_send, WireSent and MessageSent
+send(msg)      pack, envelope and backend request under the lock of the channel, so the TX thread and
+               the test cannot mix up the counter; then after_send, WireSent and MessageSent.
+               Sends on different channels do not wait for each other.
 start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up
 A message that is no longer registered (replaced by a new object) is dropped from the table.
 """
@@ -17,6 +18,19 @@ from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
 from asl_testing.events.types import LinkError, MessageSent, WireSent
 from asl_testing.message.base import BaseMessageStructure
+from asl_testing.channel.channel import Channel
+
+
+class ChannelTx:
+    """Send lock, periodic table and TX thread of one channel."""
+
+    def __init__(self, channel: Channel):
+        self.channel = channel
+        self.lock = threading.Lock()
+        # id(msg) -> [msg, next due time (monotonic)]; ctypes objects are not hashable
+        self.table: dict[int, list] = {}
+        self.wake = threading.Event()
+        self.thread: Optional[threading.Thread] = None
 
 
 class TxScheduler:
@@ -24,18 +38,23 @@ class TxScheduler:
         self.transport = transport
         self.bus = bus
         self.log = log or logging.getLogger(__name__)
-        self._send_lock = threading.Lock()
-        # id(msg) -> [msg, next due time (monotonic)]; ctypes objects are not hashable
-        self._table: dict[int, list] = {}
-        self._wake = threading.Event()
+        self._lines: dict[Channel, ChannelTx] = {}
+        self._guard = threading.Lock()
+        self._running = False
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+
+    def _line(self, channel: Channel) -> ChannelTx:
+        with self._guard:
+            line = self._lines.get(channel)
+            if line is None:
+                line = self._lines[channel] = ChannelTx(channel)
+            return line
 
     # ---------------------------------------------------------------- sending
 
     def send(self, msg: BaseMessageStructure) -> Response:
         """Sends a message once; the response is False in a condition if the request failed (LinkError is published)."""
-        with self._send_lock:
+        with self._line(msg._channel).lock:
             raw, image = msg._pack()
             try:
                 wire, response = self.transport.send(msg._channel, raw)
@@ -58,48 +77,69 @@ class TxScheduler:
     def start(self, msg: BaseMessageStructure) -> None:
         if msg._tx is None or not msg._tx.timing.is_periodic:
             raise ValueError(f"{type(msg).__name__} has no periodic TX timing (tx=Timing(period))")
-        self._table[id(msg)] = [msg, time.monotonic()]
+        line = self._line(msg._channel)
+        line.table[id(msg)] = [msg, time.monotonic()]
         self.log.info("periodic TX started: %s every %s s", type(msg).__name__, msg._tx.timing.period)
-        self._wake.set()
+        self._start_line(line)
+        line.wake.set()
 
     def stop(self, msg: BaseMessageStructure) -> None:
-        if self._table.pop(id(msg), None) is not None:
+        line = self._line(msg._channel)
+        if line.table.pop(id(msg), None) is not None:
             self.log.info("periodic TX stopped: %s", type(msg).__name__)
-        self._wake.set()
+        line.wake.set()
 
     def is_running(self, msg: BaseMessageStructure) -> bool:
-        return id(msg) in self._table
+        return id(msg) in self._line(msg._channel).table
 
-    def tick(self) -> Optional[float]:
-        """Sends what is due; returns seconds to the next due message, None if there is none."""
+    def tick(self, line: ChannelTx) -> Optional[float]:
+        """Sends what is due on a channel; returns seconds to its next due message, None if there is none."""
         now = time.monotonic()
-        for key, entry in list(self._table.items()):
+        for key, entry in list(line.table.items()):
             msg, due = entry
             if not msg._registered:
-                self._table.pop(key, None)
+                line.table.pop(key, None)
                 continue
             if due <= now:
                 self.send(msg)
                 entry[1] = due + msg._tx.timing.period
-        if not self._table:
+        if not line.table:
             return None
-        return max(0.0, min(due for _, due in list(self._table.values())) - time.monotonic())
+        return max(0.0, min(due for _, due in list(line.table.values())) - time.monotonic())
 
-    # ---------------------------------------------------------------- thread
+    # ---------------------------------------------------------------- threads
 
     def start_thread(self) -> None:
+        """Starts the TX thread of every channel that has periodic messages; later ones start with start(msg)."""
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="TxScheduler", daemon=True)
-        self._thread.start()
+        self._running = True
+        with self._guard:
+            lines = list(self._lines.values())
+        for line in lines:
+            if line.table:
+                self._start_line(line)
 
     def stop_thread(self) -> None:
+        self._running = False
         self._stop.set()
-        self._wake.set()
-        if self._thread is not None:
-            self._thread.join()
+        with self._guard:
+            lines = list(self._lines.values())
+        for line in lines:
+            line.wake.set()
+        for line in lines:
+            if line.thread is not None:
+                line.thread.join()
+                line.thread = None
 
-    def _run(self) -> None:
+    def _start_line(self, line: ChannelTx) -> None:
+        with self._guard:
+            if not self._running or line.thread is not None:
+                return
+            line.thread = threading.Thread(target=self._run, args=(line,), name=f"Tx-{line.channel}", daemon=True)
+        line.thread.start()
+
+    def _run(self, line: ChannelTx) -> None:
         while not self._stop.is_set():
-            wait = self.tick()
-            self._wake.wait(wait)
-            self._wake.clear()
+            wait = self.tick(line)
+            line.wake.wait(wait)
+            line.wake.clear()

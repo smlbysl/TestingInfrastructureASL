@@ -24,7 +24,7 @@ from projects.example_project.header import ProjectBase
 
 backend = FakeBackend()                # gerçek cihazda UtsBackend(WrapperUtsApi(...)), bkz. bölüm 6
 comm = Comm(backend, [ProjectBase])
-comm.open()                            # RX ve TX thread'leri başlar
+comm.open()                            # RX ve TX thread'leri başlar (kanal başına birer tane)
 ...
 comm.close()
 ```

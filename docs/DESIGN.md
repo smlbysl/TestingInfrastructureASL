@@ -109,8 +109,8 @@ Backend          hattaki baytları taşır: send(kanal, bayt), receive(kanal) ->
 - Kanal mesaja sınıf varsayılanı olarak verilir (`_channel = MyChannels.CONTROL`); nesne oluştururken verilmez.
 - Bir interface'in tek kanalı var; gelen paketin kanalı her zaman bellidir. Envelope'u kabul etmeyen paket o kanalda
   unknown olur.
-- Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her turda sabit sırayla
-  (bus, interface).
+- Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her kanal kendi
+  thread'inde.
 ```
 TX:  msg.pack() -> envelope.on_send -> backend.send(kanal, bayt)          [UTS: codec.encode -> api.post(yol, interface)]
 RX:  backend.receive(kanal) -> splitter -> envelope.on_receive -> Dispatcher   [UTS: api.get(yol, interface) -> codec.decode]
@@ -210,8 +210,18 @@ RX:  backend.receive(kanal) -> splitter -> envelope.on_receive -> Dispatcher   [
   (o durumda abone hataları o logger'a gider, bu dosyaya değil).
 
 ## Thread modeli
-- 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
-- Gönderim tek kilit altında: counter, checksum, byte, UTS isteği.
+- Kanal başına 1 RX thread'i (`Rx-<kanal>`), periyodik mesajı olan kanal başına 1 TX thread'i (`Tx-<kanal>`),
+  1 denetçi (`RxWatchdog`), abone başına 1 thread. Mesaj başına thread yok.
+- RX thread'i: yokla, `WireReceived`, dispatch, `poll_interval` kadar bekle. Cevap vermeyen bir kanal diğerlerini
+  ve zaman aşımı kontrolünü bekletmez. Kanal içi paket sırası korunur; farklı kanalların olayları arasında sıra yok.
+- Denetçi her `poll_interval`'da: RX mesajı olan ya da `listen` edilen kanalın thread'ini başlatır (kanallar
+  `open`'dan sonra da ortaya çıkabilir) ve RX zaman aşımlarını kontrol eder. Artık gerekmeyen kanalın thread'i biter.
+- TX thread'i kanalın ilk `comm.start(msg)` çağrısında açılır, `close`'a kadar yaşar.
+- Gönderim kanalın kilidi altında: counter, checksum, byte, backend isteği, `after_send`. Bir mesaj hep aynı kanaldan
+  gittiği için tutarlılık aynı; farklı kanallardaki gönderimler birbirini beklemez (kapasite interface başına).
+  Kilit sırası: kanal gönderim kilidi -> backend'in interface kilidi.
+- `UtsClock` bütün RX thread'lerinden güncellenir, denetçiden okunur; kendi kilidi var.
+- `close`, o an cevap bekleyen bir isteğin bitmesini bekler (en fazla isteğin timeout'u kadar).
 - `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
   paketi görür, yarım değer görmez (B1). Birden fazla alan için `msg.snapshot()`.
 - `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
@@ -485,7 +495,8 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
    Kilit sadece POST için; GET beklemez. Seri süresi baud'dan hesaplanmıyor (Adım 6). UTS kesikken her yoklama
    bir ERROR satırı yazar; bunu Adım 3'teki hata politikası sınırlayacak.
 3. Hata politikası. **Ertelendi** (bugünkü işlevi etkilemiyor; tasarımı aşağıda "Adım 3: hata politikası").
-4. Kanal başına RX ve TX thread'i, ayrı zaman aşımı denetçisi.
+4. Kanal başına RX ve TX thread'i, ayrı zaman aşımı denetçisi. **Uygulandı** (ayrıntı: "Thread modeli").
+   Yoklama sabit aralıkla; "veri geldiyse hemen tekrar sor" kuralı eklenmedi (UTS yükü ölçülmeden karar verilmedi).
 5. txd zamanı `MessageSent`'e, buffer dolu bayrağı `RxOverflow`'a, `DELETE` ile buffer temizleme.
 6. Kanal tanımında bus ayarları, açılışta config kontrolü, port açık kontrolü.
 7. Tasarım 1 (mesaj kilidi ve `update()`).
