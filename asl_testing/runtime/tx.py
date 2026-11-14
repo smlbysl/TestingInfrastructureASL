@@ -69,7 +69,7 @@ class TxScheduler:
         self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))
-        self.bus.publish(MessageSent(msg, raw, now, image))
+        self.bus.publish(MessageSent(msg, raw, now, image, response.timestamp))
         return response
 
     # ---------------------------------------------------------------- periodic

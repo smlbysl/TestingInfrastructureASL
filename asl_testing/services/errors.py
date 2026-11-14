@@ -1,6 +1,6 @@
 """ErrorLog: writes communication problems to a separate file.
 
-Written: failed UTS requests (LinkError), RX timeouts and recoveries, exceptions in subscribers.
+Written: failed UTS requests (LinkError), receive buffer overflows, RX timeouts and recoveries, exceptions in subscribers.
 Built on events, so it also works with a custom Comm logger (subscriber exceptions then go to that
 logger). Its records do not go to the general log, which has the same problems already.
 """
@@ -10,7 +10,7 @@ __author__ = "İsmail Baysal"
 import logging
 
 from asl_testing.comm import Comm
-from asl_testing.events.types import LinkError, RxRestored, RxTimeout
+from asl_testing.events.types import LinkError, RxOverflow, RxRestored, RxTimeout
 
 log = logging.getLogger("asl_testing.errors")
 log.propagate = False
@@ -32,6 +32,8 @@ class ErrorLog:
         elif isinstance(event, RxTimeout):
             log.warning("%s on %s not received for %.3f s (period %s s)", type(event.message).__name__,
                         event.message._channel, event.age, event.message._rx.timing.period)
+        elif isinstance(event, RxOverflow):
+            log.warning("receive buffer of %s overflowed: packets were lost", event.channel)
         elif isinstance(event, RxRestored):
             log.info("%s on %s received again", type(event.message).__name__, event.message._channel)
 

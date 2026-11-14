@@ -34,8 +34,11 @@ class Transport:
         wire = channel.framing.envelope.on_send(data)
         return wire, self.backend.send(channel, wire)
 
-    def poll(self, channel: Channel) -> list[RxFrame]:
-        """Reads what the channel's interface received since the last call; BackendError if the request failed."""
+    def poll(self, channel: Channel) -> tuple[list[RxFrame], bool]:
+        """Reads what the channel's interface received since the last call; BackendError if the request failed.
+
+        Returns the frames and whether the backend's receive buffer overflowed before this call.
+        """
         now = time.time()
         response = self.backend.receive(channel)
         if not response.ok:
@@ -46,4 +49,4 @@ class Transport:
                 data = channel.framing.envelope.on_receive(wire)
                 accepted = data is not None
                 frames.append(RxFrame(channel, data if accepted else wire, wire, received.timestamp, now, accepted))
-        return frames
+        return frames, response.overflow

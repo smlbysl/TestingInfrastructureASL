@@ -120,6 +120,8 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `UtsBackend(api, time_unit, timeout)` | UTS backend'i: bus'a göre codec, istekler `api` üzerinden; istek süresi, log, interface başına tek POST | Evet (gerçek cihaz) | Evet |
 | `UtsBackend(timeout=...)` | Her istek için bekleme süresi; verilmezse bus'ınki (Ethernet / 1553: 2 sn, seri: 3 sn) | Evet | Evet |
 | Logger `asl_testing.uts` | Başarısız istek ERROR; başarılı POST ve dolu GET DEBUG | Evet (hata ayıklama) | Evet |
+| `uts_response(http_kodu, gövde)` | UTS cevabını `Response`'a çevirir (`statusInfo` -> `ok`, `code`, `message`) | Evet (`WrapperUtsApi` içinde) | Evet |
+| `FakeBackend.overflow(channel)` / `FakeUtsApi.overflow(path, interface)` | Sonraki yoklama tampon taşması bildirir | Evet (simülasyon) | Evet |
 | `UtsApi`, `WrapperUtsApi(wrapper)` | UTS istekleri: `post(path, interface, body, timeout)`, `get(path, interface, timeout)`; `WrapperUtsApi` eldeki `ApiWrapper` için şablon | Evet (doldurulacak) | Şablon |
 | Codec'ler (`backend/uts/codecs.py`) | Bayt ↔ UTS JSON: seri / Ethernet bayt listesi, 1553 16 bitlik liste | Sınırlı (biçim testi) | Evet |
 
@@ -143,6 +145,8 @@ Test, paket akışını olaylardan izleyebilir.
 | `UnknownReceived` | Eşleşmeyen çerçeve, kanal bilgisiyle | Evet | Evet |
 | `WireReceived` / `WireSent` | Tel üzerindeki bayt, UTS zamanı | Evet (framing testi) | Evet |
 | `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi | Evet | Evet |
+| `RxOverflow` | Kanalın alım tamponu taştı (UTS `isBufferOverflow`), paket kaybı | Evet | Evet |
+| `MessageSent.timestamp` | UTS'in gönderim zamanı (saniye); backend bildirmiyorsa `None` | Evet | Evet |
 | `LinkError` | UTS hatası (gönderim veya alım) | Evet | Evet |
 | `event.snapshot()` | Olayın görüntüsünü kopyalar | Sınırlı | Evet |
 

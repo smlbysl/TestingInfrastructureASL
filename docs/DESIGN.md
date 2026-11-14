@@ -95,7 +95,10 @@ Backend          hattaki baytları taşır: send(kanal, bayt), receive(kanal) ->
   Big-endian 1553 projesinde K3 (özel alanların endian'ı) etkili olur.
 - Sahte backend iki tane: `FakeBackend` (UTS biçimi yok; `sent`, `inject`) testlerin varsayılanı;
   `FakeUtsBackend` (gerçek codec'ler + `FakeUtsApi`; `posted`, `inject`) UTS biçimini sınayan testler için.
-- Açık: gerçek UTS'te alan adları ve timestamp birimi (`UtsBackend(time_unit=...)` = UTS birimi başına saniye).
+- UTS cevapları: POST `{"statusInfo": {status, code, message}, "timestamp": t}`; GET `{"statusInfo": {...},
+  "messages": [öğe, ...], "isBufferOverflow": false}`. `uts_response(http_kodu, gövde)` bunu `Response`'a çevirir;
+  `timestamp`, `messages`, `isBufferOverflow` alanlarını codec okur. Zaman mikrosaniye (`time_unit=1e-6`).
+- Açık: Ethernet ve 1553 cevaplarının seri ile aynı olduğu ve zaman biriminin mikrosaniye olduğu doğrulanmalı.
 
 ## Kanal ve framing
 - `Channel`: bir interface = bus + interface numarası + `Framing`
@@ -450,8 +453,11 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
 - POST tek mesaj gönderir. Cevap (OK / NOT OK) gelmeden aynı interface'e ikinci POST öncekini ezebilir.
 - Farklı interface'ler ayrı buffer kullanır; farklı interface'lere aynı anda POST / GET atılabilir. UTS'te TX ve RX
   ayrı thread'lerde.
-- POST OK cevabında zaman (txd) var. Hatalar `status / code / message` DTO'su ile döner (400, 404, 500, 503;
-  endpoint'e göre değişir). OK gövdesi endpoint'e göre değişir. Her gövde JSON.
+- POST OK cevabında zaman var: `{"statusInfo": {"status": "OK", "code": 200, "message": "..."}, "timestamp": 1731500000000000}`.
+  Hatalar aynı `statusInfo` ile döner; seri POST: 400 boş mesaj / port kapalı, 404 geçersiz interface, 500 HAL timeout,
+  503 eINIT modu; seri GET: 404, 503. OK gövdesi endpoint'e göre değişir. Her gövde JSON.
+- GET buffer'ı tüketir (sonraki GET boş dönebilir): `{"statusInfo": {...}, "messages": [{"message": [1, 2, 3],
+  "timestamp": ...}], "isBufferOverflow": false}`. Taşmada UTS sadece bayrağı set eder; `DELETE` gerekmez.
 - RX buffer boyu config'den; dolunca ring çalışır ve "buffer dolu" bayrağı vardır.
 - Ölçüm (Ethernet loop, iki interface): periyodik TX en fazla ~230 mesaj/sn (periyot 1 ms verilse de); RX'te kayıp
   yok. Sınır TX: POST başına ~4,3 ms ve tek TX thread'i.
@@ -497,15 +503,15 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
 3. Hata politikası. **Ertelendi** (bugünkü işlevi etkilemiyor; tasarımı aşağıda "Adım 3: hata politikası").
 4. Kanal başına RX ve TX thread'i, ayrı zaman aşımı denetçisi. **Uygulandı** (ayrıntı: "Thread modeli").
    Yoklama sabit aralıkla; "veri geldiyse hemen tekrar sor" kuralı eklenmedi (UTS yükü ölçülmeden karar verilmedi).
-5. txd zamanı `MessageSent`'e, buffer dolu bayrağı `RxOverflow`'a, `DELETE` ile buffer temizleme.
+5. UTS zamanı `MessageSent.timestamp`'e (CSV `uts_time`), `isBufferOverflow` bayrağı `RxOverflow` olayına. **Uygulandı.**
+   `DELETE` kapsamdan çıktı (GET buffer'ı zaten tüketiyor).
 6. Kanal tanımında bus ayarları, açılışta config kontrolü, port açık kontrolü.
 7. Tasarım 1 (mesaj kilidi ve `update()`).
 8. `TxLate`, kaçan periyotları atlama, performans ölçümü (keep-alive, POST süresi).
 9. İhtiyaç olunca: `Bench` ve cihaz katmanı, tam UTS istemcisi, UTS periyodik gönderimi, CameraLink.
 
-**Açık sorular (UTS).** `GET-index` ne döndürür; normal GET buffer'ı boşaltır mı; `DELETE` neyi temizler;
-`complete` ne zaman gerekir; GET / POST OK gövdelerindeki alan adları (txd, buffer dolu, timestamp birimi); hata
-DTO'sunun alan adları; ikinci POST reddedilir mi, öncekinin yerine mi geçer; seri TX timeout formülü; keep-alive;
+**Açık sorular (UTS).** `GET-index` ne döndürür; `complete` ne zaman gerekir; Ethernet ve 1553 cevapları seri ile
+aynı mı; timestamp birimi mikrosaniye mi; eldeki modül cevabı ham JSON olarak mı veriyor; ikinci POST reddedilir mi, öncekinin yerine mi geçer; seri TX timeout formülü; keep-alive;
 `ApiWrapper`'ın imzaları, dönüş tipi ve thread güvenliği.
 
 **Adım 3: hata politikası (tasarlandı, ertelendi).** Amaç: hatalar teste tek tek verilmez; bağlantı gerçekten

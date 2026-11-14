@@ -160,6 +160,7 @@ status.rx_host_time    # bu makinenin saatine göre zaman
 ```
 
 Periyodik RX mesajı kesilirse `RxTimeout` olayı gelir; geri gelirse `RxRestored`.
+UTS'in alım tamponu taşarsa (yoklamadan önce paket kaybı) o kanal için `RxOverflow` olayı gelir ve WARNING loglanır.
 
 ---
 
@@ -199,6 +200,7 @@ Olay tipleri:
 | `UnknownReceived` | Hiçbir mesajla eşleşmeyen paket (`ev.channel` ile kanalı belli) |
 | `WireReceived` / `WireSent` | Tel üzerindeki ham bayt |
 | `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi |
+| `RxOverflow` | Kanalın UTS alım tamponu taştı; bu yoklamadan önceki paketlerin bir kısmı kayboldu |
 | `LinkError` | UTS hatası (gönderim veya alım) |
 
 Olayın içinde `ev.message`, `ev.raw` (envelope'suz mesaj baytları; tel üzerindeki hali için `WireReceived` / `WireSent`), `ev.host_time`, `ev.image` ve `ev.snapshot()` bulunur. `snapshot()` olayın anındaki değerleri ayrı bir nesne olarak verir; sonraki paketlerden etkilenmez.
@@ -267,7 +269,20 @@ comm = Comm(UtsBackend(WrapperUtsApi(script.api)), [ProjectBase])
 response = comm.send(req)
 if not response:
     print(response.status, response.code, response.message)
+print(response.timestamp)              # UTS'in gönderim zamanı (saniye); MessageSent olayında ve CSV'de de var
 ```
+
+`WrapperUtsApi` içinde, eldeki modül HTTP kodunu ve JSON gövdesini veriyorsa cevap tek satırla çevrilir:
+
+```python
+from asl_testing import uts_response
+
+def post(self, path, interface, body, timeout):
+    code, answer = self.wrapper....                    # eldeki modülün çağrısı
+    return uts_response(code, answer)                  # statusInfo -> ok / code / message, gövde -> data
+```
+
+Gövdedeki alanları (`timestamp`, `messages`, `isBufferOverflow`) codec okur; `WrapperUtsApi` gövdeye dokunmaz.
 
 **Timeout.** Her istek UTS'in cevabını sınırlı süre bekler: Ethernet ve 1553'te 2 sn, seride 3 sn (GET için de
 aynı). Süre dolarsa istek başarısız sayılır; tekrar denenmez. Hepsi için tek değer vermek istersen:
@@ -376,13 +391,14 @@ UTS backend'i her bus için bir codec kullanır (`asl_testing/backend/uts/codecs
 | `Rs422Channel` | `serial` | `/serials` | `{"message": [b0, b1, ...], "timestamp": t}` |
 | `Mil1553Channel` | `mil1553` | `/1553` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
 
-1553 projesi big-endian ise kelime sırası kanal tanımında verilir. UTS'in zamanı saniye değilse birim backend'e verilir:
+1553 projesi big-endian ise kelime sırası kanal tanımında verilir. UTS zamanı mikrosaniye olarak bildirir
+(`time_unit=1e-6`, varsayılan); farklıysa birim backend'e verilir:
 
 ```python
 class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")
 
-backend = UtsBackend(WrapperUtsApi(script.api), time_unit=1e-6)
+backend = UtsBackend(WrapperUtsApi(script.api), time_unit=1e-3)      # sadece birim farklıysa
 ```
 
 ### 1553 mesajı tanımlamak

@@ -1,7 +1,9 @@
 """UtsBackend: carries the bytes of a channel through UTS.
 
-    send      codec.encode -> api.post     one POST at a time per interface
-    receive   api.get -> codec.decode of every item
+    send      codec.encode -> api.post     one POST at a time per interface; the time of UTS -> Response.timestamp
+    receive   api.get -> codec.decode of every item; the overflow flag of UTS -> Response.overflow
+
+time_unit is seconds per unit of the UTS timestamps (UTS reports microseconds).
 
 The codec is chosen by the bus of the channel; the requests are made by a UtsApi.
 Every request has a timeout (the codec's, or the one given here), its duration is measured, and the
@@ -31,7 +33,7 @@ LOG = "asl_testing.uts"
 
 
 class UtsBackend(Backend):
-    def __init__(self, api: UtsApi, time_unit: float = 1.0, timeout: Optional[float] = None, log=None):
+    def __init__(self, api: UtsApi, time_unit: float = 1e-6, timeout: Optional[float] = None, log=None):
         self.api = api
         self.timeout = timeout                  # seconds for every request; None: the codec's timeout
         self.log = log or logging.getLogger(LOG)
@@ -57,6 +59,7 @@ class UtsBackend(Backend):
         with self._tx_lock(codec.path, channel.interface):
             response = self._request("POST", codec, channel, body)
         if response.ok:
+            response = replace(response, timestamp=codec.sent_time(response.data))
             self.log.debug("POST /%s/%d ok (%.3f s), UTS time %s", codec.path, channel.interface,
                            response.elapsed, response.timestamp)
         return response
@@ -66,11 +69,11 @@ class UtsBackend(Backend):
         response = self._request("GET", codec, channel)
         if not response.ok:
             return response
-        items = response.data or []
-        if items:
-            self.log.debug("GET /%s/%d ok (%.3f s), %d item(s)", codec.path, channel.interface,
-                           response.elapsed, len(items))
-        return replace(response, data=[codec.decode(channel, item) for item in items])
+        items, overflow = codec.items(response.data), codec.overflow(response.data)
+        if items or overflow:
+            self.log.debug("GET /%s/%d ok (%.3f s), %d item(s)%s", codec.path, channel.interface,
+                           response.elapsed, len(items), ", buffer overflow" if overflow else "")
+        return replace(response, data=[codec.decode(channel, item) for item in items], overflow=overflow)
 
     def _request(self, method: str, codec: Codec, channel, body: Optional[dict] = None) -> Response:
         timeout = codec.timeout if self.timeout is None else self.timeout

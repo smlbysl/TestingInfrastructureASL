@@ -15,7 +15,7 @@ Sub-packages (each uses only the ones below it):
 """
 
 __author__ = "İsmail Baysal"
-__version__ = "2.1.dev4"
+__version__ = "2.1.dev5"
 
 # comm first: it imports the layers below; the rest only re-exports names
 from asl_testing.comm import Comm
@@ -34,12 +34,12 @@ from asl_testing.channel.framing import Envelope, Framing, Splitter
 # events
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, MessageReceived, MessageSent,
-                                      RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
+                                      RxOverflow, RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
 
 # backends
 from asl_testing.backend.base import Backend, BackendError, Received, Response
 from asl_testing.backend.fake import FakeBackend
-from asl_testing.backend.uts.api import UtsApi, WrapperUtsApi
+from asl_testing.backend.uts.api import UtsApi, WrapperUtsApi, uts_response
 from asl_testing.backend.uts.backend import UtsBackend
 from asl_testing.backend.uts.control import UtsControl
 from asl_testing.backend.uts.fake import FakeUtsApi, FakeUtsBackend
@@ -55,8 +55,8 @@ __all__ = [
     "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "Mil1553Channel",
     "Framing", "Envelope", "Splitter",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
-    "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
+    "UnknownReceived", "RxTimeout", "RxRestored", "RxOverflow", "LinkError", "WireReceived", "WireSent",
     "Backend", "BackendError", "Received", "Response", "FakeBackend",
-    "UtsBackend", "UtsApi", "WrapperUtsApi", "UtsControl", "FakeUtsApi", "FakeUtsBackend",
+    "UtsBackend", "UtsApi", "WrapperUtsApi", "uts_response", "UtsControl", "FakeUtsApi", "FakeUtsBackend",
     "ErrorLog", "CommLogger", "MonitorService",
 ]

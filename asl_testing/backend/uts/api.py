@@ -1,7 +1,16 @@
 """UtsApi: the requests to UTS (UTS is an HTTP service; every body is JSON).
 
     POST /{path}/{interface}/messages     sends one message
-    GET  /{path}/{interface}/messages     items received since the last call
+        200  {"statusInfo": {"status": "OK", "code": 200, "message": "..."}, "timestamp": 1731500000000000}
+        400  empty message / port closed     404  invalid interface
+        500  HAL timeout                     503  eINIT mode
+    GET  /{path}/{interface}/messages     what was received since the last call; empties the buffer of UTS
+        200  {"statusInfo": {...}, "messages": [{"message": [1, 2, 3], "timestamp": 1731500000000000}],
+              "isBufferOverflow": false}
+        404  invalid interface               503  eINIT mode
+
+An error has the same statusInfo (status, code, message). uts_response() turns the HTTP code and the
+JSON body into a Response; the fields of a successful body are read by the codec of the bus.
 
 path is the root of the bus in the UTS URL ("serials", "ethernet", "1553"). The body of a POST and
 the items of a GET are built and read by the codec of the bus (codecs.py); this class passes them
@@ -15,10 +24,19 @@ WrapperUtsApi is the place to connect the existing ApiWrapper; its methods are t
 __author__ = "İsmail Baysal"
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 from asl_testing.backend.base import Response
 
 FilterGroups = list[list[tuple[int, int]]]   # OR of groups; a group is an AND of (byte position, value)
+
+
+def uts_response(status: Optional[int], body: Optional[dict]) -> Response:
+    """Response of a UTS answer: HTTP code and JSON body (None if there was no body)."""
+    info = (body or {}).get("statusInfo") or {}
+    ok = status == 200
+    return Response(ok=ok, status=status, code=info.get("status"), message=info.get("message"),
+                    data=body if ok else None)
 
 
 class UtsApi(ABC):
@@ -28,7 +46,7 @@ class UtsApi(ABC):
 
     @abstractmethod
     def get(self, path: str, interface: int, timeout: float) -> Response:
-        """Items received since the last call; Response.data is the list of items."""
+        """What was received since the last call; Response.data is the JSON body."""
 
     # ---------------------------------------------------------------- management (optional)
 
@@ -55,9 +73,11 @@ class WrapperUtsApi(UtsApi):
         comm = Comm(UtsBackend(WrapperUtsApi(script.api)), [ProjectBase])
 
     To fill in: call the wrapper and turn its answer into a Response.
-        success   Response(ok=True, status=200, data=..., timestamp=...)
-        error     Response(ok=False, status=..., code=..., message=...)
-        no answer Response(ok=False, message="timeout")       (status stays None)
+        the wrapper gives the HTTP code and the JSON body     return uts_response(code, body)
+        the wrapper gives something else, build it by hand:
+            success   Response(ok=True, status=200, data=body)       body as in the module text above
+            error     Response(ok=False, status=..., code=..., message=...)
+        no answer     Response(ok=False, message="timeout")          (status stays None)
     """
 
     def __init__(self, wrapper):

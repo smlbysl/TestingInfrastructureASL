@@ -8,18 +8,24 @@ from collections import defaultdict
 from typing import Optional
 
 from asl_testing.backend.base import Response
-from asl_testing.backend.uts.api import FilterGroups, UtsApi
+from asl_testing.backend.uts.api import FilterGroups, UtsApi, uts_response
 from asl_testing.backend.uts.backend import UtsBackend
+
+
+OK = {"status": "OK", "code": 200, "message": "OK"}
 
 
 class FakeUtsApi(UtsApi):
     """post() records the request; put() adds an item as UTS would return it; get() drains the items.
 
+    The answers have the layout of UTS (statusInfo, timestamp, messages, isBufferOverflow).
     Configs and filters are only stored; the filter is not applied.
     """
 
-    def __init__(self):
+    def __init__(self, time_unit: float = 1e-6):
+        self.time_unit = time_unit
         self.posted: list[tuple[str, int, dict]] = []                  # (path, interface, body)
+        self._overflowed: set[tuple[str, int]] = set()
         self._items: dict[tuple[str, int], list[dict]] = defaultdict(list)
         self._lock = threading.Lock()         # put (test thread) vs get (RX thread)
         self.configs: dict[tuple[str, int], dict] = defaultdict(dict)
@@ -27,16 +33,24 @@ class FakeUtsApi(UtsApi):
 
     def post(self, path: str, interface: int, body: dict, timeout: float = 0.0) -> Response:
         self.posted.append((path, interface, dict(body)))
-        return Response(ok=True, status=200)
+        return uts_response(200, {"statusInfo": dict(OK), "timestamp": round(time.time() / self.time_unit)})
 
     def get(self, path: str, interface: int, timeout: float = 0.0) -> Response:
         with self._lock:
-            return Response(ok=True, status=200, data=self._items.pop((path, interface), []))
+            items = self._items.pop((path, interface), [])
+            overflow = (path, interface) in self._overflowed
+            self._overflowed.discard((path, interface))
+        return uts_response(200, {"statusInfo": dict(OK), "messages": items, "isBufferOverflow": overflow})
 
     def put(self, path: str, interface: int, item: dict) -> None:
         """Adds one item to the receive buffer of an interface."""
         with self._lock:
             self._items[(path, interface)].append(item)
+
+    def overflow(self, path: str, interface: int) -> None:
+        """The next GET of the interface reports a buffer overflow."""
+        with self._lock:
+            self._overflowed.add((path, interface))
 
     # ---------------------------------------------------------------- management
 
@@ -57,8 +71,8 @@ class FakeUtsApi(UtsApi):
 class FakeUtsBackend(UtsBackend):
     """UtsBackend on a FakeUtsApi: what is sent and received passes through the real codecs."""
 
-    def __init__(self, time_unit: float = 1.0):
-        super().__init__(FakeUtsApi(), time_unit)
+    def __init__(self, time_unit: float = 1e-6):
+        super().__init__(FakeUtsApi(time_unit), time_unit)
 
     @property
     def posted(self) -> list[tuple[str, int, dict]]:

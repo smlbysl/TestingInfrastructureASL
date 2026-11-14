@@ -1,7 +1,8 @@
 """Backend: the system between the test PC and the device. The core gives and takes bytes on the line.
 
     send(channel, data)     sends the bytes on the channel's interface -> Response
-    receive(channel)        Response whose data is the list of Received since the last call
+    receive(channel)        Response whose data is the list of Received since the last call;
+                            overflow tells that the receive buffer of the backend lost packets
 
 A backend does not raise for a failed request: it returns a Response with ok False, and it logs
 the failure itself (it knows the details). The core publishes LinkError for it.
@@ -31,6 +32,7 @@ class Response:
     data: Any = None                    # body of a successful request
     timestamp: Optional[float] = None   # backend time of the request in seconds, if reported
     elapsed: float = 0.0                # duration of the request in seconds
+    overflow: bool = False              # receive: the backend's buffer overflowed, packets were lost
 
     def __bool__(self) -> bool:
         return self.ok

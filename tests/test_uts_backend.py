@@ -7,8 +7,8 @@ import threading
 import time
 import unittest
 
-from asl_testing import (Backend, Comm, Direction, EthernetChannel, FakeBackend, FakeUtsApi, FakeUtsBackend, LinkError,
-                         Response, Rs422Channel, UnknownReceived, UtsBackend)
+from asl_testing import (Backend, Direction, EthernetChannel, FakeBackend, FakeUtsApi, FakeUtsBackend, LinkError,
+                         MessageSent, Response, Rs422Channel, RxOverflow, UnknownReceived, UtsBackend, uts_response)
 from asl_testing.backend.uts.codecs import EthernetCodec, SerialCodec
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
@@ -35,12 +35,29 @@ class EthernetCodecTests(unittest.TestCase):
         self.assertEqual(EthernetCodec().encode(ETH, b"\x01\x02"), {"message": [1, 2]})
 
     def test_decode(self):
-        received = EthernetCodec().decode(ETH, {"message": [1, 2], "timestamp": 5})
-        self.assertEqual((received.data, received.timestamp), (b"\x01\x02", 5))
+        received = EthernetCodec().decode(ETH, {"message": [1, 2], "timestamp": 1731500000000000})
+        self.assertEqual(received.data, b"\x01\x02")
+        self.assertAlmostEqual(received.timestamp, 1731500000.0)                # UTS reports microseconds
 
     def test_time_unit(self):
-        received = EthernetCodec(time_unit=1e-6).decode(ETH, {"message": [], "timestamp": 2_000_000})
+        received = EthernetCodec(time_unit=1e-3).decode(ETH, {"message": [], "timestamp": 2_000})
         self.assertAlmostEqual(received.timestamp, 2.0)
+
+    def test_answer_of_a_get(self):
+        codec = EthernetCodec()
+        body = {"statusInfo": {"status": "OK", "code": 200, "message": "Message(s) set"},
+                "messages": [{"message": [1, 2, 3], "timestamp": 1731500000000000}], "isBufferOverflow": True}
+        self.assertEqual((codec.items(body), codec.overflow(body)), (body["messages"], True))
+        self.assertEqual((codec.items({}), codec.overflow({}), codec.items(None)), ([], False, []))
+
+    def test_answer_of_a_post(self):
+        body = {"statusInfo": {"status": "OK", "code": 200, "message": "Message sent successfully"},
+                "timestamp": 1731500000000000}
+        self.assertAlmostEqual(EthernetCodec().sent_time(body), 1731500000.0)
+        self.assertIsNone(EthernetCodec().sent_time({}))
+
+    def test_simulated_time_is_a_whole_number_of_uts_units(self):
+        self.assertEqual(EthernetCodec().simulate(ETH, b"", 1.5)["timestamp"], 1_500_000)
 
     def test_simulate_is_what_decode_reads(self):
         codec = EthernetCodec(time_unit=1e-3)
@@ -57,10 +74,23 @@ class UtsBackendTests(unittest.TestCase):
 
     def test_receive_decodes_the_items(self):
         api = FakeUtsApi()
-        api.put("ethernet", 1, {"message": [1, 2], "timestamp": 3})
+        api.put("ethernet", 1, {"message": [1, 2], "timestamp": 3_000_000})
         response = UtsBackend(api).receive(ETH)
-        self.assertEqual([(r.data, r.timestamp) for r in response.data], [(b"\x01\x02", 3)])
+        self.assertEqual([(r.data, round(r.timestamp, 6)) for r in response.data], [(b"\x01\x02", 3.0)])
+        self.assertFalse(response.overflow)
         self.assertEqual(UtsBackend(api).receive(ETH).data, [])                # drained
+
+    def test_overflow_flag_of_the_get_is_in_the_response(self):
+        api = FakeUtsApi()
+        api.overflow("ethernet", 1)
+        backend = UtsBackend(api)
+        self.assertTrue(backend.receive(ETH).overflow)
+        self.assertFalse(backend.receive(ETH).overflow)                        # reported once
+
+    def test_time_of_the_post_is_in_the_response(self):
+        before = time.time()
+        response = UtsBackend(FakeUtsApi()).send(SER, b"\x01")
+        self.assertTrue(before - 0.001 <= response.timestamp <= time.time() + 0.001)
 
     def test_failed_get_is_returned_as_it_is(self):
         api = FakeUtsApi()
@@ -88,6 +118,23 @@ class UtsBackendTests(unittest.TestCase):
     def test_fake_backend_is_a_backend_without_control(self):
         self.assertIsInstance(FakeBackend(), Backend)
         self.assertIsNone(FakeBackend().control)
+
+
+class UtsResponseTests(unittest.TestCase):
+    def test_success(self):
+        body = {"statusInfo": {"status": "OK", "code": 200, "message": "Message sent successfully"}, "timestamp": 7}
+        response = uts_response(200, body)
+        self.assertEqual((response.ok, response.status, response.code, response.message, response.data),
+                         (True, 200, "OK", "Message sent successfully", body))
+
+    def test_error_with_status_info(self):
+        response = uts_response(503, {"statusInfo": {"status": "ERROR", "code": 503, "message": "eINIT mode"}})
+        self.assertEqual((response.ok, response.status, response.code, response.message, response.data),
+                         (False, 503, "ERROR", "eINIT mode", None))
+
+    def test_error_without_a_body(self):
+        response = uts_response(500, None)
+        self.assertEqual((response.ok, response.status, response.code, response.message), (False, 500, None, None))
 
 
 class RecordingApi(FakeUtsApi):
@@ -235,6 +282,32 @@ class UtsThroughCommTests(CommTestCase):
         response = self.comm.send(comut(SRC, DEST, 0x21, direction=Direction.TX))
         self.assertEqual((bool(response), response.status), (True, 200))
 
+    def test_uts_time_of_the_send_is_in_the_event(self):
+        events = []
+        self.comm.subscribe(MessageSent, events.append)
+        before = time.time()
+        response = self.comm.send(comut(SRC, DEST, 0x21, direction=Direction.TX))
+        self.assertTrue(self.wait_for(lambda: events))
+        self.assertEqual(events[0].timestamp, response.timestamp)
+        self.assertGreaterEqual(events[0].timestamp, before - 0.001)
+
+    def test_overflow_of_uts_is_an_event_on_the_channel(self):
+        events = []
+        self.comm.subscribe(RxOverflow, events.append)
+        rx = comut(DEST, SRC, 0x20)
+        rx.has_new()
+        self.backend.api.overflow("serials", 0)
+        self.device_sends(comut(DEST, SRC, 0x20, direction=Direction.TX))
+        self.expect_new(rx)                                                    # what UTS still had is delivered
+        self.assertTrue(self.wait_for(lambda: events))
+        self.assertEqual([ev.channel for ev in events], [MyChannels.CONTROL])
+
+    def wait_for(self, condition) -> bool:
+        deadline = time.monotonic() + self.timeout
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        return bool(condition())
+
     def test_rejected_post_is_a_failed_send(self):
         errors = []
         self.comm.subscribe(LinkError, errors.append)
@@ -301,6 +374,27 @@ class BackendThroughCommTests(CommTestCase):
         while not errors and time.monotonic() < deadline:
             time.sleep(0.01)
         self.assertEqual(len(errors), 1)
+
+    def test_overflow_is_an_event_and_a_warning(self):
+        events = []
+        self.comm.subscribe(RxOverflow, events.append)
+        comut(DEST, SRC, 0x20)
+        with self.assertLogs("asl_testing.runtime.rx", logging.WARNING) as logs:
+            self.backend.overflow(MyChannels.CONTROL)
+            deadline = time.monotonic() + self.timeout
+            while not events and time.monotonic() < deadline:
+                time.sleep(0.005)
+        self.assertEqual([ev.channel for ev in events], [MyChannels.CONTROL])
+        self.assertIn("receive buffer of CONTROL overflowed", logs.output[0])
+
+    def test_send_without_a_backend_time_has_no_timestamp(self):
+        events = []
+        self.comm.subscribe(MessageSent, events.append)
+        self.send(comut(SRC, DEST, 0x21, direction=Direction.TX))
+        deadline = time.monotonic() + self.timeout
+        while not events and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertIsNone(events[0].timestamp)
 
     def test_comm_without_backend_control(self):
         self.assertIsNone(self.comm.control)

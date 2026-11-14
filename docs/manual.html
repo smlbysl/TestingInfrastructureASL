@@ -463,11 +463,11 @@ sistem gelirse yeni bir backend yazılır; mesajlar, kanallar ve testler değiş
   <tr><td><code>Rs422Channel</code></td><td><code>serial</code></td><td><code>/serials</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
   <tr><td><code>Mil1553Channel</code></td><td><code>mil1553</code></td><td><code>/1553</code></td><td><code>{"message": [rt, subnet, word_count, word, ...], "timestamp": t}</code></td></tr>
 </table>
-<p>1553 projesi big-endian ise kelime sırası kanal tanımında verilir. UTS'in zamanı saniye değilse birim backend'e verilir.</p>
+<p>1553 projesi big-endian ise kelime sırası kanal tanımında verilir. UTS zamanı mikrosaniye bildirir (<code>time_unit=1e-6</code>, varsayılan); farklıysa birim backend'e verilir.</p>
 <pre><code>class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")
 
-backend = UtsBackend(WrapperUtsApi(script.api), time_unit=1e-6)</code></pre>
+backend = UtsBackend(WrapperUtsApi(script.api), time_unit=1e-3)      # sadece birim farklıysa</code></pre>
 
 <h3 id="mil1553">MIL-STD-1553 mesajı</h3>
 <p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
@@ -569,11 +569,12 @@ ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
 <table>
   <tr><th>Olay</th><th>Ne zaman</th><th>Ek alanlar</th></tr>
   <tr><td><code>MessageReceived</code></td><td>Geçerli paket alındı.</td><td>Ortak alanlar, <code>timestamp</code> (UTS zamanı).</td></tr>
-  <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar.</td></tr>
+  <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar, <code>timestamp</code> (UTS'in gönderim zamanı; bildirilmiyorsa <code>None</code>).</td></tr>
   <tr><td><code>InvalidReceived</code></td><td>Paket geldi ama doğrulanamadı.</td><td>Ortak alanlar, <code>timestamp</code>. <code>image</code> boştur.</td></tr>
   <tr><td><code>UnknownReceived</code></td><td>Hiçbir mesajla eşleşmedi.</td><td><code>channel</code> (eşleşen kanal, yoksa <code>None</code>), <code>raw</code>, <code>host_time</code>, <code>timestamp</code>.</td></tr>
   <tr><td><code>WireReceived</code></td><td>Tel üzerinde bir paket alındı.</td><td><code>channel</code>, <code>wire</code>, <code>timestamp</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>WireSent</code></td><td>Tel üzerine bir paket gönderildi.</td><td><code>channel</code>, <code>message</code>, <code>wire</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>RxOverflow</code></td><td>Kanalın UTS alım tamponu taştı; bu yoklamadan önce paket kaybı var.</td><td><code>channel</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxTimeout</code></td><td>Periyodik RX mesajı zaman aşımına uğradı.</td><td><code>message</code>, <code>age</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxRestored</code></td><td>Periyodik RX mesajı yeniden geldi.</td><td><code>message</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim veya yoklama).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code>, <code>host_time</code>.</td></tr>
@@ -622,6 +623,8 @@ comm = Comm(UtsBackend(WrapperUtsApi(script.api)), [ProjectBase])</code></pre>
 <code>{"message": [b0, b1, ...], "timestamp": t}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
 <code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır (<code>c_uint16</code>), tanıma
 <code>Signature("rt", "subnet")</code> ile yapılır. <code>Mil1553Channel(..., byte_order=...)</code> mesaj yapısının endian'ıyla aynı olmalıdır.</p>
+<p>UTS cevapları: POST <code>{"statusInfo": {...}, "timestamp": t}</code>, GET <code>{"statusInfo": {...}, "messages": [...], "isBufferOverflow": false}</code>.
+Eldeki modül HTTP kodunu ve gövdeyi veriyorsa <code>uts_response(kod, gövde)</code> cevabı <code>Response</code>'a çevirir; alanları codec okur.</p>
 <p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
 <code>NotImplementedError</code> fırlatır; mesaj akışı yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
@@ -741,7 +744,7 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
   <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
-  <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
+  <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>RxOverflow</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
   <tr><td>Backend</td><td><code>Backend</code>, <code>Response</code>, <code>Received</code>, <code>BackendError</code>, <code>FakeBackend</code></td></tr>
   <tr><td>UTS</td><td><code>UtsBackend</code>, <code>UtsApi</code>, <code>WrapperUtsApi</code>, <code>UtsControl</code>, <code>FakeUtsApi</code>, <code>FakeUtsBackend</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
