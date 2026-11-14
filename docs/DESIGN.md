@@ -484,7 +484,7 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
    (`Response.elapsed`), `asl_testing.uts`'e yazar ve `api`'nin istisnasını başarısız `Response`'a çevirir.
    Kilit sadece POST için; GET beklemez. Seri süresi baud'dan hesaplanmıyor (Adım 6). UTS kesikken her yoklama
    bir ERROR satırı yazar; bunu Adım 3'teki hata politikası sınırlayacak.
-3. Hata politikası: sayaç, `LinkDown` / `LinkUp`, "durduruldu" bayrağı, `UtsLinkLost`.
+3. Hata politikası. **Ertelendi** (bugünkü işlevi etkilemiyor; tasarımı aşağıda "Adım 3: hata politikası").
 4. Kanal başına RX ve TX thread'i, ayrı zaman aşımı denetçisi.
 5. txd zamanı `MessageSent`'e, buffer dolu bayrağı `RxOverflow`'a, `DELETE` ile buffer temizleme.
 6. Kanal tanımında bus ayarları, açılışta config kontrolü, port açık kontrolü.
@@ -496,3 +496,24 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
 `complete` ne zaman gerekir; GET / POST OK gövdelerindeki alan adları (txd, buffer dolu, timestamp birimi); hata
 DTO'sunun alan adları; ikinci POST reddedilir mi, öncekinin yerine mi geçer; seri TX timeout formülü; keep-alive;
 `ApiWrapper`'ın imzaları, dönüş tipi ve thread güvenliği.
+
+**Adım 3: hata politikası (tasarlandı, ertelendi).** Amaç: hatalar teste tek tek verilmez; bağlantı gerçekten
+kopunca test bunu öğrenir ve durur.
+- Sayma: her gönderim ve yoklama sonucu kanal başına bir izleyiciye (`LinkMonitor`, `runtime/link.py`) bildirilir;
+  izleyici sadece `Response.ok`'a bakar, backend'den bağımsızdır. Başarılı istek seriyi sıfırlar.
+- Eşik süreye dayalı: hatalar kesintisiz 5 sn sürerse (en az 3 hata) kanal "düştü". Sadece sayaç yanıltır: UTS
+  kapalıyken 10 hata 0,1 sn'de, cevap vermezken (timeout) 20 sn'de birikir. Sayaç eşiği isteğe bağlı, varsayılan kapalı.
+  `Comm(..., errors=ErrorPolicy(max_time=5.0, max_errors=None, action="abort"))`.
+- 400 / 404 bizim tarafın hatasıdır, tekrarla düzelmez: beklemeden "düştü" (öneri).
+- Düşünce: bir kez ERROR, `LinkDown(channel, errors, duration, last_error)`. `action="warn"` ise test sürer,
+  ilk başarılı istekte `LinkUp(channel, duration)`. `action="abort"` ise `Comm` nedeni saklar.
+- Testi durdurma: arka plan thread'i test thread'ine istisna fırlatamaz; `comm.send`, `start`, `wait_new`, `wait_for`,
+  `wait_sent` nedeni görünce `LinkLost` fırlatır, bekleyen `wait_for` hemen uyanır. Yeni yardımcılar `comm.sleep(t)`
+  ve `comm.check()`. `CommTestCase` bitişte `comm.check()` çağırır; ilk `LinkLost`'tan sonra kalan testler atlanır (öneri).
+- Log sınırlama (`UtsBackend`, interface başına): serinin ilk hatası ERROR, sonrakiler DEBUG, düzelince tek INFO
+  ("ok again after N failed requests"). Bugün UTS kesikken her yoklama bir ERROR satırı yazıyor.
+- `RxTimeout` ayrı kalır (UTS cevap veriyor, cihaz göndermiyor). Tekrar deneme yok.
+- Tahmini maliyet: `runtime/link.py` ~70 satır, olaylar ~15, `tx.py` / `rx.py` ~6, `comm.py` ~25,
+  `backend/uts/backend.py` ~15, `services/errors.py` ~4, `tests/base.py` ~10, testler ~120.
+- Karar bekleyenler: varsayılan eşik (5 sn, en az 3 hata); varsayılan davranış (`abort` / `warn`); 400 / 404'ün
+  hemen düşürmesi; ilk kopmadan sonra kalan testlerin atlanması.
