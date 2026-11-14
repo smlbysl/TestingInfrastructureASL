@@ -6,6 +6,8 @@
 path is the root of the bus in the UTS URL ("serials", "ethernet", "1553"). The body of a POST and
 the items of a GET are built and read by the codec of the bus (codecs.py); this class passes them
 as they are and returns every result as a Response. A failed request does not raise.
+timeout is the time to wait for the answer in seconds; UtsBackend gives it with every request.
+Duration, logging and the one-POST-per-interface rule are handled by UtsBackend, not here.
 
 WrapperUtsApi is the place to connect the existing ApiWrapper; its methods are to be filled in.
 """
@@ -21,11 +23,11 @@ FilterGroups = list[list[tuple[int, int]]]   # OR of groups; a group is an AND o
 
 class UtsApi(ABC):
     @abstractmethod
-    def post(self, path: str, interface: int, body: dict) -> Response:
+    def post(self, path: str, interface: int, body: dict, timeout: float) -> Response:
         """Sends one message; body comes from the codec."""
 
     @abstractmethod
-    def get(self, path: str, interface: int) -> Response:
+    def get(self, path: str, interface: int, timeout: float) -> Response:
         """Items received since the last call; Response.data is the list of items."""
 
     # ---------------------------------------------------------------- management (optional)
@@ -53,17 +55,16 @@ class WrapperUtsApi(UtsApi):
         comm = Comm(UtsBackend(WrapperUtsApi(script.api)), [ProjectBase])
 
     To fill in: call the wrapper and turn its answer into a Response.
-        success   Response(ok=True, status=200, data=..., timestamp=..., elapsed=...)
+        success   Response(ok=True, status=200, data=..., timestamp=...)
         error     Response(ok=False, status=..., code=..., message=...)
         no answer Response(ok=False, message="timeout")       (status stays None)
     """
 
-    def __init__(self, wrapper, timeout: float = 3.0):
+    def __init__(self, wrapper):
         self.wrapper = wrapper
-        self.timeout = timeout                  # seconds to wait for an answer
 
-    def post(self, path: str, interface: int, body: dict) -> Response:
+    def post(self, path: str, interface: int, body: dict, timeout: float) -> Response:
         raise NotImplementedError("WrapperUtsApi.post: call the ApiWrapper here")
 
-    def get(self, path: str, interface: int) -> Response:
+    def get(self, path: str, interface: int, timeout: float) -> Response:
         raise NotImplementedError("WrapperUtsApi.get: call the ApiWrapper here")

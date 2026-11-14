@@ -25,11 +25,11 @@ class FakeUtsApi(UtsApi):
         self.configs: dict[tuple[str, int], dict] = defaultdict(dict)
         self.filters: dict[tuple[str, int], tuple[str, FilterGroups]] = {}
 
-    def post(self, path: str, interface: int, body: dict) -> Response:
+    def post(self, path: str, interface: int, body: dict, timeout: float = 0.0) -> Response:
         self.posted.append((path, interface, dict(body)))
         return Response(ok=True, status=200)
 
-    def get(self, path: str, interface: int) -> Response:
+    def get(self, path: str, interface: int, timeout: float = 0.0) -> Response:
         with self._lock:
             return Response(ok=True, status=200, data=self._items.pop((path, interface), []))
 

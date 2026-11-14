@@ -195,7 +195,10 @@ RX:  backend.receive(kanal) -> splitter -> envelope.on_receive -> Dispatcher   [
 - Genel log: her modül standart `logging` ile kendi logger'ına yazar (`logging.getLogger(__name__)`,
   ör. `asl_testing.runtime.rx`). Altyapı handler eklemez; kayıtların nereye gideceğini test tarafı bir kez
   ayarlar (ör. `logging.basicConfig(filename=...)`). Ayar yoksa WARNING ve üstü konsola düşer.
-- Altyapının yazdıkları: UTS send/poll hatası ERROR (traceback ile), abone exception'ı ERROR,
+- UTS istekleri `asl_testing.uts` logger'ında: başarısız istek ERROR (yol, interface, durum, kod, mesaj, süre),
+  başarılı POST ve öğe döndüren GET DEBUG; boş GET yazılmaz. Başarısız isteği backend loglar, çekirdek aynı
+  hatayı ikinci kez yazmaz (sadece `LinkError` yayınlar); çekirdek beklenmeyen istisnaları traceback ile yazar.
+- Altyapının yazdıkları: backend isteği hatası ERROR, abone exception'ı ERROR,
   RX zaman aşımı / invalid / unknown paket WARNING, open/close, listen, periyodik başlat/durdur,
   RX geri geldi INFO, her gönderilen/alınan mesaj DEBUG.
 - `Comm(..., logger=x)`: tüm parçalar (bus, RX, TX, dispatcher) `x`'e yazar. `x`'in `debug`, `info`, `warning`,
@@ -476,7 +479,11 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
 
 **Adımlar.**
 1. Backend sınırı, `Response`, UTS paketi, `WrapperUtsApi` şablonu. **Uygulandı** (`v2.1-backend` dalı).
-2. Timeout, hata ve cevap logu (hata ERROR; OK cevabı ayrı logger'da DEBUG), interface başına TX kilidi.
+2. Timeout, hata ve cevap logu, interface başına TX kilidi. **Uygulandı.** Süre codec'ten (Ethernet / 1553: 2 sn,
+   seri: 3 sn; GET için aynı), `UtsBackend(timeout=...)` ile tek değer verilebilir. `UtsBackend` süreyi ölçer
+   (`Response.elapsed`), `asl_testing.uts`'e yazar ve `api`'nin istisnasını başarısız `Response`'a çevirir.
+   Kilit sadece POST için; GET beklemez. Seri süresi baud'dan hesaplanmıyor (Adım 6). UTS kesikken her yoklama
+   bir ERROR satırı yazar; bunu Adım 3'teki hata politikası sınırlayacak.
 3. Hata politikası: sayaç, `LinkDown` / `LinkUp`, "durduruldu" bayrağı, `UtsLinkLost`.
 4. Kanal başına RX ve TX thread'i, ayrı zaman aşımı denetçisi.
 5. txd zamanı `MessageSent`'e, buffer dolu bayrağı `RxOverflow`'a, `DELETE` ile buffer temizleme.

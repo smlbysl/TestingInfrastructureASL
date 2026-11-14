@@ -2,6 +2,8 @@
 
 __author__ = "İsmail Baysal"
 
+import logging
+import threading
 import time
 import unittest
 
@@ -62,7 +64,7 @@ class UtsBackendTests(unittest.TestCase):
 
     def test_failed_get_is_returned_as_it_is(self):
         api = FakeUtsApi()
-        api.get = lambda path, interface: Response(ok=False, status=503, code="BUSY", message="busy")
+        api.get = lambda path, interface, timeout: Response(ok=False, status=503, code="BUSY", message="busy")
         response = UtsBackend(api).receive(ETH)
         self.assertEqual((bool(response), response.status, response.code), (False, 503, "BUSY"))
 
@@ -72,9 +74,127 @@ class UtsBackendTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             UtsBackend(FakeUtsApi()).send(OtherChannel(0), b"")
 
+    def test_exception_of_the_api_becomes_a_failed_response(self):
+        api = FakeUtsApi()
+
+        def unreachable(*args, **kwargs):
+            raise ConnectionError("UTS unreachable")
+
+        api.post = unreachable
+        response = UtsBackend(api).send(SER, b"")
+        self.assertEqual((bool(response), response.status, response.message),
+                         (False, None, "ConnectionError: UTS unreachable"))
+
     def test_fake_backend_is_a_backend_without_control(self):
         self.assertIsInstance(FakeBackend(), Backend)
         self.assertIsNone(FakeBackend().control)
+
+
+class RecordingApi(FakeUtsApi):
+    """Keeps the timeout of every request; a POST takes `delay` seconds and counts how many run at once."""
+
+    def __init__(self, delay: float = 0.0):
+        super().__init__()
+        self.timeouts: list[tuple[str, str, float]] = []
+        self.delay = delay
+        self.running = self.most = 0
+        self._count = threading.Lock()
+
+    def post(self, path, interface, body, timeout=0.0):
+        self.timeouts.append(("POST", path, timeout))
+        with self._count:
+            self.running += 1
+            self.most = max(self.most, self.running)
+        time.sleep(self.delay)
+        with self._count:
+            self.running -= 1
+        return super().post(path, interface, body, timeout)
+
+    def get(self, path, interface, timeout=0.0):
+        self.timeouts.append(("GET", path, timeout))
+        return super().get(path, interface, timeout)
+
+
+class TimeoutTests(unittest.TestCase):
+    def test_every_request_gets_the_timeout_of_its_bus(self):
+        api = RecordingApi()
+        backend = UtsBackend(api)
+        backend.send(SER, b"")
+        backend.receive(SER)
+        backend.send(ETH, b"")
+        backend.receive(ETH)
+        self.assertEqual(api.timeouts, [("POST", "serials", 3.0), ("GET", "serials", 3.0),
+                                        ("POST", "ethernet", 2.0), ("GET", "ethernet", 2.0)])
+
+    def test_timeout_given_to_the_backend_is_used_for_every_bus(self):
+        api = RecordingApi()
+        backend = UtsBackend(api, timeout=0.5)
+        backend.send(SER, b"")
+        backend.receive(ETH)
+        self.assertEqual([t for _, _, t in api.timeouts], [0.5, 0.5])
+
+    def test_duration_of_the_request_is_in_the_response(self):
+        response = UtsBackend(RecordingApi(delay=0.02)).send(SER, b"")
+        self.assertGreaterEqual(response.elapsed, 0.02)
+
+
+class LogTests(unittest.TestCase):
+    def test_failed_request_is_logged_as_an_error_with_its_details(self):
+        api = FakeUtsApi()
+        api.post = lambda *args, **kwargs: Response(ok=False, status=503, code="BUSY", message="tx queue full")
+        with self.assertLogs("asl_testing.uts", logging.ERROR) as logs:
+            UtsBackend(api).send(SER, b"")
+        self.assertIn("POST /serials/0 failed: status 503, code BUSY, tx queue full", logs.output[0])
+
+    def test_successful_post_is_logged_at_debug(self):
+        with self.assertLogs("asl_testing.uts", logging.DEBUG) as logs:
+            UtsBackend(FakeUtsApi()).send(ETH, b"\x01")
+        self.assertEqual(logs.records[0].levelno, logging.DEBUG)
+        self.assertIn("POST /ethernet/1 ok", logs.output[0])
+
+    def test_get_is_logged_only_when_it_returned_items(self):
+        api = FakeUtsApi()
+        backend = UtsBackend(api)
+        with self.assertNoLogs("asl_testing.uts", logging.DEBUG):
+            backend.receive(ETH)
+        api.put("ethernet", 1, {"message": [1]})
+        with self.assertLogs("asl_testing.uts", logging.DEBUG) as logs:
+            backend.receive(ETH)
+        self.assertIn("GET /ethernet/1 ok", logs.output[0])
+        self.assertIn("1 item(s)", logs.output[0])
+
+
+class TxLockTests(unittest.TestCase):
+    """UTS may overwrite a message whose POST is not answered yet: one POST at a time per interface."""
+
+    def post_together(self, first, second) -> RecordingApi:
+        api = RecordingApi(delay=0.05)
+        backend = UtsBackend(api)
+        threads = [threading.Thread(target=backend.send, args=(ch, b"\x01")) for ch in (first, second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(len(api.posted), 2)
+        return api
+
+    def test_two_posts_to_one_interface_do_not_overlap(self):
+        self.assertEqual(self.post_together(SER, SER).most, 1)
+
+    def test_posts_to_different_interfaces_do_not_wait_for_each_other(self):
+        self.assertEqual(self.post_together(SER, ETH).most, 2)
+        self.assertEqual(self.post_together(SER, Rs422Channel(1)).most, 2)
+
+    def test_get_does_not_wait_for_a_post_on_the_same_interface(self):
+        api = RecordingApi(delay=0.2)
+        backend = UtsBackend(api)
+        post = threading.Thread(target=backend.send, args=(SER, b"\x01"))
+        post.start()
+        time.sleep(0.02)
+        started = time.monotonic()
+        backend.receive(SER)
+        self.assertLess(time.monotonic() - started, 0.1)
+        post.join()
 
 
 class UtsThroughCommTests(CommTestCase):
@@ -118,7 +238,7 @@ class UtsThroughCommTests(CommTestCase):
     def test_rejected_post_is_a_failed_send(self):
         errors = []
         self.comm.subscribe(LinkError, errors.append)
-        self.backend.api.post = lambda *args: Response(ok=False, status=500, code="TX", message="not sent")
+        self.backend.api.post = lambda *args, **kwargs: Response(ok=False, status=500, code="TX", message="not sent")
         msg = comut(SRC, DEST, 0x21, direction=Direction.TX)
         response = self.comm.send(msg)
         self.assertEqual((bool(response), response.status), (False, 500))
@@ -134,7 +254,7 @@ class UtsThroughCommTests(CommTestCase):
         rx = comut(DEST, SRC, 0x20)
         rx.has_new()
         get = self.backend.api.get
-        self.backend.api.get = lambda *args: Response(ok=False, status=503, message="busy")
+        self.backend.api.get = lambda *args, **kwargs: Response(ok=False, status=503, message="busy")
         deadline = time.monotonic() + self.timeout
         while not errors and time.monotonic() < deadline:
             time.sleep(0.01)

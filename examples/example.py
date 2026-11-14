@@ -165,7 +165,7 @@ def main() -> None:
     print(f"  after remove / clear: {comm.control.get_filter(diag)[0]}, {comm.control.get_filter(status)[0]}")
 
     # --- UTS error ----------------------------------------------------------------
-    def unreachable(*args):
+    def unreachable(*args, **kwargs):
         raise ConnectionError("UTS unreachable")
 
     uts.api.post = unreachable

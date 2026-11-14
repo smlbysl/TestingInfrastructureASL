@@ -3,7 +3,8 @@
     send(channel, data)     sends the bytes on the channel's interface -> Response
     receive(channel)        Response whose data is the list of Received since the last call
 
-A backend does not raise for a failed request: it returns a Response with ok False.
+A backend does not raise for a failed request: it returns a Response with ok False, and it logs
+the failure itself (it knows the details). The core publishes LinkError for it.
 How the bytes reach the device (HTTP, JSON, paths) is known only inside the backend.
 """
 

@@ -39,11 +39,11 @@ class TxScheduler:
             raw, image = msg._pack()
             try:
                 wire, response = self.transport.send(msg._channel, raw)
-                error = None if response.ok else BackendError(response)
+                error = None if response.ok else BackendError(response)      # logged by the backend
             except Exception as failure:
+                self.log.exception("send of %s failed on %s", type(msg).__name__, msg._channel)
                 response, error = Response(ok=False, message=str(failure)), failure
             if error is not None:
-                self.log.error("UTS send of %s failed on %s: %r", type(msg).__name__, msg._channel, error)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
                 return response
             msg._sent()

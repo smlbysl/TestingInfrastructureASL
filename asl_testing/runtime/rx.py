@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Iterable, Optional, Sequence
 
+from asl_testing.backend.base import BackendError
 from asl_testing.runtime.clock import UtsClock
 from asl_testing.runtime.dispatcher import Dispatcher
 from asl_testing.runtime.transport import Transport
@@ -58,7 +59,8 @@ class RxPoller:
             try:
                 frames = self.transport.poll(channel)
             except Exception as error:
-                self.log.exception("UTS poll failed on %s", channel)
+                if not isinstance(error, BackendError):                     # a failed request is logged by the backend
+                    self.log.exception("poll failed on %s", channel)
                 self.bus.publish(LinkError(channel, "poll", error, time.time()))
                 continue
             for frame in frames:

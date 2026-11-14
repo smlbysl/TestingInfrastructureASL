@@ -605,13 +605,17 @@ Başarısız istek istisna fırlatmaz, <code>ok=False</code> döner.</p>
 <h3>UtsBackend: gerçek hat</h3>
 <p><code>UtsBackend</code> bus'a göre codec seçer (yol ve JSON gövdesi) ve istekleri bir <code>UtsApi</code> ile yapar.
 Eldeki <code>ApiWrapper</code> için şablon <code>WrapperUtsApi</code> sınıfıdır (<code>asl_testing/backend/uts/api.py</code>); iki metodu doldurulur:</p>
-<div class="sig">post(path, interface, body) <span class="ret">-&gt; Response</span></div>
+<div class="sig">post(path, interface, body, timeout) <span class="ret">-&gt; Response</span></div>
 <p>Codec'in hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>).</p>
-<div class="sig">get(path, interface) <span class="ret">-&gt; Response</span></div>
+<div class="sig">get(path, interface, timeout) <span class="ret">-&gt; Response</span></div>
 <p>Son çağrıdan beri gelen öğeleri <code>data</code> içinde döner; her öğeyi codec çözer.</p>
 <pre><code>from asl_testing import Comm, UtsBackend, WrapperUtsApi
 
 comm = Comm(UtsBackend(WrapperUtsApi(script.api)), [ProjectBase])</code></pre>
+<p>Her istek sınırlı süre bekler: Ethernet ve 1553'te 2 sn, seride 3 sn; <code>UtsBackend(api, timeout=5.0)</code> hepsi için tek değer verir.
+İstek tekrar denenmez. Aynı interface'e bir POST'un cevabı gelmeden ikincisi gönderilmez.
+İstekler <code>asl_testing.uts</code> logger'ına yazılır: başarısız istek ERROR, başarılı cevaplar DEBUG
+(<code>logging.getLogger("asl_testing.uts").setLevel(logging.DEBUG)</code> ile açılır).</p>
 <h4>Codec'ler</h4>
 <p>Her bus'ın baytlarının UTS'e nasıl yazıldığını ve UTS'ten nasıl okunduğunu bir codec belirler
 (<code>asl_testing/backend/uts/codecs.py</code>): <code>SerialCodec</code>, <code>EthernetCodec</code>, <code>Mil1553Codec</code>. Seri ve Ethernet'in biçimi bugün aynı:

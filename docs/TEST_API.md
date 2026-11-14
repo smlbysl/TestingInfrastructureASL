@@ -117,8 +117,10 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `Backend.send(channel, data)` / `receive(channel)` | Hattaki baytları taşır; sonuç `Response` | Sınırlı (yeni backend yazarken) | Evet |
 | `Response` (`ok`, `status`, `code`, `message`, `data`, `timestamp`, `elapsed`) | Bir isteğin sonucu; koşulda `ok` | Evet (`comm.send` dönüşü) | Evet |
 | `BackendError` | Başarısız isteğin hata tipi (`LinkError.error`); `.response` ayrıntıyı taşır | Evet | Evet |
-| `UtsBackend(api, time_unit)` | UTS backend'i: bus'a göre codec, istekler `api` üzerinden | Evet (gerçek cihaz) | Evet |
-| `UtsApi`, `WrapperUtsApi(wrapper, timeout)` | UTS istekleri; `WrapperUtsApi` eldeki `ApiWrapper` için şablon | Evet (doldurulacak) | Şablon |
+| `UtsBackend(api, time_unit, timeout)` | UTS backend'i: bus'a göre codec, istekler `api` üzerinden; istek süresi, log, interface başına tek POST | Evet (gerçek cihaz) | Evet |
+| `UtsBackend(timeout=...)` | Her istek için bekleme süresi; verilmezse bus'ınki (Ethernet / 1553: 2 sn, seri: 3 sn) | Evet | Evet |
+| Logger `asl_testing.uts` | Başarısız istek ERROR; başarılı POST ve dolu GET DEBUG | Evet (hata ayıklama) | Evet |
+| `UtsApi`, `WrapperUtsApi(wrapper)` | UTS istekleri: `post(path, interface, body, timeout)`, `get(path, interface, timeout)`; `WrapperUtsApi` eldeki `ApiWrapper` için şablon | Evet (doldurulacak) | Şablon |
 | Codec'ler (`backend/uts/codecs.py`) | Bayt ↔ UTS JSON: seri / Ethernet bayt listesi, 1553 16 bitlik liste | Sınırlı (biçim testi) | Evet |
 
 ## 5. Çerçeveleme (`Framing`, `Splitter`, `Envelope`)

@@ -269,6 +269,25 @@ if not response:
     print(response.status, response.code, response.message)
 ```
 
+**Timeout.** Her istek UTS'in cevabını sınırlı süre bekler: Ethernet ve 1553'te 2 sn, seride 3 sn (GET için de
+aynı). Süre dolarsa istek başarısız sayılır; tekrar denenmez. Hepsi için tek değer vermek istersen:
+
+```python
+backend = UtsBackend(WrapperUtsApi(script.api), timeout=5.0)
+```
+
+**Log.** UTS istekleri `asl_testing.uts` adlı logger'a yazılır; ayrı bir dosya değildir, genel loga düşer.
+Başarısız istek ERROR olarak yazılır (yol, interface, durum kodu, hata kodu, mesaj, süre). Başarılı cevaplar
+DEBUG seviyesindedir ve varsayılan olarak görünmez; görmek için:
+
+```python
+import logging
+logging.getLogger("asl_testing.uts").setLevel(logging.DEBUG)
+```
+
+Boş dönen GET'ler yazılmaz. Aynı interface'e bir POST'un cevabı gelmeden ikincisi gönderilmez; farklı
+interface'ler birbirini beklemez.
+
 `comm.control` UTS'in ayarlarına ve filtrelerine doğrudan erişir (`FakeBackend` ile `comm.control` `None`'dır):
 
 ```python

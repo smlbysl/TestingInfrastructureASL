@@ -23,6 +23,9 @@ MIL-STD-1553: a packet is a list of 16-bit values.
     BigEndianStructure      "big"        [30, 1, ...]      2 words, high word first
     mismatch                             [7680, 256, ...]  bytes of every value swapped
 
+timeout is how long an answer of UTS is waited for: the TX timeout of UTS for the bus plus a margin
+(UTS: 1 s for Ethernet and 1553; for serial it depends on the baud rate, at least 1 s).
+
 To check with the real UTS: field names and timestamp unit (time_unit = seconds per UTS unit).
 """
 
@@ -35,6 +38,7 @@ from asl_testing.backend.base import Received
 
 class Codec:
     path: str = ""                      # root of the bus in the UTS URL
+    timeout: float = 2.0                # seconds to wait for an answer of UTS
 
     def __init__(self, time_unit: float = 1.0):
         self.time_unit = time_unit
@@ -62,6 +66,7 @@ class Codec:
 
 class SerialCodec(Codec):
     path = "serials"
+    timeout = 3.0
 
 
 class EthernetCodec(Codec):
