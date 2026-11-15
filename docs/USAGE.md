@@ -92,6 +92,8 @@ comm.start(motor)                   # her periyodik gönderimde önce update_spe
 - Kanca her `pack()` çağrısında, yani her gönderimde (tek seferlik ya da periyodik) çalışır.
 - Kancanın yazdığı değerler pakete girer: uzunluk, sayaç ve CRC kancadan **sonra** hesaplanır.
 - Periyodik mesajda kanca TX thread'inde çalışır; kısa tutulmalı, beklememeli.
+- Kanca mesajın kilidi altında çalışır. Kanca başka bir mesajı `comm.send` ile gönderebilir; ama iki mesajın
+  kancası birbirini göndermemeli (ikisi aynı anda gönderilirse birbirini bekleyip kilitlenir).
 - Kanca checksum'a dokunmamalıdır; `pack()` onu en son hesaplar.
 - Gelen paket için karşılığı `msg.on_receive(fn)`: geçerli paket nesneye yazıldıktan sonra RX thread'inde çalışır.
 

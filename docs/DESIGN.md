@@ -201,7 +201,10 @@ RX:  uts.receive(kanal) [get(path, interface) -> protocol.decode] -> splitter ->
 
 ## Thread modeli
 - 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
-- Gönderim tek kilit altında: counter, checksum, byte, UTS isteği.
+- Gönderim mesajın kilidi (`RLock`) altında: kancalar, counter, checksum, byte, UTS isteği, `after_send`. Aynı mesajın
+  iki gönderimi (test ve periyodik) birbirini bekler; farklı mesajlar beklemez.
+- UTS client aynı interface'e bir anda tek POST gönderir (`(yol, interface)` başına kilit, sadece POST çevresinde);
+  farklı interface'ler birbirini beklemez. GET kilit almaz. Kilit sırası: mesaj -> interface.
 - `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
   paketi görür, yarım değer görmez (B1). Birden fazla alan için `msg.snapshot()`.
 - `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
@@ -515,8 +518,8 @@ kanal içi sıra korunur.
 
 **Sıra (her biri ayrı onay ve commit).**
 1. Client'ta istek timeout'u.
-2. Client'ta interface kilidi.
+2. Client'ta interface kilidi. **Uygulandı** (mesaj kilidiyle birlikte, thread'lerden önce).
 3. RX: kanal başına thread, denetçi, `UtsClock` kilidi.
-4. TX: kanal başına thread; genel `_send_lock` yerine mesaj kilidi.
+4. TX: kanal başına thread. (Genel `_send_lock` yerine mesaj kilidi **uygulandı**; tek TX thread'iyle.)
 5. Sonra: `update()` ve erteleme (Tasarım 1).
 

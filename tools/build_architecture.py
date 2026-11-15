@@ -218,7 +218,7 @@ def tx_sequence() -> str:
     steps = [
         ("Test", "Comm", "send(msg)", "call"),
         ("Comm", "TxScheduler", "send(msg)", "call"),
-        ("TxScheduler", "TxScheduler", "_send_lock", "note"),
+        ("TxScheduler", "TxScheduler", "mesaj kilidi", "note"),
         ("TxScheduler", "Mesaj", "_pack()", "call"),
         ("Mesaj", "Mesaj", "on_send kancaları", "self"),
         ("Mesaj", "Mesaj", "kopyada: uzunluk, sayaç, CRC", "self"),
@@ -278,7 +278,7 @@ def thread_diagram() -> str:
         box(20, 210, 960, 120, "Paylaşılan veri ve korunması", [
             "Mesaj nesnesi (RX): decode yeni değerleri ayrı tamponda hazırlar, tek kopyayla yazar → okuyan eski ya da yeni paketi görür",
             "Mesaj nesnesi (TX): _pack özel alanları kopyada hesaplar, sadece değişen özel alanları geri yazar → CRC her zaman pakete uyar",
-            "Gönderim: TxScheduler._send_lock → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz",
+            "Gönderim: mesaj kilidi → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz; UtsClient: interface başına tek POST",
             "MessageHistory: kilit + koşul değişkeni; RxState / TxState sayaçları tek thread yazar, okuma tek adım",
             "Olaylar: değişmez kayıtlar, baytların kopyasını taşır; abone event.snapshot() ile okur"], "core", title_size=14),
     ]

@@ -22,6 +22,7 @@ __author__ = "İsmail Baysal"
 
 import ctypes
 import logging
+import threading
 import time
 from ctypes import Structure
 from typing import Callable, ClassVar, Optional
@@ -92,6 +93,8 @@ class BaseMessageStructure(Structure):
                  **kw):
         self._apply_defaults()
         super().__init__(*args, **kw)                   # field values given here override the defaults
+        # Held for a whole send (pack, request, after_send); RLock: a hook may use the same message again.
+        self._lock = threading.RLock()
 
         # Object settings start with "_" so they do not clash with ICD field names.
         self._channel = channel if channel is not None else type(self)._channel

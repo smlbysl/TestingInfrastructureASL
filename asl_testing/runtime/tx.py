@@ -1,7 +1,9 @@
 """TxScheduler: one-shot sends and one thread for all periodic messages.
 
-send(msg)      pack, envelope and UTS request under one lock, so the scheduler and the test
-               cannot mix up the counter; then after_send, WireSent and MessageSent
+send(msg)      pack, envelope, UTS request and after_send under the lock of the message, so the scheduler
+               and the test cannot mix up its counter; then WireSent and MessageSent.
+               Different messages do not wait for each other; the UTS client sends one POST at a time
+               per interface. Lock order: message -> interface.
 start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up
 A message that is no longer registered (replaced by a new object) is dropped from the table.
 """
@@ -24,7 +26,6 @@ class TxScheduler:
         self.transport = transport
         self.bus = bus
         self.log = log or logging.getLogger(__name__)
-        self._send_lock = threading.Lock()
         # id(msg) -> [msg, next due time (monotonic)]; ctypes objects are not hashable
         self._table: dict[int, list] = {}
         self._wake = threading.Event()
@@ -35,7 +36,7 @@ class TxScheduler:
 
     def send(self, msg: BaseMessageStructure) -> bool:
         """Sends a message once; False if the UTS request failed (LinkError is published)."""
-        with self._send_lock:
+        with msg._lock:
             raw, image = msg._pack()
             try:
                 wire = self.transport.send(msg._channel, raw)

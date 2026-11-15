@@ -7,7 +7,11 @@ finds the definition and uses it:
     receive(channel)        get(path, interface) -> protocol.decode of every item
 
 post and get are the requests themselves: POST sends on an interface; GET returns what was received
-there and empties the buffer. A client for the real UTS implements these two.
+there and empties the buffer. A client for the real UTS implements these two and calls
+super().__init__().
+
+send() makes one POST at a time per interface: UTS may overwrite a message whose POST has not been
+answered yet. Different interfaces do not wait for each other. GET takes no lock (one RX thread).
 
 Open until the UTS API is available: JSON layout of GET, timestamp unit, body of config and filter
 calls (master: {"type": kind, "filter": [[{"filterBytePos", "filterValue"}]]}).
@@ -15,6 +19,7 @@ calls (master: {"type": kind, "filter": [[{"filterBytePos", "filterValue"}]]}).
 
 __author__ = "İsmail Baysal"
 
+import threading
 from abc import ABC, abstractmethod
 
 from asl_testing.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Received, Rs422Protocol
@@ -35,6 +40,8 @@ class UtsClient(ABC):
             "rs422": Rs422Protocol(time_unit),
             "mil1553": Mil1553Protocol(time_unit),
         }
+        self._post_locks: dict[tuple[str, int], threading.Lock] = {}     # one per (path, interface)
+        self._guard = threading.Lock()                                   # creating a lock in _post_locks
 
     def protocol(self, channel) -> Protocol:
         """Definition of the channel's protocol."""
@@ -46,7 +53,13 @@ class UtsClient(ABC):
     def send(self, channel, wire: bytes) -> None:
         """Sends the bytes on the line of a channel."""
         protocol = self.protocol(channel)
-        self.post(protocol.path, channel.interface, protocol.encode(channel, wire))
+        body = protocol.encode(channel, wire)
+        with self._post_lock(protocol.path, channel.interface):
+            self.post(protocol.path, channel.interface, body)
+
+    def _post_lock(self, path: str, interface: int) -> threading.Lock:
+        with self._guard:
+            return self._post_locks.setdefault((path, interface), threading.Lock())
 
     def receive(self, channel) -> list[Received]:
         """What the channel's interface received since the last call."""
