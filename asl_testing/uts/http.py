@@ -6,7 +6,8 @@ from asl_testing.uts.client import UtsClient
 
 
 class HttpUtsClient(UtsClient):
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, time_unit: float = 1.0):
+        super().__init__(time_unit)
         self.base_url = base_url
 
     def post(self, path: str, interface: int, body: dict) -> None:

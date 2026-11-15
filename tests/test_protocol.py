@@ -1,22 +1,26 @@
-"""Protocol objects: Ethernet and RS422 go through their protocol object (UTS post / get)."""
+"""Protocol definitions of the UTS client: Ethernet and RS422 (UTS post / get)."""
 
 __author__ = "İsmail Baysal"
 
 import time
 import unittest
 
-from asl_testing import Direction, EthernetProtocol, LinkError, Rs422Protocol, UnknownReceived
+from asl_testing import (Direction, EthernetChannel, EthernetProtocol, FakeUtsClient, LinkError, Rs422Channel,
+                         Rs422Protocol, UnknownReceived)
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
 
 
+SER, ETH = Rs422Channel(0), EthernetChannel(1)
+
+
 class Rs422ProtocolTests(unittest.TestCase):
     def test_encode_decode(self):
         protocol = Rs422Protocol(time_unit=1e-3)
-        self.assertEqual(protocol.encode(b"\x01\x02"), {"message": [1, 2]})
-        received = protocol.decode(protocol.simulate(b"\x01\x02", 1.5))
+        self.assertEqual(protocol.encode(SER, b"\x01\x02"), {"message": [1, 2]})
+        received = protocol.decode(SER, protocol.simulate(SER, b"\x01\x02", 1.5))
         self.assertEqual(received.data, b"\x01\x02")
         self.assertAlmostEqual(received.timestamp, 1.5)
 
@@ -26,21 +30,38 @@ class Rs422ProtocolTests(unittest.TestCase):
 
 class EthernetProtocolTests(unittest.TestCase):
     def test_encode(self):
-        self.assertEqual(EthernetProtocol().encode(b"\x01\x02"), {"message": [1, 2]})
+        self.assertEqual(EthernetProtocol().encode(ETH, b"\x01\x02"), {"message": [1, 2]})
 
     def test_decode(self):
-        received = EthernetProtocol().decode({"message": [1, 2], "timestamp": 5})
+        received = EthernetProtocol().decode(ETH, {"message": [1, 2], "timestamp": 5})
         self.assertEqual((received.data, received.timestamp), (b"\x01\x02", 5))
 
     def test_time_unit(self):
-        received = EthernetProtocol(time_unit=1e-6).decode({"message": [], "timestamp": 2_000_000})
+        received = EthernetProtocol(time_unit=1e-6).decode(ETH, {"message": [], "timestamp": 2_000_000})
         self.assertAlmostEqual(received.timestamp, 2.0)
 
     def test_simulate_is_what_decode_reads(self):
         protocol = EthernetProtocol(time_unit=1e-3)
-        received = protocol.decode(protocol.simulate(b"\xAA\xBB", 1.5))
+        received = protocol.decode(ETH, protocol.simulate(ETH, b"\xAA\xBB", 1.5))
         self.assertEqual(received.data, b"\xAA\xBB")
         self.assertAlmostEqual(received.timestamp, 1.5)
+
+
+class ClientProtocolTests(unittest.TestCase):
+    def test_client_finds_the_definition_by_the_channel_protocol(self):
+        uts = FakeUtsClient()
+        self.assertIsInstance(uts.protocol(SER), Rs422Protocol)
+        self.assertIsInstance(uts.protocol(ETH), EthernetProtocol)
+
+    def test_time_unit_of_the_client_reaches_every_definition(self):
+        uts = FakeUtsClient(time_unit=1e-6)
+        self.assertEqual({p.time_unit for p in uts.protocols.values()}, {1e-6})
+
+    def test_channel_with_an_unknown_protocol_is_an_error(self):
+        class OtherChannel(Rs422Channel):
+            protocol = "other"
+        with self.assertRaises(ValueError):
+            FakeUtsClient().send(OtherChannel(0), b"")
 
 
 class EthernetThroughCommTests(CommTestCase):

@@ -14,11 +14,12 @@ from asl_testing.uts.client import FilterGroups, UtsClient
 class FakeUtsClient(UtsClient):
     """post() records what is sent; inject() plays the device; get() drains the receive buffer.
 
-    inject() stores the item UTS would return, built by the channel's protocol (protocol.simulate).
+    inject() stores the item UTS would return, built by the protocol definition (protocol.simulate).
     Configs and filters are only stored; the filter is not applied.
     """
 
-    def __init__(self):
+    def __init__(self, time_unit: float = 1.0):
+        super().__init__(time_unit)
         self.posted: list[tuple[str, int, dict]] = []                  # (path, interface, body)
         self._items: dict[tuple[str, int], list[dict]] = defaultdict(list)
         self._lock = threading.Lock()         # inject (test thread) vs get (RX thread)
@@ -35,7 +36,7 @@ class FakeUtsClient(UtsClient):
     def inject(self, channel: Channel, data: bytes, timestamp: Optional[float] = None) -> None:
         """The device sent data (bytes on the line) on the channel's interface."""
         stamp = time.time() if timestamp is None else timestamp
-        item = channel.protocol.simulate(bytes(data), stamp)
+        item = self.protocol(channel).simulate(channel, bytes(data), stamp)
         with self._lock:
             self._items[channel.key].append(item)
 

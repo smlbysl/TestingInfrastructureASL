@@ -9,6 +9,8 @@ from ctypes import BigEndianStructure, LittleEndianStructure, c_uint16, c_uint32
 from asl_testing import (BaseMessageStructure, ChannelSet, Comm, Direction, FakeUtsClient, Mil1553Channel,
                          Mil1553Protocol, Signature)
 
+LITTLE, BIG = Mil1553Channel(8), Mil1553Channel(9, byte_order="big")
+
 
 def packet_type(base):
     class Packet(base):
@@ -20,23 +22,24 @@ def packet_type(base):
 
 class ListFormatTests(unittest.TestCase):
     def test_header_values_are_written_as_they_are(self):
-        body = Mil1553Protocol("little").encode(bytes(packet_type(LittleEndianStructure)))
+        body = Mil1553Protocol().encode(LITTLE, bytes(packet_type(LittleEndianStructure)))
         self.assertEqual(body, {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]})
 
     def test_big_endian_structure_sends_the_high_word_first(self):
-        body = Mil1553Protocol("big").encode(bytes(packet_type(BigEndianStructure)))
+        body = Mil1553Protocol().encode(BIG, bytes(packet_type(BigEndianStructure)))
         self.assertEqual(body, {"message": [30, 1, 3, 0x0001, 0x1122, 0x3344]})
 
     def test_byte_order_not_matching_the_structure_swaps_every_value(self):
-        body = Mil1553Protocol("big").encode(bytes(packet_type(LittleEndianStructure)))
+        body = Mil1553Protocol().encode(BIG, bytes(packet_type(LittleEndianStructure)))
         self.assertEqual(body["message"][:3], [7680, 256, 768])
 
     def test_decode_gives_the_message_bytes_back(self):
-        for base, order in ((LittleEndianStructure, "little"), (BigEndianStructure, "big")):
+        protocol = Mil1553Protocol()
+        for base, channel in ((LittleEndianStructure, LITTLE), (BigEndianStructure, BIG)):
             with self.subTest(base=base.__name__):
                 original = packet_type(base)
-                received = Mil1553Protocol(order).decode({"message": Mil1553Protocol(order).to_words(bytes(original)),
-                                                          "timestamp": 2})
+                received = protocol.decode(channel, {"message": protocol.to_list(channel, bytes(original)),
+                                                     "timestamp": 2})
                 copy = type(original).from_buffer_copy(received.data)
                 self.assertEqual((copy.rt, copy.subnet, copy.wordCount, copy.mode, copy.speed),
                                  (30, 1, 3, 0x0001, 0x11223344))
@@ -44,17 +47,17 @@ class ListFormatTests(unittest.TestCase):
 
     def test_time_unit(self):
         protocol = Mil1553Protocol(time_unit=1e-6)
-        self.assertAlmostEqual(protocol.decode(protocol.simulate(b"\x01\x00", 1.5)).timestamp, 1.5)
+        self.assertAlmostEqual(protocol.decode(LITTLE, protocol.simulate(LITTLE, b"\x01\x00", 1.5)).timestamp, 1.5)
 
     def test_wrong_byte_order_fails_on_first_use(self):
         with self.assertRaises(ValueError):
-            Mil1553Protocol("middle").encode(b"\x01\x00")
+            Mil1553Protocol().encode(Mil1553Channel(7, byte_order="middle"), b"\x01\x00")
 
 
 # Small 1553 projects, defined here so the example project stays as it is.
 class Bus(ChannelSet):
     A = Mil1553Channel(1)
-    B = Mil1553Channel(2, protocol=Mil1553Protocol(byte_order="big"))
+    B = Mil1553Channel(2, byte_order="big")
 
 
 class Project1553(BaseMessageStructure, LittleEndianStructure):
@@ -84,7 +87,7 @@ class rt5_big(BigEndian1553):
 
 
 class BigEndianThroughCommTests(unittest.TestCase):
-    """The channel's protocol object is used by the transport and by the fake UTS alike."""
+    """The byte order of the channel is used on the way out and on the way in, by the fake UTS too."""
 
     def setUp(self):
         BigEndian1553.clear_registry()

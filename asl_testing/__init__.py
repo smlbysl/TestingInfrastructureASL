@@ -9,8 +9,7 @@ Sub-packages (each uses only the ones below it):
     services/    CSV log, error log, monitor
     runtime/     transport, RX poller, dispatcher, TX scheduler
     events/      event types, event bus
-    uts/         UTS client (HTTP, fake), UTS control
-    protocol/    protocol objects (Ethernet, RS422, MIL-STD-1553)
+    uts/         UTS client (HTTP, fake) with the protocol definitions, UTS control
     channel/     channels, framing
     message/     message model
 """
@@ -32,11 +31,8 @@ from asl_testing.message.timing import Direction, Timing
 from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, Mil1553Channel, Rs422Channel
 from asl_testing.channel.framing import Envelope, Framing, Splitter
 
-# protocols (one class per bus type)
-from asl_testing.protocol.base import Protocol, Received
-from asl_testing.protocol.ethernet import EthernetProtocol
-from asl_testing.protocol.mil1553 import Mil1553Protocol
-from asl_testing.protocol.rs422 import Rs422Protocol
+# protocol definitions of UTS (one class per protocol name)
+from asl_testing.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Received, Rs422Protocol
 
 # events
 from asl_testing.events.bus import EventBus, Subscriber

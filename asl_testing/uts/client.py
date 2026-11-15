@@ -1,8 +1,13 @@
 """UtsClient: how UTS is reached (UTS is an HTTP service).
 
-An interface is addressed by the protocol's path and the interface number:
-POST sends on it; GET returns what was received there and empties the buffer. The body and the
-items are built and read by the channel's protocol object; the client passes them as they are.
+The client holds the protocol definitions (protocols.py). A channel names its protocol; the client
+finds the definition and uses it:
+
+    send(channel, wire)     protocol.encode -> post(path, interface, body)
+    receive(channel)        get(path, interface) -> protocol.decode of every item
+
+post and get are the requests themselves: POST sends on an interface; GET returns what was received
+there and empties the buffer. A client for the real UTS implements these two.
 
 Open until the UTS API is available: JSON layout of GET, timestamp unit, body of config and filter
 calls (master: {"type": kind, "filter": [[{"filterBytePos", "filterValue"}]]}).
@@ -11,6 +16,8 @@ calls (master: {"type": kind, "filter": [[{"filterBytePos", "filterValue"}]]}).
 __author__ = "İsmail Baysal"
 
 from abc import ABC, abstractmethod
+
+from asl_testing.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Received, Rs422Protocol
 
 
 class UtsError(Exception):
@@ -21,6 +28,33 @@ FilterGroups = list[list[tuple[int, int]]]   # OR of groups; a group is an AND o
 
 
 class UtsClient(ABC):
+    def __init__(self, time_unit: float = 1.0):
+        # protocol name (Channel.protocol) -> definition; time_unit: seconds per UTS time unit
+        self.protocols: dict[str, Protocol] = {
+            "ethernet": EthernetProtocol(time_unit),
+            "rs422": Rs422Protocol(time_unit),
+            "mil1553": Mil1553Protocol(time_unit),
+        }
+
+    def protocol(self, channel) -> Protocol:
+        """Definition of the channel's protocol."""
+        try:
+            return self.protocols[channel.protocol]
+        except KeyError:
+            raise ValueError(f"UTS client has no protocol {channel.protocol!r} (channel {channel})") from None
+
+    def send(self, channel, wire: bytes) -> None:
+        """Sends the bytes on the line of a channel."""
+        protocol = self.protocol(channel)
+        self.post(protocol.path, channel.interface, protocol.encode(channel, wire))
+
+    def receive(self, channel) -> list[Received]:
+        """What the channel's interface received since the last call."""
+        protocol = self.protocol(channel)
+        return [protocol.decode(channel, item) for item in self.get(protocol.path, channel.interface)]
+
+    # ---------------------------------------------------------------- requests
+
     @abstractmethod
     def post(self, path: str, interface: int, body: dict) -> None:
         """POST /{path}/{interface}/messages with the body from the protocol."""

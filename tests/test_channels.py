@@ -4,8 +4,7 @@ __author__ = "İsmail Baysal"
 
 import unittest
 
-from asl_testing import (ChannelSet, EthernetChannel, EthernetProtocol, Framing, Mil1553Channel, Mil1553Protocol,
-                         Rs422Channel, Rs422Protocol)
+from asl_testing import ChannelSet, EthernetChannel, Framing, Mil1553Channel, Rs422Channel
 from asl_testing.channel.channel import check_channels
 from projects.example_project.framing import EthHeader
 
@@ -27,17 +26,14 @@ class ChannelRuleTests(unittest.TestCase):
 
 
 class ChannelProtocolTests(unittest.TestCase):
-    def test_default_protocol_of_each_channel_type(self):
-        self.assertIsInstance(EthernetChannel(1).protocol, EthernetProtocol)
-        self.assertIsInstance(Rs422Channel(1).protocol, Rs422Protocol)
-        self.assertIsInstance(Mil1553Channel(1).protocol, Mil1553Protocol)
+    def test_protocol_name_of_each_channel_type(self):
+        self.assertEqual((EthernetChannel(1).protocol, Rs422Channel(1).protocol, Mil1553Channel(1).protocol),
+                         ("ethernet", "rs422", "mil1553"))
 
-    def test_each_channel_has_its_own_protocol_object(self):
-        self.assertIsNot(Rs422Channel(1).protocol, Rs422Channel(2).protocol)
-
-    def test_protocol_given_with_the_channel(self):
-        ch = Mil1553Channel(4, protocol=Mil1553Protocol(byte_order="big"))
-        self.assertEqual((ch.protocol.byte_order, ch.key, str(ch)), ("big", ("mil1553", 4), "mil1553:4"))
+    def test_byte_order_given_with_the_1553_channel(self):
+        ch = Mil1553Channel(4, byte_order="big")
+        self.assertEqual((ch.byte_order, ch.key, str(ch)), ("big", ("mil1553", 4), "mil1553:4"))
+        self.assertEqual(Mil1553Channel(5).byte_order, "little")
 
 
 class EthHeaderTests(unittest.TestCase):
