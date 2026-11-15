@@ -106,8 +106,8 @@ UtsClient        kanalın protokol adına göre tanımı seçer (send / receive)
 - Kanal mesaja sınıf varsayılanı olarak verilir (`_channel = MyChannels.CONTROL`); nesne oluştururken verilmez.
 - Bir interface'in tek kanalı var; gelen paketin kanalı her zaman bellidir. Envelope'u kabul etmeyen paket o kanalda
   unknown olur.
-- Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her turda sabit sırayla
-  (protokol, interface).
+- Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her kanal kendi RX
+  thread'inde. Kanal içi paket sırası korunur; farklı kanalların olayları arasında sıra yok.
 ```
 TX:  msg.pack() -> envelope.on_send -> uts.send(kanal) [protocol.encode -> post(path, interface, timeout)]
 RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
@@ -203,7 +203,12 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
   (o durumda abone hataları o logger'a gider, bu dosyaya değil).
 
 ## Thread modeli
-- 1 RxPoller, 1 TxScheduler, abone başına 1 thread. Mesaj başına thread yok.
+- RX: kanal başına 1 thread (`Rx-<kanal>`: yokla, `WireReceived`, dispatch, `poll_interval` bekle) ve 1 denetçi
+  (`RxWatchdog`: RX mesajı olan ya da `listen` edilen kanalın thread'ini başlatır, RX zaman aşımlarını kontrol eder).
+  Cevap vermeyen bir kanal diğerlerini ve zaman aşımı kontrolünü bekletmez; artık gerekmeyen kanalın thread'i biter.
+  `UtsClock` bütün RX thread'lerinden güncellenir, kendi kilidi var. `comm.close()` cevap bekleyen bir GET'i en fazla
+  timeout kadar bekler.
+- TX: 1 TxScheduler thread'i (kanal başına thread henüz yok). Abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim mesajın kilidi (`RLock`) altında: kancalar, counter, checksum, byte, UTS isteği, `after_send`. Aynı mesajın
   iki gönderimi (test ve periyodik) birbirini bekler; farklı mesajlar beklemez.
 - UTS client aynı interface'e bir anda tek POST gönderir (`(yol, interface)` başına kilit, sadece POST çevresinde);
@@ -522,7 +527,7 @@ kanal içi sıra korunur.
 **Sıra (her biri ayrı onay ve commit).**
 1. Client'ta istek timeout'u. **Uygulandı.**
 2. Client'ta interface kilidi. **Uygulandı** (mesaj kilidiyle birlikte, thread'lerden önce).
-3. RX: kanal başına thread, denetçi, `UtsClock` kilidi.
+3. RX: kanal başına thread, denetçi, `UtsClock` kilidi. **Uygulandı.**
 4. TX: kanal başına thread. (Genel `_send_lock` yerine mesaj kilidi **uygulandı**; tek TX thread'iyle.)
 5. Sonra: `update()` ve erteleme (Tasarım 1).
 

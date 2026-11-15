@@ -158,7 +158,7 @@ from projects.example_project.header import ProjectBase
 
 uts = FakeUtsClient()                 # gerçek hat için HttpUtsClient
 comm = Comm(uts, [ProjectBase])
-comm.open()                           # RX poller ve TX scheduler thread'leri başlar
+comm.open()                           # RX (kanal başına) ve TX thread'leri başlar
 try:
     ...
 finally:
@@ -173,7 +173,7 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
-  <tr><td><code>open()</code></td><td>RX poller ve TX scheduler thread'lerini başlatır.</td></tr>
+  <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi ve TX thread'i. Cevap vermeyen bir kanal diğerlerinin alımını bekletmez.</td></tr>
   <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır.</td></tr>
   <tr><td><code>with comm:</code></td><td><code>open()</code> ve <code>close()</code> yerine geçer.</td></tr>
 </table>
@@ -616,7 +616,7 @@ her alan 16 bitlik sınırda başlamalı ve çift bayt olmalıdır. Zaman birimi
 <p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
 <div class="sig">uts.inject(channel, data, timestamp=None) <span class="ret">-&gt; None</span></div>
 <p>Verilen baytları, cihazdan gelmiş gibi kanalın alım kuyruğuna koyar; kanalın protokol tanımıyla UTS biçimine çevrilir.
-Gönderim değildir: RX poller bir sonraki yoklamada alır.</p>
+Gönderim değildir: kanalın RX thread'i bir sonraki yoklamada alır.</p>
 <pre><code>ch = status.channel
 wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
 uts.inject(ch, wire)                                  # cihaz bu paketi gönderdi

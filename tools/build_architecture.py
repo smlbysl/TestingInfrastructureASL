@@ -126,7 +126,7 @@ def layer_diagram() -> str:
 
          band(20, 170, W, 64, "Çalışma|zamanı", "run"),
          chip(150, 190, 150, "TxScheduler", "gönderim, periyot"),
-         chip(310, 190, 150, "RxPoller", "yoklama, zaman aşımı"),
+         chip(310, 190, 150, "RxPoller", "kanal başına yoklama"),
          chip(470, 190, 150, "Dispatcher", "tanıma, decode"),
          chip(630, 190, 150, "Transport", "kanal ↔ UTS"),
          chip(790, 190, 160, "UtsClock", "UTS saati tahmini"),
@@ -242,7 +242,7 @@ def rx_sequence() -> str:
     lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsClient", "uts"), ("Protocol", "uts"),
                  ("Framing", "core"), ("Dispatcher", "run"), ("Mesaj", "msg"), ("EventBus", "evt")]
     steps = [
-        ("RxPoller", "RxPoller", "her poll_interval", "note"),
+        ("RxPoller", "RxPoller", "kanalın thread'i, her poll_interval", "note"),
         ("RxPoller", "Transport", "poll(kanal)", "call"),
         ("Transport", "UtsClient", "receive(kanal)", "call"),
         ("UtsClient", "UtsClient", "get(path, if, timeout)", "self"),
@@ -259,9 +259,9 @@ def rx_sequence() -> str:
         ("Mesaj", "Mesaj", "validate, tek kopya, geçmiş", "self"),
         ("Mesaj", "Dispatcher", "True / False", "ret"),
         ("Dispatcher", "EventBus", "Message / Invalid / UnknownReceived", "call"),
-        ("RxPoller", "RxPoller", "zaman aşımı: RxTimeout / RxRestored", "self"),
+        ("RxPoller", "RxPoller", "denetçi thread'i: RxTimeout / RxRestored", "self"),
     ]
-    return sequence(lifelines, steps, "Alım (RX): RxPoller thread'i her döngüde bu akışı her kanal için, sabit sırayla çalıştırır",
+    return sequence(lifelines, steps, "Alım (RX): her kanalın RX thread'i bu akışı kendi döngüsünde çalıştırır; zaman aşımını denetçi kontrol eder",
                     col=122)
 
 
@@ -271,8 +271,8 @@ def thread_diagram() -> str:
                                                 "snapshot, rx_history"], "test"),
         box(265, 20, 225, 150, "TxScheduler thread'i", ["periyodik mesajlar", "_pack, transport.send",
                                                         "_sent, olay yayını"], "run"),
-        box(510, 20, 225, 150, "RxPoller thread'i", ["UTS get, decode", "dispatch, geçmiş", "zaman aşımı",
-                                                     "msg.on_receive kancaları"], "run"),
+        box(510, 20, 225, 150, "RX thread'leri", ["kanal başına bir (Rx-<kanal>)", "UTS get, decode, dispatch",
+                                                  "msg.on_receive kancaları", "denetçi: zaman aşımı"], "run"),
         box(755, 20, 225, 150, "Abone thread'leri", ["her subscribe için bir", "kendi kuyruğu", "CommLogger, ErrorLog,",
                                                      "Monitor, comm.on_receive"], "evt"),
         box(20, 210, 960, 120, "Paylaşılan veri ve korunması", [

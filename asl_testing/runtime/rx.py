@@ -1,12 +1,16 @@
-"""RxPoller: one thread that polls UTS at a fixed interval.
+"""RxPoller: one RX thread per channel and one watchdog thread.
 
-Each cycle:
-1. reads every channel that has RX messages or was added with listen()
+RX thread of a channel (Rx-<channel>), every interval:
+1. reads what the channel's interface received
 2. publishes WireReceived for each packet and passes it to the dispatcher
-3. checks periodic RX messages for timeout on the UTS clock (RxTimeout / RxRestored)
 
-A failed poll gives LinkError; a packet that fails in the dispatcher is logged and skipped.
-Polling goes on in both cases.
+Watchdog (RxWatchdog), every interval:
+1. starts the RX thread of a channel that has RX messages or was added with listen()
+2. checks periodic RX messages for timeout on the UTS clock (RxTimeout / RxRestored)
+
+A channel whose request hangs or is slow does not hold up the other channels or the timeout check.
+The RX thread of a channel that is no longer needed ends. A failed poll gives LinkError; a packet
+that fails in the dispatcher is logged and skipped. Polling goes on in both cases.
 """
 
 __author__ = "İsmail Baysal"
@@ -39,7 +43,9 @@ class RxPoller:
         self._late: set[int] = set()                # id() of late messages; ctypes objects are not hashable
         self._started: Optional[float] = None
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._watchdog: Optional[threading.Thread] = None
+        self._threads: dict[Channel, threading.Thread] = {}      # RX thread of each polled channel
+        self._guard = threading.Lock()                            # _threads: watchdog adds, a channel thread removes itself
 
     def listen(self, channel: Channel) -> None:
         """Polls a channel that has no RX message (to see its packets as unknown)."""
@@ -54,21 +60,26 @@ class RxPoller:
         return found
 
     def poll_once(self) -> None:
-        for channel in sorted(self.channels(), key=lambda ch: ch.key):     # fixed order every cycle
-            try:
-                frames = self.transport.poll(channel)
-            except Exception as error:
-                self.log.exception("UTS poll failed on %s", channel)
-                self.bus.publish(LinkError(channel, "poll", error, time.time()))
-                continue
-            for frame in frames:
-                self.clock.update(frame.timestamp)
-                self.bus.publish(WireReceived(frame.channel, frame.wire, frame.timestamp, frame.host_time))
-                try:
-                    self.dispatcher.dispatch(frame)
-                except Exception:
-                    self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), channel)
+        """Polls every channel once in the calling thread, then checks the timeouts (tests without threads)."""
+        for channel in sorted(self.channels(), key=lambda ch: ch.key):
+            self.poll_channel(channel)
         self._check_timeouts()
+
+    def poll_channel(self, channel: Channel) -> None:
+        """Reads one channel and passes its packets on."""
+        try:
+            frames = self.transport.poll(channel)
+        except Exception as error:
+            self.log.exception("UTS poll failed on %s", channel)
+            self.bus.publish(LinkError(channel, "poll", error, time.time()))
+            return
+        for frame in frames:
+            self.clock.update(frame.timestamp)
+            self.bus.publish(WireReceived(frame.channel, frame.wire, frame.timestamp, frame.host_time))
+            try:
+                self.dispatcher.dispatch(frame)
+            except Exception:
+                self.log.exception("RX of a %d byte packet on %s failed", len(frame.data), channel)
 
     # ---------------------------------------------------------------- timeouts
 
@@ -102,19 +113,41 @@ class RxPoller:
         since = rx.last_time if rx.last_time is not None else max(self._started, rx.created)
         return time.monotonic() - since
 
-    # ---------------------------------------------------------------- thread
+    # ---------------------------------------------------------------- threads
 
     def start(self) -> None:
         self._started = time.monotonic()
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="RxPoller", daemon=True)
-        self._thread.start()
+        self._watchdog = threading.Thread(target=self._watch, name="RxWatchdog", daemon=True)
+        self._watchdog.start()
 
     def stop(self) -> None:
+        """Stops the watchdog and every RX thread (a running request ends first, at most its timeout)."""
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join()
+        if self._watchdog is not None:
+            self._watchdog.join()
+        with self._guard:
+            threads = list(self._threads.values())
+        for thread in threads:
+            thread.join()
 
-    def _run(self) -> None:
+    def _watch(self) -> None:
         while not self._stop.wait(self.interval):
-            self.poll_once()
+            self._start_channels()
+            self._check_timeouts()
+
+    def _start_channels(self) -> None:
+        for channel in self.channels():
+            with self._guard:
+                if channel in self._threads:
+                    continue
+                thread = threading.Thread(target=self._run, args=(channel,), name=f"Rx-{channel}", daemon=True)
+                self._threads[channel] = thread
+            thread.start()
+
+    def _run(self, channel: Channel) -> None:
+        while not self._stop.is_set() and channel in self.channels():
+            self.poll_channel(channel)
+            self._stop.wait(self.interval)
+        with self._guard:
+            del self._threads[channel]

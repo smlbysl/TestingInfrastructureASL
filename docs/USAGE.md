@@ -24,7 +24,7 @@ from projects.example_project.header import ProjectBase
 
 uts = FakeUtsClient()                  # gerçek cihazda HttpUtsClient
 comm = Comm(uts, [ProjectBase])
-comm.open()                            # RX ve TX thread'leri başlar
+comm.open()                            # RX (kanal başına) ve TX thread'leri başlar
 ...
 comm.close()
 ```
