@@ -103,6 +103,7 @@
   <a href="#mesaj">Mesaj (BaseMessageStructure)</a>
   <a href="#mesaj-tanim">&nbsp;&nbsp;Tanım ayarları</a>
   <a href="#mesaj-nesne">&nbsp;&nbsp;Nesne API'si</a>
+  <a href="#mesaj-locked">&nbsp;&nbsp;Birlikte yazmak: locked_update</a>
   <a href="#mesaj-kanca">&nbsp;&nbsp;Kancalar (callout)</a>
   <a href="#alanlar">Alan tipleri (FieldType)</a>
   <a href="#alan-hook">&nbsp;&nbsp;Hook'lar</a>
@@ -324,6 +325,18 @@ values = [r.snapshot().speed for r in status.rx_history.since(mark)]</code></pre
 <p>Paketi kanal ve imzaya göre eşleştirir. Dispatcher bunları kullanır; test kodu genelde gerekmez.</p>
 <div class="sig">Cls.clear_registry() <span class="ret">-&gt; None</span></div>
 <p>Projenin bütün kayıtlarını temizler. Testler arasında kullanılabilir.</p>
+
+<h3 id="mesaj-locked">Birlikte yazmak: locked_update</h3>
+<div class="sig">msg.locked_update() <span class="ret">-&gt; kilit</span></div>
+<p>Mesajın kilidini döndürür. Birlikte gitmesi gereken alanlar ve istek bitleri bu kilit altında yazılır:</p>
+<pre><code>with motor.locked_update():
+    motor.speed = 3
+    motor.cmd.mode = 1
+    motor.cmd.startReq = 1          # gönderilmeden silinmez (B12)</code></pre>
+<div class="note"><strong>Kurallar</strong>
+Blok başlarken bu mesajın süren gönderimi (<code>after_send</code> dahil) beklenir; blok sürerken bu mesajın gönderimi başlamaz, yazılanlar aynı pakette birlikte gider.
+Blok kısa tutulur; içinde <code>sleep</code> ya da bekleme olmaz. Blok içinden <code>comm.send(motor)</code> çağrılabilir. Düz atama olduğu için yanlış alan adı hata vermez.
+Düz yazma (blok dışında) kilitsizdir: iki alanın arasına bir paket girebilir.</div>
 
 <h3 id="mesaj-kanca">Kancalar (callout)</h3>
 <p>Bunlar nesne başına eklenen, mesajla ilgili kullanıcı kodlarıdır. Sınıf tanımındaki özel alan hook'larından ayrıdır.</p>

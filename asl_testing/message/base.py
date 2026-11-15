@@ -169,6 +169,18 @@ class BaseMessageStructure(Structure):
         """Copy of the current values, taken in one step; use it to read several fields together."""
         return type(self).from_buffer_copy(bytes(self))
 
+    def locked_update(self):
+        """Lock of the message, to write fields that must go out together:
+
+            with msg.locked_update():
+                msg.speed = 3
+                msg.cmd.mode = 1
+
+        Waits for a send of this message that is running (after_send included); while the block runs,
+        no send of this message starts. Keep the block short: no sleep or wait in it.
+        """
+        return self._lock
+
     def has_new(self) -> int:
         """Valid packets received since the last call; clears the count."""
         return self._rx.check_new() if self._rx is not None else 0

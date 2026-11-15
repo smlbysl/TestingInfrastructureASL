@@ -96,6 +96,85 @@ class LockTests(CommTestCase):
         self.assertEqual((req.peek_sent(), motor.peek_sent()), (1, 1))
 
 
+class HoldingUtsClient(FakeUtsClient):
+    """post() can be held: entered is set when a POST arrives, it waits until release() is called."""
+
+    def __init__(self):
+        super().__init__()
+        self.holding = False
+        self.entered = threading.Event()
+        self._released = threading.Event()
+
+    def release(self) -> None:
+        self.holding = False
+        self._released.set()
+
+    def post(self, path, interface, body, timeout=0.0):
+        if self.holding:
+            self.entered.set()
+            self._released.wait()
+        super().post(path, interface, body, timeout)
+
+
+class LockedUpdateTests(CommTestCase):
+    def setUp(self):
+        self.uts = HoldingUtsClient()
+        self.comm = open_comm(self.uts)
+        self.addCleanup(self.comm.close)
+        self.addCleanup(self.uts.release)
+        self.addCleanup(self.comm.stop_all)
+
+    def sent(self) -> list[motor_cmd]:
+        return [motor_cmd.from_buffer_copy(bytes(body["message"])) for _, _, body in list(self.uts.posted)]
+
+    def wait_until(self, condition) -> bool:
+        deadline = time.monotonic() + self.timeout
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(0.002)
+        return bool(condition())
+
+    def test_fields_written_in_the_block_go_out_together(self):
+        motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.002))
+        self.comm.start(motor)
+        for i in range(1, 6):
+            with motor.locked_update():
+                motor.speed = i * 100
+                time.sleep(0.01)                             # several periods pass in the middle of the block
+                motor.cmd.mode = i
+            time.sleep(0.005)                                # the TX thread gets the lock between the blocks
+        self.assertTrue(self.wait_until(lambda: (500, 5) in [(p.speed, p.cmd.mode) for p in self.sent()]))
+        self.comm.stop(motor)
+        packets = [(p.speed, p.cmd.mode) for p in self.sent()]
+        self.assertIn((500, 5), packets)
+        self.assertEqual([p for p in packets if p != (0, 1) and p[0] != p[1] * 100], [])
+
+    def test_request_bit_written_during_a_send_is_not_lost(self):      # B12
+        motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.01))
+        self.uts.holding = True
+        self.comm.start(motor)
+        self.assertTrue(self.uts.entered.wait(self.timeout))           # the TX thread is inside the POST
+
+        def request():
+            with motor.locked_update():
+                motor.cmd.startReq = 1
+
+        writer = threading.Thread(target=request)
+        writer.start()
+        time.sleep(0.02)
+        self.assertTrue(writer.is_alive())                             # waits for the send and its after_send
+        self.uts.release()
+        writer.join(self.timeout)
+        self.assertTrue(self.wait_until(lambda: any(p.cmd.startReq for p in self.sent())))
+        self.assertTrue(self.wait_until(lambda: motor.cmd.startReq == 0))   # cleared after it went out
+
+    def test_send_inside_the_block(self):
+        motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX)
+        with motor.locked_update():
+            motor.speed = 42
+            self.assertTrue(self.comm.send(motor))
+        self.assertEqual(self.sent()[-1].speed, 42)
+
+
 class ClientLockTests(unittest.TestCase):
     def test_lock_per_interface(self):
         uts = FakeUtsClient()

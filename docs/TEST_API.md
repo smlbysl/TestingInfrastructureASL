@@ -57,6 +57,7 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `msg.peek_new()` | Aynısı, sıfırlamadan | Evet | Evet |
 | `msg.rx_history` | Gelen paketler sırayla (son N): `mark()`, `since(mark)`, `last()`, `wait_for(...)`, `dropped`, `capacity` | Evet | Evet |
 | `msg.snapshot()` | Canlı nesnenin tek kopyayla alınmış hali; birden fazla alanı aynı paketten okumak için | Evet | Evet |
+| `with msg.locked_update(): ...` | Mesajın kilidi: bloktaki yazmalar aynı pakette birlikte gider, istek biti kaybolmaz; süren gönderimi bekler | Evet | Evet |
 | `msg.rx_timestamp` | UTS'ten gelen son paketin zamanı | Evet | Evet |
 | `msg.rx_host_time` | Bu makinenin saatinde son paket zamanı | Evet | Evet |
 | `msg.rx_age` | Son paketten bu yana geçen süre | Evet | Evet |

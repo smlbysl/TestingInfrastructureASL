@@ -79,6 +79,26 @@ motor.cmd.startReq = 1          # bit alanı
 req.request[1] = 50             # dizi elemanı
 ```
 
+Düz yazma kilitsizdir: periyodik gönderilen bir mesajda iki alanın arasına bir paket girebilir ve gönderim sırasında
+yazılan istek biti `after_send` tarafından silinebilir (B12). Birlikte gitmesi gereken alanlar ve istek bitleri
+mesajın kilidi altında yazılır:
+
+```python
+with motor.locked_update():
+    motor.speed = 3
+    motor.cmd.mode = 1
+    motor.cmd.startReq = 1
+```
+
+- Blok başlarken bu mesajın süren bir gönderimi varsa (`after_send` dahil) bitmesi beklenir; blok sürerken bu
+  mesajın gönderimi (periyodik ya da `comm.send`) başlamaz. Yazılanlar aynı pakette, birlikte gider.
+- İstek biti blok içinde yazılırsa `after_send` onu gönderilmeden silemez (B12).
+- Blok kısa tutulur: içinde `sleep`, `wait_new`, `wait_for` olmaz. Blok sürerken bu mesajın periyodik gönderimi
+  bekler; aynı kanaldaki diğer mesajlar etkilenmez.
+- Blokları arada hiç beklemeden arka arkaya açan bir döngü, periyodik gönderimin kilidi almasını geciktirebilir
+  (Python kilidi bekleyenler arasında sıra garantisi vermez).
+- Blok içinden `comm.send(motor)` çağrılabilir. Düz atama olduğu için yanlış alan adı hata vermez.
+
 Her gönderimde bir değeri o an hesaplamak için `on_send` kancası kullanılır:
 
 ```python

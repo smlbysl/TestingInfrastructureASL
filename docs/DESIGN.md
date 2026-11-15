@@ -272,10 +272,9 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
 - Length = signature olan sabit boylu mesajlarla değişken boylu (kanala göre) bir mesaj aynı kanaldaysa, değişken
   paketin boyu sabit bir mesajın boyuna eşit olduğunda paketi sabit mesaj alır (signature önce denenir; CRC de
   tutabilir). Bu boylar çakışmamalı ya da signature'a ayırt edici başka bir alan eklenmeli.
-- Periyodik gönderimde `after_send` yarışı (B12): test thread'i istek bitini pack ile after_send arasında yazarsa
-  sıfırlama bu değeri siler (istek gitmez). **Bilinçli kullanım:** tek seferlik istek bitleri periyodik mesaj
-  üzerinden değiştirilecekse bu risk bilinerek yapılır; gerekmiyorsa `comm.send()` ile tek seferlik gönderim
-  kullanılır (yarış oluşmaz). Olası iyileştirme aşağıda.
+- Periyodik gönderimde `after_send` yarışı (B12): `with msg.locked_update():` ile çözüldü. `locked_update()` mesajın
+  kilidini döndürür (ek API yok; `update(...)` fonksiyonu, yol önbelleği ve erteleme eklenmedi: blok kısa tutulur).
+  Düz yazmada test thread'i biti pack ile after_send arasında yazarsa sıfırlama bu değeri siler.
 - **RX doğrulamada kilitlenme (K1, çözüldü):** değişken boylu mesajda uzunluk alanı checksum boyundan küçük
   gelince RxPoller thread'i ölüyordu. Artık `LengthType.on_receive` alt sınırı (`min_length`) kontrol ediyor,
   `validate()` hook istisnasında `False` dönüyor, RX döngüsü tek paketteki hatayı loglayıp devam ediyor.
@@ -532,5 +531,6 @@ kanal içi sıra korunur.
 2. Client'ta interface kilidi. **Uygulandı** (mesaj kilidiyle birlikte, thread'lerden önce).
 3. RX: kanal başına thread, denetçi, `UtsClock` kilidi. **Uygulandı.**
 4. TX: kanal başına thread ve mesaj kilidi. **Uygulandı.** Kanal kaydı için iç kilit (denetçiye bırakmak yerine).
-5. Sonra: `update()` ve erteleme (Tasarım 1).
+5. Tasarım 1'in sade hali: `with msg.locked_update():` (mesaj kilidini döndürür). **Uygulandı.** `update(...)`,
+   yol önbelleği ve erteleme eklenmedi.
 
