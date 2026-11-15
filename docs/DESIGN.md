@@ -511,7 +511,7 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
    kancalar kanal kilidi dışında. Testler kilitsiz kodda başarısız olduğu doğrulandı (blok, B12, snapshot, erteleme);
    argümanlı biçimin "karışmama" testi kilitsiz kodda da geçer (GIL iki yazma arasında nadiren değişir), asıl
    kanıt blok testi.
-8. `TxLate`, kaçan periyotları atlama, performans ölçümü (keep-alive, POST süresi).
+8. TX zamanlaması. **Ertelendi** (normal çalışmada davranışı değiştirmez; tasarımı aşağıda "Adım 8: TX zamanlaması").
 9. İhtiyaç olunca: `Bench` ve cihaz katmanı, tam UTS istemcisi, UTS periyodik gönderimi, CameraLink.
 
 **Açık sorular (UTS).** `GET-index` ne döndürür; `complete` ne zaman gerekir; Ethernet ve 1553 cevapları seri ile
@@ -538,3 +538,29 @@ kopunca test bunu öğrenir ve durur.
   `backend/uts/backend.py` ~15, `services/errors.py` ~4, `tests/base.py` ~10, testler ~120.
 - Karar bekleyenler: varsayılan eşik (5 sn, en az 3 hata); varsayılan davranış (`abort` / `warn`); 400 / 404'ün
   hemen düşürmesi; ilk kopmadan sonra kalan testlerin atlanması.
+
+**Adım 8: TX zamanlaması (tasarlandı, ertelendi).** Amaç: periyodik gönderim yetişemediğinde (POST periyottan uzun,
+istek takıldı, uzun `update` bloğu) ne olacağını belirlemek ve görünür kılmak. Periyot POST süresinden uzunsa ve istek
+takılmıyorsa hiçbir parçası davranışı değiştirmez.
+- Bugün: bir sonraki zaman `due + period`. Geride kalınca:
+  - periyot kapasiteden kısaysa (1 ms periyot, ~4,3 ms POST) thread aralıksız gönderir, gecikme sınırsız büyür,
+    bildiren yok (230/s ölçümü); aynı kanaldaki diğer periyodik mesajların zamanlaması da bozulur;
+  - istek takılıp düzelirse kaçan bütün periyotlar art arda gider (10 ms periyot, 2 sn timeout → 200 paket peş peşe).
+    Bu hatta gerçek trafik olarak görünür; kanal başına thread ve 2–3 sn timeout ile gerçek bir risk.
+- Kaçan periyotları atla, fazı koru (öneri): gönderimden sonra `due + period` geçmişse şimdiden sonraki ilk
+  `due + k * period`'a atlanır; yetişmeye çalışılmaz, zaman ızgarası korunur. Atlanan sayısı TX durumunda sayılır.
+  Diğer seçenekler: bugünkü gibi art arda göndermek; atlayıp zamanı "şimdi"den yeniden başlatmak (faz kayar).
+  Maliyet ~5 satır, 2–3 test. Hatadan sonra hatta yanlış trafik gitmesini önlediği için ilk ele alınacak parça.
+- `TxLate(message, late, skipped)` / `TxOnTime(message)`: `RxTimeout` / `RxRestored` gibi sadece durum değişiminde;
+  en az bir periyot atlanınca bir kez WARNING, yeniden zamanında gidince bir kez INFO. `ErrorLog` yazar.
+  Eşik seçenekleri: bir periyot atlanması (öneri) ya da mesajın `Timing` toleransı.
+- Uzun `update` bloğu: bir periyottan kısa erteleme sadece gecikmedir; bir periyottan uzun sürerse periyot atlanır
+  ve `TxLate` gelir (blok sessiz kalmaz).
+- Mesaj başına TX istatistiği: `msg.tx_skipped`, `msg.tx_late_max`, `msg.tx_elapsed_max` / `tx_elapsed_avg`
+  (istek süreleri; istenen periyotta gidebildi mi testten okunur).
+- Ölçüm betiği `examples/measure_tx.py` (isteğe bağlı): gerçek UTS'te bir ya da iki interface'te verilen periyotla
+  gönderir; gerçekleşen hızı, istek sürelerini, atlanan periyotları yazar (keep-alive, iki interface paralel ölçümü).
+- Tahmini maliyet: `runtime/tx.py` ~25 satır, `message/state.py` ~15, `message/base.py` ~10, `events/types.py` ~15,
+  `services/errors.py` ~4, ölçüm betiği ~50, testler ~90 (takılmadan sonra patlama yok, faz korunur, olaylar birer
+  kez, istatistik, kısa blok olay üretmez).
+- Karar bekleyenler: yetişememe politikası; `TxLate` eşiği; ölçüm betiği.
