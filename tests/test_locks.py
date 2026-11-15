@@ -61,10 +61,13 @@ class LockTests(CommTestCase):
         self.addCleanup(self.comm.stop, motor)
         for _ in range(40):
             self.comm.send(motor)                            # the test thread, while the TX thread sends it too
+        deadline = time.monotonic() + self.timeout
+        while len(self.uts.posted) < 50 and time.monotonic() < deadline:
+            time.sleep(0.001)                                # the TX thread sends some more on its own
         self.comm.stop(motor)
         counters = [motor_cmd.from_buffer_copy(bytes(body["message"])).messageCounter.val
                     for _, _, body in list(self.uts.posted)]
-        self.assertGreater(len(counters), 40)
+        self.assertGreaterEqual(len(counters), 50)
         self.assertEqual(len(counters), len(set(counters)))
         self.assertEqual(counters, sorted(counters))
 
