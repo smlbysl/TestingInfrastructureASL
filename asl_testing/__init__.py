@@ -9,7 +9,7 @@ Sub-packages (each uses only the ones below it):
     services/    CSV log, error log, monitor
     runtime/     transport, RX poller, dispatcher, TX scheduler
     events/      event types, event bus
-    uts/         UTS client (HTTP, fake) with the protocol definitions, UTS control
+    adapter/     Adapter (what the core needs); adapter/uts: UtsAdapter, protocol definitions, fake
     channel/     channels, framing
     message/     message model
 """
@@ -32,18 +32,17 @@ from asl_testing.channel.channel import Channel, ChannelSet, EthernetChannel, Mi
 from asl_testing.channel.framing import Envelope, Framing, Splitter
 
 # protocol definitions of UTS (one class per protocol name)
-from asl_testing.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Received, Rs422Protocol
+from asl_testing.adapter.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Rs422Protocol
 
 # events
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, MessageReceived, MessageSent,
                                       RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
 
-# UTS
-from asl_testing.uts.client import UtsClient, UtsError
-from asl_testing.uts.control import UtsControl
-from asl_testing.uts.fake import FakeUtsClient
-from asl_testing.uts.http import HttpUtsClient
+# adapters
+from asl_testing.adapter.base import Adapter, AdapterError, Received
+from asl_testing.adapter.uts.adapter import UtsAdapter
+from asl_testing.adapter.uts.fake import FakeUtsAdapter
 
 # services
 from asl_testing.services.errors import ErrorLog
@@ -57,6 +56,6 @@ __all__ = [
     "Framing", "Envelope", "Splitter", "Protocol", "Received", "EthernetProtocol", "Rs422Protocol", "Mil1553Protocol",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
-    "UtsClient", "UtsError", "UtsControl", "FakeUtsClient", "HttpUtsClient",
+    "Adapter", "AdapterError", "UtsAdapter", "FakeUtsAdapter",
     "ErrorLog", "CommLogger", "MonitorService",
 ]

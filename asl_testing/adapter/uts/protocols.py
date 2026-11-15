@@ -1,10 +1,10 @@
 """Protocol definitions of UTS: how the bytes of one bus type are written to and read from UTS.
 
-The UTS client holds one definition per protocol name; a channel only names its protocol.
+The UTS adapter holds one definition per protocol name; a channel only names its protocol.
 
     encode(channel, data)             TX: bytes on the line -> body of the UTS POST
     decode(channel, item)             RX: one item of the UTS GET -> Received(bytes, time)
-    simulate(channel, data, time)     the item UTS would return (used by FakeUtsClient)
+    simulate(channel, data, time)     the item UTS would return (used by FakeUtsAdapter)
 
 Ethernet, RS422 (UTS path: serials):
     POST body : {"message": [b0, b1, ...]}
@@ -37,14 +37,9 @@ To check with the real UTS: field names and timestamp unit (time_unit = seconds 
 
 __author__ = "İsmail Baysal"
 
-from dataclasses import dataclass
 from typing import Optional
 
-
-@dataclass(frozen=True)
-class Received:
-    data: bytes                         # bytes on the line
-    timestamp: Optional[float]          # UTS time in seconds
+from asl_testing.adapter.base import Received
 
 
 class Protocol:

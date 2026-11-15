@@ -35,8 +35,8 @@ class CommLoggerTests(CommTestCase):
         ch = rx.channel
         bad = bytearray(comut(DEST, SRC, 0x20, direction=Direction.TX).pack())
         bad[-1] ^= 0xFF
-        self.uts.inject(ch, bytes(bad))
-        self.uts.inject(ch, b"\x99" * 12)
+        self.adapter.inject(ch, bytes(bad))
+        self.adapter.inject(ch, b"\x99" * 12)
         deadline = time.monotonic() + self.timeout
         while len(self.comm.unknown) < 1 and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -68,7 +68,7 @@ class ErrorLogTests(CommTestCase):
         def unreachable(*args):
             raise ConnectionError("UTS unreachable")
 
-        self.uts.post = unreachable
+        self.adapter.post = unreachable
         self.assertFalse(self.comm.send(request(SRC, DEST, 0x10, direction=Direction.TX)))
         time.sleep(0.05)
         text = self.text()

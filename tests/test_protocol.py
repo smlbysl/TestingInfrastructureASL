@@ -1,12 +1,12 @@
-"""Protocol definitions of the UTS client: Ethernet and RS422 (UTS post / get)."""
+"""Protocol definitions of the UTS adapter: Ethernet and RS422 (UTS post / get)."""
 
 __author__ = "İsmail Baysal"
 
 import time
 import unittest
 
-from asl_testing import (Direction, EthernetChannel, EthernetProtocol, FakeUtsClient, LinkError, Rs422Channel,
-                         Rs422Protocol, UnknownReceived, UtsError)
+from asl_testing import (Direction, EthernetChannel, EthernetProtocol, FakeUtsAdapter, LinkError, Rs422Channel,
+                         Rs422Protocol, UnknownReceived, AdapterError)
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
 from tests.base import CommTestCase
@@ -47,27 +47,27 @@ class EthernetProtocolTests(unittest.TestCase):
         self.assertAlmostEqual(received.timestamp, 1.5)
 
 
-class ClientProtocolTests(unittest.TestCase):
-    def test_client_finds_the_definition_by_the_channel_protocol(self):
-        uts = FakeUtsClient()
-        self.assertIsInstance(uts.protocol(SER), Rs422Protocol)
-        self.assertIsInstance(uts.protocol(ETH), EthernetProtocol)
+class AdapterProtocolTests(unittest.TestCase):
+    def test_adapter_finds_the_definition_by_the_channel_protocol(self):
+        adapter = FakeUtsAdapter()
+        self.assertIsInstance(adapter.protocol(SER), Rs422Protocol)
+        self.assertIsInstance(adapter.protocol(ETH), EthernetProtocol)
 
-    def test_time_unit_of_the_client_reaches_every_definition(self):
-        uts = FakeUtsClient(time_unit=1e-6)
-        self.assertEqual({p.time_unit for p in uts.protocols.values()}, {1e-6})
+    def test_time_unit_of_the_adapter_reaches_every_definition(self):
+        adapter = FakeUtsAdapter(time_unit=1e-6)
+        self.assertEqual({p.time_unit for p in adapter.protocols.values()}, {1e-6})
 
     def test_timeout_of_each_protocol(self):
-        uts = FakeUtsClient()
-        self.assertEqual({name: uts.timeout_of(p) for name, p in uts.protocols.items()},
+        adapter = FakeUtsAdapter()
+        self.assertEqual({name: adapter.timeout_of(p) for name, p in adapter.protocols.items()},
                          {"ethernet": 2.0, "rs422": 3.0, "mil1553": 2.0})
 
-    def test_timeout_given_to_the_client_is_used_for_every_protocol(self):
-        uts = FakeUtsClient(timeout=0.5)
-        self.assertEqual({uts.timeout_of(p) for p in uts.protocols.values()}, {0.5})
+    def test_timeout_given_to_the_adapter_is_used_for_every_protocol(self):
+        adapter = FakeUtsAdapter(timeout=0.5)
+        self.assertEqual({adapter.timeout_of(p) for p in adapter.protocols.values()}, {0.5})
 
     def test_every_request_gets_the_timeout(self):
-        class RecordingClient(FakeUtsClient):
+        class RecordingAdapter(FakeUtsAdapter):
             def __init__(self, **kw):
                 super().__init__(**kw)
                 self.timeouts = []
@@ -80,25 +80,25 @@ class ClientProtocolTests(unittest.TestCase):
                 self.timeouts.append(("GET", path, timeout))
                 return super().get(path, interface, timeout)
 
-        uts = RecordingClient()
-        uts.send(SER, b"\x01")
-        uts.receive(ETH)
-        self.assertEqual(uts.timeouts, [("POST", "serials", 3.0), ("GET", "ethernet", 2.0)])
-        uts = RecordingClient(timeout=0.5)
-        uts.send(SER, b"\x01")
-        self.assertEqual(uts.timeouts, [("POST", "serials", 0.5)])
+        adapter = RecordingAdapter()
+        adapter.send(SER, b"\x01")
+        adapter.receive(ETH)
+        self.assertEqual(adapter.timeouts, [("POST", "serials", 3.0), ("GET", "ethernet", 2.0)])
+        adapter = RecordingAdapter(timeout=0.5)
+        adapter.send(SER, b"\x01")
+        self.assertEqual(adapter.timeouts, [("POST", "serials", 0.5)])
 
     def test_channel_with_an_unknown_protocol_is_an_error(self):
         class OtherChannel(Rs422Channel):
             protocol = "other"
         with self.assertRaises(ValueError):
-            FakeUtsClient().send(OtherChannel(0), b"")
+            FakeUtsAdapter().send(OtherChannel(0), b"")
 
 
 class EthernetThroughCommTests(CommTestCase):
     def test_tx_goes_to_post(self):
         self.send(bambaşka(0x07, SRC, 0x40, direction=Direction.TX))          # DIAG: Ethernet with header
-        path, interface, body = self.uts.posted[-1]
+        path, interface, body = self.adapter.posted[-1]
         self.assertEqual((path, interface), ("ethernet", 1))
         self.assertEqual(body["message"][:2], [0x55, 0xAA])                    # the header is on the line
 
@@ -111,7 +111,7 @@ class EthernetThroughCommTests(CommTestCase):
 
     def test_rs422_goes_to_post(self):
         self.send(comut(SRC, DEST, 0x21, direction=Direction.TX))              # CONTROL: RS422
-        path, interface, body = self.uts.posted[-1]
+        path, interface, body = self.adapter.posted[-1]
         self.assertEqual((path, interface), ("serials", 0))
         self.assertTrue(comut(SRC, DEST, 0x21).validate(bytes(body["message"])))  # the packet, as a list of bytes
 
@@ -119,7 +119,7 @@ class EthernetThroughCommTests(CommTestCase):
         events = []
         self.comm.subscribe(UnknownReceived, events.append)
         self.comm.listen(MyChannels.DIAG)                                      # no RX message on DIAG here
-        self.uts.inject(MyChannels.DIAG, b"\x01\x02\x03")                    # no header
+        self.adapter.inject(MyChannels.DIAG, b"\x01\x02\x03")                    # no header
         deadline = time.monotonic() + self.timeout
         while not events and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -137,9 +137,9 @@ class EthernetThroughCommTests(CommTestCase):
         self.comm.subscribe(LinkError, errors.append)
 
         def no_answer(path, interface, body, timeout):
-            raise UtsError(f"no answer within {timeout} s")
+            raise AdapterError(f"no answer within {timeout} s")
 
-        self.uts.post = no_answer
+        self.adapter.post = no_answer
         msg = comut(SRC, DEST, 0x21, direction=Direction.TX)
         self.assertFalse(self.comm.send(msg))
         self.assertEqual(msg.peek_sent(), 0)
@@ -155,7 +155,7 @@ class EthernetThroughCommTests(CommTestCase):
         def unreachable(*args):
             raise ConnectionError("UTS unreachable")
 
-        self.uts.post = unreachable
+        self.adapter.post = unreachable
         msg = comut(SRC, DEST, 0x21, direction=Direction.TX)
         self.assertFalse(self.comm.send(msg))
         self.assertEqual(msg.peek_sent(), 0)                                   # not counted as sent

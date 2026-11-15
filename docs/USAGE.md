@@ -7,7 +7,7 @@ Bu belge nasıl yazılacağını gösterir. Her arayüzün ayrıntılı listesi,
 Test yazarken bütün isimler tek bir yerden gelir:
 
 ```python
-from asl_testing import Comm, FakeUtsClient, Timing, Direction, MessageReceived
+from asl_testing import Comm, FakeUtsAdapter, Timing, Direction, MessageReceived
 ```
 
 Kütüphanenin iç modüllerine (`asl_testing.runtime`, `asl_testing.message.state` ...) test kodunda gerek yoktur. Mesaj tanımları (`comut`, `request` gibi) ve kanallar proje tarafında tanımlanır ve proje modülünden import edilir. Örnek proje `projects/example_project/` altındadır.
@@ -19,11 +19,11 @@ Bu belge, sık yapılan işler için ne yazacağını gösterir. Tam isim listes
 ## 1. Kurulum
 
 ```python
-from asl_testing import Comm, FakeUtsClient
+from asl_testing import Comm, FakeUtsAdapter
 from projects.example_project.header import ProjectBase
 
-uts = FakeUtsClient()                  # gerçek cihazda HttpUtsClient
-comm = Comm(uts, [ProjectBase])
+adapter = FakeUtsAdapter()             # gerçek cihazda kendi UtsAdapter alt sınıfınız (bkz. bölüm 6)
+comm = Comm(adapter, [ProjectBase])
 comm.open()                            # RX ve TX thread'leri başlar (kanal başına)
 ...
 comm.close()
@@ -32,7 +32,7 @@ comm.close()
 `with` ile de kullanılabilir:
 
 ```python
-with Comm(uts, [ProjectBase]) as comm:
+with Comm(adapter, [ProjectBase]) as comm:
     ...
 ```
 
@@ -242,22 +242,22 @@ Olayın içinde `ev.message`, `ev.raw` (envelope'suz mesaj baytları; tel üzeri
 
 ## 5. Hedefi taklit etmek (simülasyon)
 
-`FakeUtsClient` gerçek cihazın yerine geçer. Cihazın ürettiği paketi `inject` ile verirsin:
+`FakeUtsAdapter` gerçek cihazın yerine geçer. Cihazın ürettiği paketi `inject` ile verirsin:
 
 Cihazın gönderdiği paket, kanalın başlığıyla birlikte enjekte edilir:
 
 ```python
 ch = status.channel
 wire = ch.framing.envelope.on_send(status.pack())      # başlık varsa eklenir, yoksa değişmez
-uts.inject(ch, wire)
+adapter.inject(ch, wire)
 ```
 
-`inject` paketi kanalın protokol tanımına (UTS client'taki) göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
-1553: 16 bitlik değer listesi). Gönderilenleri kontrol etmek için `uts.posted` kullanılır:
+`inject` paketi kanalın protokol tanımına (`UtsAdapter`'daki) göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
+1553: 16 bitlik değer listesi). Gönderilenleri kontrol etmek için `adapter.posted` kullanılır:
 
 ```python
 comm.send(req)
-path, interface, body = uts.posted[-1]                 # ("serials", 0, {"message": [...]})
+path, interface, body = adapter.posted[-1]                 # ("serials", 0, {"message": [...]})
 ```
 
 Bozuk paket göndermek için baytları değiştirip enjekte edersin:
@@ -265,7 +265,7 @@ Bozuk paket göndermek için baytları değiştirip enjekte edersin:
 ```python
 bad = bytearray(wire)
 bad[-1] ^= 0xFF                                        # son bayt (CRC) bozuk
-uts.inject(ch, bytes(bad))
+adapter.inject(ch, bytes(bad))
 ```
 
 Sonuç `InvalidReceived` olarak görülür.
@@ -276,37 +276,37 @@ Periyodik cihaz davranışı için bir thread yazıp `inject` çağırmak yeterl
 
 ## 6. UTS yapılandırması ve filtreler
 
-`comm.control` UTS'in ayarlarına ve filtrelerine doğrudan erişir:
+`comm.adapter` UTS'in ayarlarına ve filtrelerine doğrudan erişir:
 
 ```python
-comm.control.set_config(channel, ...)        # hedefin yapılandırması (alan adları örnekte)
-comm.control.get_config(channel)
-comm.control.add_filter(status)              # mesajın imzası UTS filtresine eklenir
-comm.control.remove_filter(status)
-comm.control.get_filter(channel)
-comm.control.clear_filter(channel)
+comm.adapter.set_config(channel, ...)        # hedefin yapılandırması (alan adları örnekte)
+comm.adapter.get_config(channel)
+comm.adapter.add_filter(status)              # mesajın imzası UTS filtresine eklenir
+comm.adapter.remove_filter(status)
+comm.adapter.get_filter(channel)
+comm.adapter.clear_filter(channel)
 ```
 
 Hedef olarak kanal ya da mesaj verilebilir.
 
 **İstek timeout'u.** Her UTS isteği cevabı sınırlı süre bekler: Ethernet ve 1553'te 2 sn, RS422'de 3 sn (GET için
-de aynı). Süre dolarsa istek başarısız sayılır (`UtsError`); tekrar denenmez. Gönderimde `comm.send` `False` döner ve
+de aynı). Süre dolarsa istek başarısız sayılır (`AdapterError`); tekrar denenmez. Gönderimde `comm.send` `False` döner ve
 `LinkError` yayınlanır. Hepsi için tek değer vermek istersen:
 
 ```python
-uts = FakeUtsClient(timeout=5.0)        # gerçek client için de aynı parametre
+adapter = FakeUtsAdapter(timeout=5.0)   # gerçek adaptör için de aynı parametre
 ```
 
-Gerçek UTS client'ı yazarken `post` ve `get` bu süreyi `timeout` parametresi olarak alır; süre içinde cevap gelmezse
-`UtsError` fırlatmalıdır.
+Gerçek `UtsAdapter`'ı yazarken `post` ve `get` bu süreyi `timeout` parametresi olarak alır; süre içinde cevap gelmezse
+`AdapterError` fırlatmalıdır.
 
-Hatalar `UtsError` olarak fırlatılır:
+Hatalar `AdapterError` olarak fırlatılır:
 
 ```python
-from asl_testing import UtsError
+from asl_testing import AdapterError
 try:
-    comm.control.set_config(channel, ...)
-except UtsError as e:
+    comm.adapter.set_config(channel, ...)
+except AdapterError as e:
     ...
 ```
 
@@ -374,10 +374,10 @@ class MyChannels(ChannelSet):
 ### Protokol: UTS'e ne gider
 
 Kanal sadece protokolünün adını taşır (`ch.protocol`: `"ethernet"`, `"rs422"`, `"mil1553"`). O protokolün UTS'te
-nasıl yazıldığı UTS client'taki tanımdadır: hattaki baytları UTS isteğine çevirir, UTS'ten geleni geri baytlara çevirir.
+nasıl yazıldığı `UtsAdapter`'daki tanımdadır: hattaki baytları UTS isteğine çevirir, UTS'ten geleni geri baytlara çevirir.
 Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde aynıdır.
 
-| Kanal | Protokol tanımı (UTS client) | UTS yolu | UTS'e giden / UTS'ten gelen |
+| Kanal | Protokol tanımı (`UtsAdapter`) | UTS yolu | UTS'e giden / UTS'ten gelen |
 |---|---|---|---|
 | `EthernetChannel` | `EthernetProtocol` | `/ethernet` | `{"message": [b0, b1, ...], "timestamp": t}` |
 | `Rs422Channel` | `Rs422Protocol` | `/serials` | `{"message": [b0, b1, ...], "timestamp": t}` |
@@ -386,16 +386,16 @@ Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde a
 Ayarın yeri, neye bağlı olduğuna göre:
 
 - 1553 kelime sırası projenin mesaj yapısına bağlıdır, kanalda verilir.
-- UTS zaman birimi UTS'e bağlıdır, client'ta verilir.
+- UTS zaman birimi UTS'e bağlıdır, adaptörde verilir.
 
 ```python
 class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
 
-uts = FakeUtsClient(time_unit=1e-6)                # UTS zamanı mikrosaniye ise (gerçek client için de aynı)
+adapter = FakeUtsAdapter(time_unit=1e-6)            # UTS zamanı mikrosaniye ise (gerçek adaptör için de aynı)
 ```
 
-Gönderim, alım ve sahte UTS (`uts.inject(kanal, ...)`) aynı tanımı client'tan, kelime sırasını kanaldan alır.
+Gönderim, alım ve sahte UTS (`adapter.inject(kanal, ...)`) aynı tanımı adaptörden, kelime sırasını kanaldan alır.
 
 ### 1553 mesajı tanımlamak
 
@@ -473,5 +473,5 @@ assert len(comm.unknown) == 0
 
 - **Hata enjeksiyonu** (CRC, uzunluk, bit bozma): tasarlandı, henüz eklenmedi. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Gönderim sırası `pack()` → fault → envelope → UTS.
 - **`comm.unsubscribe`** kısayolu: şimdilik `comm.bus.unsubscribe(sub)`.
-- **Gerçek HTTP UTS istemcisi:** `HttpUtsClient` henüz taslak (`post` / `get` UTS API'si netleşince yazılacak).
+- **Gerçek UTS adaptörü:** `UtsAdapter`'ın alt sınıfı olarak yazılacak (`post` / `get` eldeki `ApiWrapper` ile).
 - **CAN:** kanal sınıfı ve protokol tanımı yok.

@@ -6,14 +6,14 @@ import threading
 import time
 import unittest
 
-from asl_testing import Direction, FakeUtsClient, Timing
+from asl_testing import Direction, FakeUtsAdapter, Timing
 from projects.example_project.messages import motor_cmd, request, ser_cmd
 from projects.example_project.types import Counter8
 from tests.base import CommTestCase, open_comm
 from tests.settings import DEST, SRC
 
 
-class SlowUtsClient(FakeUtsClient):
+class SlowUtsAdapter(FakeUtsAdapter):
     """Every POST takes `delay` seconds; counts how many POSTs run at the same time."""
 
     def __init__(self, delay: float = 0.0):
@@ -33,10 +33,10 @@ class SlowUtsClient(FakeUtsClient):
 
 
 class LockTests(CommTestCase):
-    def use(self, uts: SlowUtsClient) -> None:
+    def use(self, adapter: SlowUtsAdapter) -> None:
         self.comm.close()
-        self.uts = uts
-        self.comm = open_comm(uts)
+        self.adapter = adapter
+        self.comm = open_comm(adapter)
         self.addCleanup(self.comm.close)
 
     def send_together(self, *messages) -> None:
@@ -47,7 +47,7 @@ class LockTests(CommTestCase):
             thread.join(self.timeout)
 
     def test_one_message_from_two_threads_never_repeats_its_counter(self):
-        self.use(SlowUtsClient())
+        self.use(SlowUtsAdapter())
         counter_on_send = Counter8.on_send
 
         def slow_counter(field, msg):                        # widens the time between reading and writing the counter
@@ -62,27 +62,27 @@ class LockTests(CommTestCase):
         for _ in range(40):
             self.comm.send(motor)                            # the test thread, while the TX thread sends it too
         deadline = time.monotonic() + self.timeout
-        while len(self.uts.posted) < 50 and time.monotonic() < deadline:
+        while len(self.adapter.posted) < 50 and time.monotonic() < deadline:
             time.sleep(0.001)                                # the TX thread sends some more on its own
         self.comm.stop(motor)
         counters = [motor_cmd.from_buffer_copy(bytes(body["message"])).messageCounter.val
-                    for _, _, body in list(self.uts.posted)]
+                    for _, _, body in list(self.adapter.posted)]
         self.assertGreaterEqual(len(counters), 50)
         self.assertEqual(len(counters), len(set(counters)))
         self.assertEqual(counters, sorted(counters))
 
     def test_posts_on_one_interface_do_not_overlap(self):
-        self.use(SlowUtsClient(delay=0.05))
+        self.use(SlowUtsAdapter(delay=0.05))
         self.send_together(motor_cmd(SRC, DEST, 0x30, direction=Direction.TX),       # both on CONTROL
                            request(SRC, DEST, 0x10, direction=Direction.TX))
-        self.assertEqual((len(self.uts.posted), self.uts.most), (2, 1))
+        self.assertEqual((len(self.adapter.posted), self.adapter.most), (2, 1))
 
     def test_posts_on_different_interfaces_do_not_wait(self):
-        self.use(SlowUtsClient(delay=0.05))
+        self.use(SlowUtsAdapter(delay=0.05))
         started = time.monotonic()
         self.send_together(motor_cmd(SRC, DEST, 0x30, direction=Direction.TX),       # CONTROL
                            ser_cmd(SRC, DEST, 0x50, direction=Direction.TX))         # SER2
-        self.assertEqual((len(self.uts.posted), self.uts.most), (2, 2))
+        self.assertEqual((len(self.adapter.posted), self.adapter.most), (2, 2))
         self.assertLess(time.monotonic() - started, 0.09)
 
     def test_hook_may_send_another_message(self):
@@ -96,7 +96,7 @@ class LockTests(CommTestCase):
         self.assertEqual((req.peek_sent(), motor.peek_sent()), (1, 1))
 
 
-class HoldingUtsClient(FakeUtsClient):
+class HoldingUtsAdapter(FakeUtsAdapter):
     """post() can be held: entered is set when a POST arrives, it waits until release() is called."""
 
     def __init__(self):
@@ -118,14 +118,14 @@ class HoldingUtsClient(FakeUtsClient):
 
 class LockedUpdateTests(CommTestCase):
     def setUp(self):
-        self.uts = HoldingUtsClient()
-        self.comm = open_comm(self.uts)
+        self.adapter = HoldingUtsAdapter()
+        self.comm = open_comm(self.adapter)
         self.addCleanup(self.comm.close)
-        self.addCleanup(self.uts.release)
+        self.addCleanup(self.adapter.release)
         self.addCleanup(self.comm.stop_all)
 
     def sent(self) -> list[motor_cmd]:
-        return [motor_cmd.from_buffer_copy(bytes(body["message"])) for _, _, body in list(self.uts.posted)]
+        return [motor_cmd.from_buffer_copy(bytes(body["message"])) for _, _, body in list(self.adapter.posted)]
 
     def wait_until(self, condition) -> bool:
         deadline = time.monotonic() + self.timeout
@@ -150,9 +150,9 @@ class LockedUpdateTests(CommTestCase):
 
     def test_request_bit_written_during_a_send_is_not_lost(self):      # B12
         motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.01))
-        self.uts.holding = True
+        self.adapter.holding = True
         self.comm.start(motor)
-        self.assertTrue(self.uts.entered.wait(self.timeout))           # the TX thread is inside the POST
+        self.assertTrue(self.adapter.entered.wait(self.timeout))           # the TX thread is inside the POST
 
         def request():
             with motor.locked_update():
@@ -162,7 +162,7 @@ class LockedUpdateTests(CommTestCase):
         writer.start()
         time.sleep(0.02)
         self.assertTrue(writer.is_alive())                             # waits for the send and its after_send
-        self.uts.release()
+        self.adapter.release()
         writer.join(self.timeout)
         self.assertTrue(self.wait_until(lambda: any(p.cmd.startReq for p in self.sent())))
         self.assertTrue(self.wait_until(lambda: motor.cmd.startReq == 0))   # cleared after it went out
@@ -175,12 +175,12 @@ class LockedUpdateTests(CommTestCase):
         self.assertEqual(self.sent()[-1].speed, 42)
 
 
-class ClientLockTests(unittest.TestCase):
+class AdapterLockTests(unittest.TestCase):
     def test_lock_per_interface(self):
-        uts = FakeUtsClient()
-        self.assertIs(uts._post_lock("serials", 0), uts._post_lock("serials", 0))
-        self.assertIsNot(uts._post_lock("serials", 0), uts._post_lock("serials", 2))
-        self.assertIsNot(uts._post_lock("serials", 1), uts._post_lock("ethernet", 1))
+        adapter = FakeUtsAdapter()
+        self.assertIs(adapter._post_lock("serials", 0), adapter._post_lock("serials", 0))
+        self.assertIsNot(adapter._post_lock("serials", 0), adapter._post_lock("serials", 2))
+        self.assertIsNot(adapter._post_lock("serials", 1), adapter._post_lock("ethernet", 1))
 
 
 if __name__ == "__main__":

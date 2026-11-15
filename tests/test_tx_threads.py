@@ -5,7 +5,7 @@ __author__ = "İsmail Baysal"
 import threading
 import time
 
-from asl_testing import Direction, FakeUtsClient, Timing
+from asl_testing import Direction, FakeUtsAdapter, Timing
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut, motor_cmd, request, ser_cmd
 from tests.base import CommTestCase, open_comm
@@ -14,7 +14,7 @@ from tests.settings import DEST, SRC
 CONTROL, SER2 = MyChannels.CONTROL, MyChannels.SER2
 
 
-class HangingUtsClient(FakeUtsClient):
+class HangingUtsAdapter(FakeUtsAdapter):
     """POST on the channels in `hanging` does not return until release() is called."""
 
     def __init__(self):
@@ -37,10 +37,10 @@ class HangingUtsClient(FakeUtsClient):
 
 class TxThreadTests(CommTestCase):
     def setUp(self):
-        self.uts = HangingUtsClient()
-        self.comm = open_comm(self.uts)
+        self.adapter = HangingUtsAdapter()
+        self.comm = open_comm(self.adapter)
         self.addCleanup(self.comm.close)
-        self.addCleanup(self.uts.release)                  # runs first, so close() can join the threads
+        self.addCleanup(self.adapter.release)                  # runs first, so close() can join the threads
         self.addCleanup(self.comm.stop_all)
 
     def tx_threads(self) -> list[str]:
@@ -53,15 +53,15 @@ class TxThreadTests(CommTestCase):
         return bool(condition())
 
     def test_hanging_post_does_not_stop_another_channel(self):
-        self.uts.hanging.add(CONTROL)
+        self.adapter.hanging.add(CONTROL)
         self.comm.start(motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.01)))   # CONTROL: hangs
         self.comm.start(ser_cmd(SRC, DEST, 0x50, direction=Direction.TX, tx=Timing(0.01)))     # SER2
         time.sleep(0.2)
-        self.assertGreaterEqual(self.uts.sent_on(SER2), 10)
-        self.assertEqual(self.uts.sent_on(CONTROL), 0)
+        self.assertGreaterEqual(self.adapter.sent_on(SER2), 10)
+        self.assertEqual(self.adapter.sent_on(CONTROL), 0)
 
     def test_one_shot_send_does_not_wait_for_a_hanging_channel(self):
-        self.uts.hanging.add(CONTROL)
+        self.adapter.hanging.add(CONTROL)
         self.comm.start(motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.01)))
         time.sleep(0.05)
         started = time.monotonic()
@@ -104,7 +104,7 @@ class TxThreadTests(CommTestCase):
 
     def test_message_started_before_open_is_sent_after_open(self):
         self.comm.close()
-        comm = open_comm(self.uts)
+        comm = open_comm(self.adapter)
         self.addCleanup(comm.close)
         comm.tx.stop_thread()                               # as if not opened yet
         motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.02))

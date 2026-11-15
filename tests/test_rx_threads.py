@@ -5,7 +5,7 @@ __author__ = "İsmail Baysal"
 import threading
 import time
 
-from asl_testing import Direction, FakeUtsClient, RxTimeout, Timing
+from asl_testing import Direction, FakeUtsAdapter, RxTimeout, Timing
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
 from tests.base import CommTestCase, open_comm
@@ -14,7 +14,7 @@ from tests.settings import DEST, SRC
 CONTROL, DIAG = MyChannels.CONTROL, MyChannels.DIAG
 
 
-class HangingUtsClient(FakeUtsClient):
+class HangingUtsAdapter(FakeUtsAdapter):
     """GET on the channels in `hanging` does not return until release() is called."""
 
     def __init__(self):
@@ -33,10 +33,10 @@ class HangingUtsClient(FakeUtsClient):
 
 class RxThreadTests(CommTestCase):
     def setUp(self):
-        self.uts = HangingUtsClient()
-        self.comm = open_comm(self.uts)
+        self.adapter = HangingUtsAdapter()
+        self.comm = open_comm(self.adapter)
         self.addCleanup(self.comm.close)
-        self.addCleanup(self.uts.release)                  # runs first, so close() can join the threads
+        self.addCleanup(self.adapter.release)                  # runs first, so close() can join the threads
 
     def rx_threads(self) -> list[str]:
         return sorted(t.name for t in threading.enumerate() if t.name.startswith("Rx-"))
@@ -48,7 +48,7 @@ class RxThreadTests(CommTestCase):
         return bool(condition())
 
     def test_hanging_channel_does_not_delay_another_channel(self):
-        self.uts.hanging.add(CONTROL)
+        self.adapter.hanging.add(CONTROL)
         comut(DEST, SRC, 0x20)                             # CONTROL is polled, and hangs
         diag = bambaşka(0x07, SRC, 0x40)
         diag.has_new()
@@ -61,7 +61,7 @@ class RxThreadTests(CommTestCase):
     def test_timeouts_are_checked_while_a_channel_hangs(self):
         timeouts = []
         self.comm.subscribe(RxTimeout, timeouts.append)
-        self.uts.hanging.add(CONTROL)
+        self.adapter.hanging.add(CONTROL)
         hanging = comut(DEST, SRC, 0x20, rx=Timing(0.05, tolerance=2))
         diag = bambaşka(0x07, SRC, 0x40, rx=Timing(0.05, tolerance=2))
         for _ in range(12):                                # the device keeps sending on DIAG

@@ -6,7 +6,7 @@ import time
 import unittest
 from ctypes import BigEndianStructure, LittleEndianStructure, c_uint16, c_uint32
 
-from asl_testing import (BaseMessageStructure, ChannelSet, Comm, Direction, FakeUtsClient, Mil1553Channel,
+from asl_testing import (BaseMessageStructure, ChannelSet, Comm, Direction, FakeUtsAdapter, Mil1553Channel,
                          Mil1553Protocol, Signature)
 
 LITTLE, BIG = Mil1553Channel(8), Mil1553Channel(9, byte_order="big")
@@ -91,17 +91,17 @@ class BigEndianThroughCommTests(unittest.TestCase):
 
     def setUp(self):
         BigEndian1553.clear_registry()
-        self.uts = FakeUtsClient()
-        self.comm = Comm(self.uts, [BigEndian1553])
+        self.adapter = FakeUtsAdapter()
+        self.comm = Comm(self.adapter, [BigEndian1553])
         self.comm.open()
         self.addCleanup(self.comm.close)
 
     def test_send_and_receive(self):
         self.assertTrue(self.comm.send(rt5_big(direction=Direction.TX, speed=0x11223344)))
-        self.assertEqual(self.uts.posted[-1][2], {"message": [5, 2, 2, 0x1122, 0x3344]})
+        self.assertEqual(self.adapter.posted[-1][2], {"message": [5, 2, 2, 0x1122, 0x3344]})
         status = rt5_big()
         status.has_new()
-        self.uts.inject(Bus.B, rt5_big(direction=Direction.TX, speed=0x01020304).pack())
+        self.adapter.inject(Bus.B, rt5_big(direction=Direction.TX, speed=0x01020304).pack())
         self.assertEqual(self.comm.wait_new(status, timeout=1.0), 1)
         self.assertEqual(status.speed, 0x01020304)
         self.assertEqual(list(self.comm.unknown), [])
@@ -110,20 +110,20 @@ class BigEndianThroughCommTests(unittest.TestCase):
 class ThroughCommTests(unittest.TestCase):
     def setUp(self):
         Project1553.clear_registry()
-        self.uts = FakeUtsClient()
-        self.comm = Comm(self.uts, [Project1553])
+        self.adapter = FakeUtsAdapter()
+        self.comm = Comm(self.adapter, [Project1553])
         self.comm.open()
         self.addCleanup(self.comm.close)
 
     def uts_item(self, item: dict) -> None:
         """Puts an item into the fake UTS exactly as UTS would return it."""
-        with self.uts._lock:
-            self.uts._items[("mil1553", Bus.A.interface)].append(item)
+        with self.adapter._items_lock:
+            self.adapter._items[("mil1553", Bus.A.interface)].append(item)
 
     def test_send_posts_the_list(self):
         msg = rt30_status(30, 1, direction=Direction.TX, mode=1, speed=0x11223344)
         self.assertTrue(self.comm.send(msg))
-        self.assertEqual(self.uts.posted[-1], ("mil1553", 1, {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}))
+        self.assertEqual(self.adapter.posted[-1], ("mil1553", 1, {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}))
 
     def test_received_list_reaches_the_message(self):
         status = rt30_status(30, 1)
@@ -138,7 +138,7 @@ class ThroughCommTests(unittest.TestCase):
         status = rt30_status(30, 1)
         device = rt30_status(30, 1, direction=Direction.TX, mode=7)
         status.has_new()
-        self.uts.inject(Bus.A, device.pack())
+        self.adapter.inject(Bus.A, device.pack())
         self.assertEqual(self.comm.wait_new(status, timeout=1.0), 1)
         self.assertEqual(status.mode, 7)
 

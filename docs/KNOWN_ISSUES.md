@@ -130,7 +130,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 | Konu | Önem | Durum | Not |
 |---|---|---|---|
-| `HttpUtsClient` taslak | Yüksek | Açık | Gerçek UTS ile çalışılamıyor. Çok protokollü tasarımla birlikte ele alınacak. |
+| Gerçek UTS adaptörü yok | Yüksek | Açık | `UtsAdapter` alt sınıfında `post` / `get` eldeki `ApiWrapper` ile yazılacak; o zamana kadar gerçek UTS ile çalışılamıyor. |
 | Hata enjeksiyonu yok | Özellik | Tasarlandı | `msg.fault` + `Fault.corrupt / resize / flip / raw`; gönderim sırası `pack()` → fault → envelope → UTS. |
 | `comm.unsubscribe` kısayolu yok | Düşük | Açık | Şimdilik `comm.bus.unsubscribe(sub)`. |
 | Monitor kayıtları bellekte sınırsız | Orta | Açık | Uzun koşularda üst sınır gerekir. |

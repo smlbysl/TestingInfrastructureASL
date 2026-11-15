@@ -117,7 +117,7 @@
   <a href="#mil1553">&nbsp;&nbsp;MIL-STD-1553</a>
   <a href="#cerceve">Çerçeveleme (Envelope, Splitter)</a>
   <a href="#olaylar">Olaylar</a>
-  <a href="#uts">UTS (istemci, simülasyon, yönetim)</a>
+  <a href="#uts">Adaptör: UTS (bağlantı, simülasyon, yönetim)</a>
   <a href="#servisler">Servisler</a>
   <a href="#loglama">Loglama</a>
   <h4>Bölüm</h4>
@@ -149,29 +149,29 @@ Bu kılavuz bir test yazan kişinin ihtiyaç duyacağı her nesneyi, metodu ve h
 
 <h2 id="import">Import</h2>
 <p>Test kodu ve proje tanımları her şeyi tek satırdan alır. İç modül yolları bilmek gerekmez:</p>
-<pre><code>from asl_testing import Comm, FakeUtsClient, Timing, Direction, MessageReceived
+<pre><code>from asl_testing import Comm, FakeUtsAdapter, Timing, Direction, MessageReceived
 from asl_testing import BaseMessageStructure, Signature, FieldType  # proje tipleri (CRC16 vb.) projede tanımlanır</code></pre>
 <p>Tam liste için sayfanın sonundaki <a href="#ref">Import tablosuna</a> bakın.</p>
 
 <h2 id="kurulum">Kurulum</h2>
-<pre><code>from asl_testing import Comm, FakeUtsClient
+<pre><code>from asl_testing import Comm, FakeUtsAdapter
 from projects.example_project.header import ProjectBase
 
-uts = FakeUtsClient()                 # gerçek hat için HttpUtsClient
-comm = Comm(uts, [ProjectBase])
+adapter = FakeUtsAdapter()                 # gerçek hat için kendi UtsAdapter alt sınıfınız
+comm = Comm(adapter, [ProjectBase])
 comm.open()                           # RX ve TX thread'leri başlar (kanal başına)
 try:
     ...
 finally:
     comm.close()</code></pre>
-<p>Ya da <code>with Comm(uts, [ProjectBase]) as comm:</code> ile. <code>Comm</code> oluşturulurken proje listesi verilir;
+<p>Ya da <code>with Comm(adapter, [ProjectBase]) as comm:</code> ile. <code>Comm</code> oluşturulurken proje listesi verilir;
 kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış olmalıdır.</p>
 
 <h2 id="comm">Comm</h2>
 <p>Test kodunun tek giriş noktası. Katmanları kurar, bağlar ve test kodunu onlara yönlendirir.</p>
 
 <h3>Yaşam döngüsü</h3>
-<div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
+<div class="sig">Comm(adapter, projects, poll_interval=0.01, channels=(), logger=None)</div>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
   <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi; periyodik mesajı olan kanal başına bir TX thread'i (kanalın ilk <code>start</code>'ında açılır). Cevap vermeyen bir kanal diğerlerinin alımını ve gönderimini bekletmez.</td></tr>
@@ -227,8 +227,8 @@ assert rec is not None</code></pre>
 <div class="sig">comm.subscribe(event_type, handler, where=None) <span class="ret">-&gt; Subscriber</span></div>
 <p>Herhangi bir olay tipine abone olur. <code>where</code> verilirse yalnızca o mesajın olayları gelir.</p>
 
-<div class="sig">comm.control <span class="ret">-&gt; UtsControl</span></div>
-<p>UTS yapılandırması ve filtreleri için. Bkz. <a href="#uts">UTS</a>.</p>
+<div class="sig">comm.adapter <span class="ret">-&gt; Adapter</span></div>
+<p><code>Comm</code>'a verilen adaptör. UTS yapılandırması ve filtreleri de onun üzerinden: <code>comm.adapter.add_filter(msg)</code>. Bkz. <a href="#uts">Adaptör</a>.</p>
 
 <div class="sig">comm.bus <span class="ret">-&gt; EventBus</span></div>
 <p>Olay yolu. Şimdilik abonelik iptali için <code>comm.bus.unsubscribe(sub)</code> kullanılır.</p>
@@ -473,20 +473,20 @@ class MyChannels(ChannelSet):
     BUS_A   = Mil1553Channel(1)</code></pre>
 
 <h3 id="protokol">Protokol: UTS'e ne gider</h3>
-<p>Kanal sadece protokolünün adını taşır. O protokolün UTS'teki tanımı UTS client'tadır: hattaki baytları UTS isteğine, UTS'ten geleni baytlara çevirir.
+<p>Kanal sadece protokolünün adını taşır. O protokolün UTS'teki tanımı <code>UtsAdapter</code>'dadır: hattaki baytları UTS isteğine, UTS'ten geleni baytlara çevirir.
 Test kodu bunu görmez; <code>send</code>, <code>start</code>, <code>wait_for</code> her protokolde aynıdır.</p>
 <table>
-  <tr><th>Kanal</th><th>Protokol tanımı (UTS client)</th><th>UTS'e giden / gelen</th></tr>
+  <tr><th>Kanal</th><th>Protokol tanımı (<code>UtsAdapter</code>)</th><th>UTS'e giden / gelen</th></tr>
   <tr><td><code>EthernetChannel</code></td><td><code>EthernetProtocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
   <tr><td><code>Rs422Channel</code></td><td><code>Rs422Protocol</code> (<code>/serials</code>)</td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
   <tr><td><code>Mil1553Channel</code></td><td><code>Mil1553Protocol</code></td><td><code>{"message": [rt, subnet, word_count, word, ...], "timestamp": t}</code></td></tr>
 </table>
-<p>1553 kelime sırası mesaj yapısına bağlıdır, kanalda verilir. UTS zaman birimi UTS'e bağlıdır, client'ta verilir.
-Gönderim, alım ve sahte UTS aynı tanımı client'tan, kelime sırasını kanaldan alır.</p>
+<p>1553 kelime sırası mesaj yapısına bağlıdır, kanalda verilir. UTS zaman birimi UTS'e bağlıdır, adaptörde verilir.
+Gönderim, alım ve sahte UTS aynı tanımı adaptörden, kelime sırasını kanaldan alır.</p>
 <pre><code>class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
 
-uts = FakeUtsClient(time_unit=1e-6)                # UTS zamanı mikrosaniye ise</code></pre>
+adapter = FakeUtsAdapter(time_unit=1e-6)            # UTS zamanı mikrosaniye ise</code></pre>
 
 <h3 id="mil1553">MIL-STD-1553 mesajı</h3>
 <p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
@@ -511,7 +511,7 @@ class rt30_status(Bus1553):
 <table>
   <tr><th>Üye</th><th>Anlamı</th></tr>
   <tr><td><code>ch.name</code></td><td>Tanımdaki isim (<code>DIAG</code> gibi).</td></tr>
-  <tr><td><code>ch.protocol</code></td><td>Protokol adı: <code>"ethernet"</code>, <code>"rs422"</code>, <code>"mil1553"</code>. Tanımı UTS client'tadır. <code>Mil1553Channel</code> ayrıca <code>byte_order</code> taşır.</td></tr>
+  <tr><td><code>ch.protocol</code></td><td>Protokol adı: <code>"ethernet"</code>, <code>"rs422"</code>, <code>"mil1553"</code>. Tanımı <code>UtsAdapter</code>'dadır. <code>Mil1553Channel</code> ayrıca <code>byte_order</code> taşır.</td></tr>
   <tr><td><code>ch.interface</code></td><td>Hattın numarası.</td></tr>
   <tr><td><code>ch.key</code></td><td><code>(protocol, interface)</code>, ör. <code>("rs422", 0)</code>: UTS'teki interface.</td></tr>
   <tr><td><code>ch.framing</code></td><td><code>Framing(splitter, envelope)</code>.</td></tr>
@@ -603,44 +603,46 @@ ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
 sub = comm.on_receive(status, lambda ev: samples.append(ev.snapshot()))
 comm.bus.unsubscribe(sub)</code></pre>
 
-<h2 id="uts">UTS (istemci, simülasyon, yönetim)</h2>
+<h2 id="uts">Adaptör: UTS (bağlantı, simülasyon, yönetim)</h2>
+<p>Çekirdek baytları bir adaptöre verir ve ondan alır (<code>Adapter.send</code>, <code>Adapter.receive</code>). UTS'e ait her şey tek sınıftadır:
+<code>UtsAdapter</code> (<code>asl_testing/adapter/uts/</code>): mesaj akışı, config ve filtre, UTS istekleri. UTS yerine başka bir sistem gelirse yeni bir adaptör yazılır.</p>
 
-<h3>UtsClient: gerçek hat</h3>
-<p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot:</p>
+<h3>UtsAdapter: gerçek hat</h3>
+<p>Gerçek cihaz için <code>UtsAdapter</code>'ın alt sınıfı yazılır (<code>super().__init__()</code> çağrılır). Zorunlu iki metot:</p>
 <div class="sig">post(path, interface, body, timeout) <span class="ret">-&gt; None</span></div>
-<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa ya da <code>timeout</code> saniye içinde cevap gelmezse <code>UtsError</code> fırlatır.</p>
+<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa ya da <code>timeout</code> saniye içinde cevap gelmezse <code>AdapterError</code> fırlatır.</p>
 <div class="sig">get(path, interface, timeout) <span class="ret">-&gt; list[dict]</span></div>
 <p>Son çağrıdan beri gelen öğeleri döner; her öğeyi protokol tanımı çözer.</p>
-<p>Transport bu ikisini doğrudan değil <code>uts.send(kanal, bayt)</code> ve <code>uts.receive(kanal)</code> ile kullanır: client kanalın protokol adına göre tanımı seçer, gövdeyi hazırlar ya da çözer. Gerçek UTS için yalnızca <code>post</code> ve <code>get</code> yazılır.</p>
-<p>Bekleme süresi protokol tanımından gelir: Ethernet ve 1553'te 2 sn, RS422'de 3 sn. <code>FakeUtsClient(timeout=5.0)</code> (gerçek client'ta da aynı) hepsi için tek değer verir. İstek tekrar denenmez.</p>
+<p>Transport bu ikisini doğrudan değil <code>adapter.send(kanal, bayt)</code> ve <code>adapter.receive(kanal)</code> ile kullanır: adaptör kanalın protokol adına göre tanımı seçer, gövdeyi hazırlar ya da çözer. Gerçek UTS için yalnızca <code>post</code> ve <code>get</code> yazılır.</p>
+<p>Bekleme süresi protokol tanımından gelir: Ethernet ve 1553'te 2 sn, RS422'de 3 sn. <code>FakeUtsAdapter(timeout=5.0)</code> (gerçek adaptörde de aynı) hepsi için tek değer verir. İstek tekrar denenmez.</p>
 <h4>Protokol tanımları</h4>
-<p>Her protokolün baytlarının UTS'e nasıl yazıldığını ve UTS'ten nasıl okunduğunu client'taki bir tanım belirler (<code>uts.protocols</code>):
+<p>Her protokolün baytlarının UTS'e nasıl yazıldığını ve UTS'ten nasıl okunduğunu adaptördeki bir tanım belirler (<code>adapter.protocols</code>):
 <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code> (kanal: <code>Mil1553Channel</code>). Ethernet ve RS422'nin biçimi bugün aynı:
 <code>{"message": [b0, b1, ...], "timestamp": t}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
 <code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır (<code>c_uint16</code>), tanıma
 <code>Signature("rt", "subnet")</code> ile yapılır. <code>Mil1553Channel(..., byte_order=...)</code> mesaj yapısının endian'ıyla aynı olmalıdır;
-her alan 16 bitlik sınırda başlamalı ve çift bayt olmalıdır. Zaman birimi client'ta verilir: <code>FakeUtsClient(time_unit=1e-6)</code>.</p>
-<p>Opsiyonel yönetim metotları (<code>get_config</code>, <code>set_config</code>, <code>get_filter</code>, <code>set_filter</code>) yoksa
-<code>NotImplementedError</code> fırlatır; istemci yine de çalışır.</p>
+her alan 16 bitlik sınırda başlamalı ve çift bayt olmalıdır. Zaman birimi adaptörde verilir: <code>FakeUtsAdapter(time_unit=1e-6)</code>.</p>
+<p>Config ve filtre istekleri (<code>read_config</code>, <code>write_config</code>, <code>read_filter</code>, <code>write_filter</code>) gerektiğinde yazılır;
+yazılmamışsa <code>NotImplementedError</code> fırlatır, mesaj akışı yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
-<code>HttpUtsClient</code> şu an taslaktır; metotları bilerek <code>NotImplementedError</code> fırlatır.</div>
+Gerçek UTS adaptörü henüz yazılmadı; <code>post</code> / <code>get</code> eldeki <code>ApiWrapper</code> ile yazılacak.</div>
 
-<h3>FakeUtsClient: simülasyon</h3>
+<h3>FakeUtsAdapter: simülasyon</h3>
 <p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
-<div class="sig">uts.inject(channel, data, timestamp=None) <span class="ret">-&gt; None</span></div>
+<div class="sig">adapter.inject(channel, data, timestamp=None) <span class="ret">-&gt; None</span></div>
 <p>Verilen baytları, cihazdan gelmiş gibi kanalın alım kuyruğuna koyar; kanalın protokol tanımıyla UTS biçimine çevrilir.
 Gönderim değildir: kanalın RX thread'i bir sonraki yoklamada alır.</p>
 <pre><code>ch = status.channel
 wire = ch.framing.envelope.on_send(status.pack())     # başlık varsa eklenir
-uts.inject(ch, wire)                                  # cihaz bu paketi gönderdi
+adapter.inject(ch, wire)                                  # cihaz bu paketi gönderdi
 
 bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
-uts.inject(ch, bytes(bad))                            # -&gt; InvalidReceived
+adapter.inject(ch, bytes(bad))                            # -&gt; InvalidReceived
 
-uts.posted[-1]        # ("serials", 0, {"message": [...]}): son gönderilen istek</code></pre>
+adapter.posted[-1]        # ("serials", 0, {"message": [...]}): son gönderilen istek</code></pre>
 
-<h3>comm.control: UTS yönetimi</h3>
-<p>Hedef olarak bir kanal veya bir mesaj verilebilir.</p>
+<h3>comm.adapter: UTS yönetimi</h3>
+<p>Hedef olarak bir kanal veya bir mesaj verilebilir. Config ve filtresi olmayan bir adaptörde bu metotlar <code>AdapterError</code> verir.</p>
 <table>
   <tr><th>Metot</th><th>Dönüş</th><th>Ne yapar</th></tr>
   <tr><td><code>get_config(hedef)</code></td><td><code>dict</code></td><td>Arayüzün ayarları.</td></tr>
@@ -655,10 +657,10 @@ uts.posted[-1]        # ("serials", 0, {"message": [...]}): son gönderilen iste
 <code>add_filter</code> imza bayt konumlarını <code>kanal.framing.envelope.offset</code> kadar kaydırır. Böylece başlıklı paketlerde konumlar doğru olur.</div>
 
 <h3>Hatalar</h3>
-<pre><code>from asl_testing import UtsError
+<pre><code>from asl_testing import AdapterError
 try:
-    comm.control.set_config(channel, rate=115200)
-except UtsError:
+    comm.adapter.set_config(channel, rate=115200)
+except AdapterError:
     ...</code></pre>
 
 <h2 id="servisler">Servisler</h2>
@@ -702,7 +704,7 @@ monitor.stop()</code></pre>
 <pre><code>import logging
 logging.basicConfig(filename="comm.log", level=logging.INFO)
 
-comm = Comm(uts, [ProjectBase], logger=my_logger)     # tüm katmanları tek logger'a yönlendir</code></pre>
+comm = Comm(adapter, [ProjectBase], logger=my_logger)     # tüm katmanları tek logger'a yönlendir</code></pre>
 
 <h2 id="tuzaklar">Sık yapılan hatalar</h2>
 
@@ -745,7 +747,7 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
   <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
-  <tr><td>UTS</td><td><code>UtsClient</code>, <code>UtsError</code>, <code>Protocol</code>, <code>Received</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code>, <code>UtsControl</code>, <code>FakeUtsClient</code>, <code>HttpUtsClient</code></td></tr>
+  <tr><td>Adaptör</td><td><code>Adapter</code>, <code>AdapterError</code>, <code>Received</code>, <code>UtsAdapter</code>, <code>FakeUtsAdapter</code>, <code>Protocol</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>
 <p class="muted">Ayrıntılı arayüz referansı ve açık tasarım soruları için <code>docs/TEST_API.md</code>'ye bakın.</p>

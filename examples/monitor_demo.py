@@ -14,14 +14,14 @@ import math
 import threading
 import time
 
-from asl_testing import Comm, Direction, FakeUtsClient, Timing, CommLogger, MonitorService
+from asl_testing import Comm, Direction, FakeUtsAdapter, Timing, CommLogger, MonitorService
 from projects.example_project.header import ProjectBase
 from projects.example_project.messages import bambaşka, comut, motor_cmd, request
 
 SRC, DEST = 0x0001, 0x0002
 
 
-def device(uts: FakeUtsClient, stop: threading.Event) -> None:
+def device(adapter: FakeUtsAdapter, stop: threading.Event) -> None:
     """Plays the device: comut every 50 ms (sine + counter), bambaşka every 200 ms (ramp)."""
     status = comut(DEST, SRC, 0x20, direction=Direction.TX)
     diag = bambaşka(0x07, SRC, 0x40, direction=Direction.TX)
@@ -31,18 +31,18 @@ def device(uts: FakeUtsClient, stop: threading.Event) -> None:
         t = time.monotonic() - t0
         status.comut[0] = int(1000 + 800 * math.sin(2 * math.pi * 0.2 * t))
         status.comut[1] = n
-        _send(uts, status)
+        _send(adapter, status)
         if n % 4 == 0:
             diag.request[0] = int(t * 10) % 100
             diag.request[1] = 50 if int(t) % 6 < 3 else 10
-            _send(uts, diag)
+            _send(adapter, diag)
         n += 1
         stop.wait(0.05)
 
 
-def _send(uts: FakeUtsClient, msg) -> None:
+def _send(adapter: FakeUtsAdapter, msg) -> None:
     ch = msg.channel
-    uts.inject(ch, ch.framing.envelope.on_send(msg.pack()))
+    adapter.inject(ch, ch.framing.envelope.on_send(msg.pack()))
 
 
 def main() -> None:
@@ -52,8 +52,8 @@ def main() -> None:
     parser.add_argument("--record", action="store_true", help="start measuring at once (no Tools > Start)")
     args = parser.parse_args()
 
-    uts = FakeUtsClient()
-    comm = Comm(uts, [ProjectBase])
+    adapter = FakeUtsAdapter()
+    comm = Comm(adapter, [ProjectBase])
     history = CommLogger(comm, "monitor_demo.csv")
     monitor = MonitorService(comm, [ProjectBase], port=args.port)
 
@@ -73,7 +73,7 @@ def main() -> None:
         monitor.listen()
     comm.start(req)
     comm.start(motor)
-    threading.Thread(target=device, args=(uts, stop), daemon=True).start()
+    threading.Thread(target=device, args=(adapter, stop), daemon=True).start()
     print(f"monitor on {monitor.url}  (Tools > Start measurement)  - running {args.seconds:g} s, Ctrl+C to stop")
     try:
         end = time.monotonic() + args.seconds

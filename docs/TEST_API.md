@@ -18,7 +18,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `Comm(uts, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
+| `Comm(adapter, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
 | `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur (kanal başına RX thread'i ve denetçi; periyodik mesajı olan kanal başına TX thread'i) | Evet | Evet |
 | `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
 | `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
@@ -30,7 +30,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 | `listen(channel)` | Kayıtlı mesajı olmayan kanalı da yoklar | Evet | Evet |
 | `unknown` | Hiçbir mesajla eşleşmeyen çerçevelerin listesi | Evet | Evet |
 | `subscribe(event_type, handler, where)` | Herhangi bir olaya abone ol | Evet | Evet |
-| `control` (`UtsControl`) | UTS yapılandırması ve filtreler | Evet | Evet |
+| `adapter` (`UtsAdapter`) | Adaptör: UTS yapılandırması ve filtreler (`comm.adapter.add_filter(msg)` vb.) | Evet | Evet |
 | `bus`, `transport`, `dispatcher`, `rx`, `tx` | Katman nesneleri | Hayır | İç |
 | `log` | Logger | Hayır | İç |
 
@@ -104,7 +104,7 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `ch.name`, `ch.interface` | Kimlik | Evet | Evet |
-| `ch.protocol` | Kanalın protokol adı (`"ethernet"`, `"rs422"`, `"mil1553"`); tanımı UTS client'ta | Evet | Evet |
+| `ch.protocol` | Kanalın protokol adı (`"ethernet"`, `"rs422"`, `"mil1553"`); tanımı `UtsAdapter`'da | Evet | Evet |
 | `ch.key` | Interface: `(protocol, interface)` | Sınırlı | Evet |
 | `ch.framing` | Splitter ve envelope | Evet (özel çerçeve için) | Evet |
 | `ChannelSet.all()` | Projedeki tüm kanallar | Evet | Evet |
@@ -115,11 +115,11 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `UtsClient(time_unit)` / `FakeUtsClient(time_unit)` | Protokol tanımlarını kurar; `time_unit` UTS birimi başına saniye | Evet (zaman birimi farklıysa) | Evet |
-| `uts.protocols`, `uts.protocol(channel)` | Protokol adı → tanım; kanalın tanımı | Sınırlı | Evet |
-| `UtsClient(timeout=...)`, `uts.timeout_of(protocol)` | İstek bekleme süresi; verilmezse protokolünki (Ethernet / 1553: 2 sn, RS422: 3 sn) | Evet | Evet |
-| `post(path, interface, body, timeout)` / `get(path, interface, timeout)` | Gerçek client'ın yazacağı istekler; süre içinde cevap yoksa `UtsError` | Evet (gerçek client) | Evet |
-| `uts.send(channel, wire)` / `uts.receive(channel)` | Tanımla encode + `post` / `get` + decode (Transport kullanır) | Sınırlı | Evet |
+| `UtsAdapter(time_unit)` / `FakeUtsAdapter(time_unit)` | Protokol tanımlarını kurar; `time_unit` UTS birimi başına saniye | Evet (zaman birimi farklıysa) | Evet |
+| `adapter.protocols`, `adapter.protocol(channel)` | Protokol adı → tanım; kanalın tanımı | Sınırlı | Evet |
+| `UtsAdapter(timeout=...)`, `adapter.timeout_of(protocol)` | İstek bekleme süresi; verilmezse protokolünki (Ethernet / 1553: 2 sn, RS422: 3 sn) | Evet | Evet |
+| `post(path, interface, body, timeout)` / `get(path, interface, timeout)` | Gerçek adaptörün yazacağı istekler; süre içinde cevap yoksa `AdapterError` | Evet (gerçek adaptör) | Evet |
+| `adapter.send(channel, wire)` / `adapter.receive(channel)` | Tanımla encode + `post` / `get` + decode (Transport kullanır) | Sınırlı | Evet |
 | `EthernetProtocol`, `Rs422Protocol` | Bayt listesi: `{"message": [...], "timestamp": t}` | Sınırlı | Evet |
 | `Mil1553Protocol` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]`; kelime sırası kanaldan | Sınırlı | Evet |
 | `protocol.encode(channel, data)` / `decode(channel, item)` / `simulate(channel, data, ts)` | Bayt ↔ UTS gövdesi / öğesi | Sınırlı (protokol testi) | Evet |
@@ -154,13 +154,14 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `FakeUtsClient.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokol tanımıyla) | Evet (sahte cihaz) | Evet |
-| `FakeUtsClient.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
-| `comm.control.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
-| `comm.control.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |
-| `comm.control.get_filter / set_filter / clear_filter` | Ham filtre yönetimi | Sınırlı | Evet |
-| `UtsError` | UTS hata tipi | Evet | Evet |
-| `HttpUtsClient` | Gerçek HTTP istemcisi (henüz taslak) | Hayır (şu an) | Taslak |
+| `FakeUtsAdapter.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokol tanımıyla) | Evet (sahte cihaz) | Evet |
+| `FakeUtsAdapter.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
+| `comm.adapter.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
+| `comm.adapter.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |
+| `comm.adapter.get_filter / set_filter / clear_filter` | Ham filtre yönetimi | Sınırlı | Evet |
+| `AdapterError` | UTS hata tipi | Evet | Evet |
+| `read_config` / `write_config` / `read_filter` / `write_filter` | Gerçek adaptörün yazacağı config ve filtre istekleri; yazılmamışsa `NotImplementedError` | Evet (gerçek adaptör) | Evet |
+| `Adapter` | Çekirdeğin gördüğü sözleşme (`send`, `receive`); config ve filtre yoksa `AdapterError` | Sınırlı (yeni adaptör yazarken) | Evet |
 
 ## 8. Servisler
 

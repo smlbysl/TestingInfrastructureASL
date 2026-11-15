@@ -23,15 +23,16 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
   channel/                   2. Kanal: nereden gider
     channel.py               Channel (interface + protokol adı + framing), kanal tipleri, ChannelSet
     framing.py               Splitter, Envelope, Framing
-  uts/                       3. UTS: protokol tanımları ve UTS'e nasıl ulaşılır
-    protocols.py             Protocol (path, encode, decode, simulate), Received; Ethernet / RS422 / 1553 tanımları
-    client.py                UtsClient: protokol tablosu, send / receive; istekler post, get, config, filtre
-    http.py                  HttpUtsClient (yer tutucu)
-    fake.py                  FakeUtsClient
-    control.py               UtsControl: config ve filtre (testten dikine, doğrudan çağrı)
+  adapter/                   3. Adapter: baytlar cihaza nasıl taşınır
+    base.py                  Adapter (send, receive; config / filtre isteğe bağlı), AdapterError, Received
+  adapter/uts/               UTS'e ait her şey
+    adapter.py               UtsAdapter: mesaj akışı (send, receive), config ve filtre (kanal ya da mesajla),
+                             UTS istekleri (post, get, read_config, write_config, read_filter, write_filter)
+    protocols.py             Protocol (path, timeout, encode, decode, simulate); Ethernet / RS422 / 1553 tanımları
     filters.py               filtre hesapları (mesaj -> hattaki byte konumu, değer)
+    fake.py                  FakeUtsAdapter: UTS yerine bellekte (posted, inject)
   runtime/                   4. Çalışma zamanı: ne zaman ve nasıl taşınır
-    transport.py             kanal başına: envelope, UTS client (send / receive), splitter
+    transport.py             kanal başına: envelope, `UtsAdapter` (send / receive), splitter
     rx.py                    RxPoller: sorgu, WireReceived, zaman aşımı
     tx.py                    TxScheduler: send (kilit), periyodik gönderim, WireSent
     dispatcher.py            lookup + decode + olay, unknown listesi
@@ -54,7 +55,7 @@ examples/                    python -m examples.example (depo kökünden)
 docs/DESIGN.md
 ```
 
-Bağımlılık yukarıdan aşağıya: `comm.py` → `services` / `runtime` → `events`, `uts` → `message`, `channel`.
+Bağımlılık yukarıdan aşağıya: `comm.py` → `services` / `runtime` → `events`, `adapter` → `message`, `channel`.
 `projects/` sadece `message` ve `channel`'ı kullanır.
 
 ## Katmanlar
@@ -64,25 +65,40 @@ Comm             katmanları kurar, open/close
 TxScheduler      ne zaman gönderilir        RxPoller   ne zaman sorgulanır + zaman aşımı
                                             Dispatcher registry ile eşleme, decode, olay
 EventBus         olayları abonelere dağıtır (CommLogger, ErrorLog, test dinleyicileri, ileride simülasyon/UI)
-Transport        kanal başına: envelope, splitter; baytları UTS client'a verir / alır
-UtsClient        kanalın protokol adına göre tanımı seçer (send / receive), istekleri yapar (post / get)
-  Protocol       protokol tanımı: baytlar <-> UTS isteği / öğesi (encode, decode), URL yolu
+Transport        kanal başına: envelope, splitter; baytları adaptöre verir / alır
+Adapter          çekirdeğin gördüğü sözleşme: send / receive (config, filtre isteğe bağlı)
+  UtsAdapter     UTS'e ait her şey: protokol tanımını seçer, config ve filtre, UTS istekleri (post / get, read_ / write_)
+    Protocol     protokol tanımı: baytlar <-> UTS isteği / öğesi (encode, decode), URL yolu
 ```
 
-## Protokol tanımları (UTS client)
+## Adaptör
+- Çekirdek ile cihaza giden sistem arasındaki sınır `Adapter` (`adapter/base.py`): `send(kanal, bayt)`,
+  `receive(kanal)`. Config ve filtre isteğe bağlı; olmayan adaptörde `AdapterError`. UTS yerine başka bir sistem
+  gelirse yeni bir adaptör yazılır; mesaj, kanal, framing, RX/TX ve testler değişmez.
+- UTS'e ait her şey tek sınıfta: `UtsAdapter` (`adapter/uts/adapter.py`). Üç bölüm: mesaj akışı (`send`, `receive`;
+  Transport kullanır), config ve filtre (`get_config`, `set_config`, `get_filter`, `set_filter`, `clear_filter`,
+  `add_filter(msg)`, `remove_filter(msg)`; test `comm.adapter` üzerinden kullanır), UTS istekleri (`post`, `get`,
+  `read_config`, `write_config`, `read_filter`, `write_filter`; gerçek adaptörde yazılır). `get_` / `set_` kanal ya da
+  mesaj alır; `read_` / `write_` UTS'e giden ham istektir (yol, interface).
+- Gerçek UTS için `UtsAdapter`'ın alt sınıfı yazılır: `super().__init__()`, `post`, `get` (eldeki `ApiWrapper` ile),
+  gerektiğinde `read_` / `write_`. `FakeUtsAdapter` aynı sınıftan türer, istekleri bellekte yapar.
+- Önceki adlar: `UtsClient` + `UtsControl` + `FakeUtsClient` -> `UtsAdapter` + `FakeUtsAdapter`; `comm.control` ->
+  `comm.adapter`; `UtsError` -> `AdapterError`; `uts/` -> `adapter/uts/`. `UtsClock` aynı (UTS saatini anlatıyor).
+
+## Protokol tanımları (`UtsAdapter`)
 - Kanal sadece protokolünün adını taşır (`Channel.protocol`: "ethernet", "rs422", "mil1553"; UTS yolları
   `ethernet`, `serials`, `mil1553`); UTS'e ait hiçbir şeyi
-  import etmez. Tanımlar UTS client'tadır (`uts/protocols.py`, `UtsClient.protocols`): yol, `encode`, `decode`,
+  import etmez. Tanımlar `UtsAdapter`'dadır (`adapter/uts/protocols.py`, `UtsAdapter.protocols`): yol, `encode`, `decode`,
   `simulate`. Ortak kod `Protocol` temel sınıfında bir kez; 1553 sadece 16 bitlik çeviriyi (`to_list`, `to_bytes`) ekler.
-- `UtsClient.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`. `receive(kanal)`: `get`,
-  her öğeye `decode`. Gerçek UTS için sadece `post` ve `get` yazılır; `FakeUtsClient` aynı tanımları kullanır.
+- `UtsAdapter.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`. `receive(kanal)`: `get`,
+  her öğeye `decode`. Gerçek UTS için sadece `post` ve `get` yazılır; `FakeUtsAdapter` aynı tanımları kullanır.
 - Ayarın yeri: 1553 kelime sırası mesaj yapısına bağlı, kanalda (`Mil1553Channel(byte_order=...)`); UTS zaman birimi
-  UTS'e bağlı, client'ta (`UtsClient(time_unit=...)`).
+  UTS'e bağlı, adaptörde (`UtsAdapter(time_unit=...)`).
 - Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
   eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
 - İstek timeout'u: protokol tanımında (Ethernet ve 1553: 2 sn, RS422: 3 sn; UTS'in TX timeout'u + pay), ya da
-  `UtsClient(timeout=...)` ile hepsi için tek değer. `send` / `receive` süreyi `post` / `get`'e verir; gerçek client
-  süre içinde cevap yoksa `UtsError` fırlatır. İstek tekrar denenmez. RS422 süresi baud'dan hesaplanmıyor (sabit).
+  `UtsAdapter(timeout=...)` ile hepsi için tek değer. `send` / `receive` süreyi `post` / `get`'e verir; gerçek adaptör
+  süre içinde cevap yoksa `AdapterError` fırlatır. İstek tekrar denenmez. RS422 süresi baud'dan hesaplanmıyor (sabit).
 - Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
 - MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
@@ -110,8 +126,8 @@ UtsClient        kanalın protokol adına göre tanımı seçer (send / receive)
 - Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her kanal kendi RX
   thread'inde. Kanal içi paket sırası korunur; farklı kanalların olayları arasında sıra yok.
 ```
-TX:  msg.pack() -> envelope.on_send -> uts.send(kanal) [protocol.encode -> post(path, interface, timeout)]
-RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
+TX:  msg.pack() -> envelope.on_send -> adapter.send(kanal) [protocol.encode -> post(path, interface, timeout)]
+RX:  adapter.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
 ```
 
 ## Monitor (services/monitor)
@@ -130,16 +146,18 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
 - Açık: kayıtlar bellekte sınırsız birikir (uzun koşularda sınır gerekebilir); zaman ekseni bu bilgisayarın saati
   (UTS zamanı değil); değişken boylu mesajlarda CSV'den çözülen görüntüde kullanılmayan kısım sıfırdır.
 
-## UTS yönetimi (comm.control)
-- Mesaj akışından ayrı, dikine bir yol: test -> `comm.control` (UtsControl) -> UtsClient. RX/TX thread'leri ve
-  olaylar kullanılmaz; çağrı senkron, sonucu döner ya da istisna fırlatır (`UtsError`). Her çağrı INFO loglanır.
-- Hedef bir mesaj nesnesi ya da kanal; mesaj kendi kanalını verir. Kanalın protokol tanımının yolu (client'tan) +
+## UTS yönetimi (comm.adapter)
+- Mesaj akışından ayrı, dikine bir yol: test -> `comm.adapter` (`UtsAdapter`: `get_config`, `add_filter`, ...) ->
+  UTS istekleri (`read_config`, `write_filter`, ...). RX/TX thread'leri ve
+  olaylar kullanılmaz; çağrı senkron, sonucu döner ya da istisna fırlatır (`AdapterError`). Her çağrı INFO loglanır.
+- Hedef bir mesaj nesnesi ya da kanal; mesaj kendi kanalını verir. Kanalın protokol tanımının yolu (adaptörden) +
   interface'i UTS arayüzünü seçer.
 - `get_config` / `set_config(**ayarlar)`, `get_filter -> (kind, groups)`, `set_filter(groups, kind)`, `clear_filter`.
 - `add_filter(msg)` / `remove_filter(msg)`: filtreyi okur, mesajın signature byte'larını ekler/çıkarır, geri yazar.
   Konumlar hattaki konumlardır: kanal envelope'unun `offset`'i (mesajın önündeki byte sayısı) eklenir
   (`Envelope.offset`, varsayılan 0; örnek `EthHeader.offset = 8`).
-- UtsClient'ın yönetim metotları soyut değil (varsayılan `NotImplementedError`); FakeUtsClient bunları saklar,
+- UTS'in config ve filtre istekleri (`read_config`, `write_config`, `read_filter`, `write_filter`) soyut değil
+  (varsayılan `NotImplementedError`); mesaj akışı sadece `post` / `get` ile çalışır. FakeUtsAdapter bunları saklar,
   gelen paketlere uygulamaz.
 - Dikkat: ilk `add_filter` arayüzü "her şey geçer"den "sadece filtre geçer"e çevirir; aynı arayüzdeki
   filtreye eklenmemiş mesajlar artık gelmez.
@@ -215,7 +233,7 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
   `comm.close()` cevap bekleyen bir POST'u en fazla timeout kadar bekler. Abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim mesajın kilidi (`RLock`) altında: kancalar, counter, checksum, byte, UTS isteği, `after_send`. Aynı mesajın
   iki gönderimi (test ve periyodik) birbirini bekler; farklı mesajlar beklemez.
-- UTS client aynı interface'e bir anda tek POST gönderir (`(yol, interface)` başına kilit, sadece POST çevresinde);
+- `UtsAdapter` aynı interface'e bir anda tek POST gönderir (`(yol, interface)` başına kilit, sadece POST çevresinde);
   farklı interface'ler birbirini beklemez. GET kilit almaz. Kilit sırası: mesaj -> interface.
 - `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
   paketi görür, yarım değer görmez (B1). Birden fazla alan için `msg.snapshot()`.
@@ -258,7 +276,7 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
 - Farklı sınıf aynı channel + signature ile RX'e girerse `ValueError`.
 
 ## Açık konular (esnek bırakıldı)
-- UTS GET JSON biçimi, data kodlaması, timestamp birimi -> sadece `comm/uts.py` değişir.
+- UTS GET JSON biçimi, data kodlaması, timestamp birimi -> sadece `adapter/uts/` değişir.
 - UTS toplu/periyodik gönderim desteği -> sadece TX katmanı değişir.
 - `msg.on_receive` kalacak mı.
 - Aynı channel'ı paylaşan ailelerde bir paket iki ailenin signature'ıyla eşleşebilir (ilk aile kazanır).

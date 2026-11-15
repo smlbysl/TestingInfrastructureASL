@@ -122,7 +122,7 @@ def layer_diagram() -> str:
          band(20, 90, W, 64, "Giriş ve|servisler", "svc"),
          chip(150, 110, 220, "comm.py  Comm", "katmanları kurar, open / close"),
          chip(390, 110, 260, "services/", "CommLogger, ErrorLog, MonitorService"),
-         chip(670, 110, 280, "uts/control.py  UtsControl", "config ve filtre, doğrudan çağrı"),
+         chip(670, 110, 280, "comm.adapter", "config ve filtre, doğrudan çağrı"),
 
          band(20, 170, W, 64, "Çalışma|zamanı", "run"),
          chip(150, 190, 150, "TxScheduler", "kanal başına periyot"),
@@ -136,10 +136,10 @@ def layer_diagram() -> str:
          chip(430, 270, 520, "MessageReceived, MessageSent, InvalidReceived, UnknownReceived,",
               "WireReceived, WireSent, RxTimeout, RxRestored, LinkError"),
 
-         band(20, 330, W, 64, "Hat", "uts"),
-         chip(150, 350, 400, "uts/  UtsClient: send / receive, post / get",
-              "config / filter; HttpUtsClient (taslak), FakeUtsClient"),
-         chip(570, 350, 380, "uts/protocols  Protocol tanımları",
+         band(20, 330, W, 64, "Adaptör", "uts"),
+         chip(150, 350, 400, "adapter/uts/  UtsAdapter: send / receive, config, filtre",
+              "UTS istekleri post / get, read_ / write_; FakeUtsAdapter"),
+         chip(570, 350, 380, "adapter/uts/protocols  Protocol tanımları",
               "Ethernet, RS422, MIL-1553: encode / decode / simulate"),
 
          band(20, 410, W, 64, "Model", "msg"),
@@ -197,7 +197,7 @@ def bytes_diagram() -> str:
     names = [("Mesaj nesnesi", ["ctypes düzeni", "alanlar, CRC, uzunluk"], "msg", "message/"),
              ("Mesaj baytları", ["pack(): gövde + CRC", "decode(): geri yazılır"], "msg", "message/ (pack, decode)"),
              ("Hattaki baytlar", ["Envelope: başlık", "Splitter: akış → paket"], "core", "channel/ (Framing)"),
-             ("UTS gövdesi (JSON)", ["Protocol.encode", "Protocol.decode"], "uts", "uts/protocols (UtsClient içinde)")]
+             ("UTS gövdesi (JSON)", ["Protocol.encode", "Protocol.decode"], "uts", "adapter/uts/protocols (UtsAdapter içinde)")]
     out = []
     for x, (title, lines, kind, module) in zip(xs, names):
         out.append(box(x, 20, w, 92, title, lines, kind))
@@ -214,7 +214,7 @@ def bytes_diagram() -> str:
 
 def tx_sequence() -> str:
     lifelines = [("Test", "test"), ("Comm", "svc"), ("TxScheduler", "run"), ("Mesaj", "msg"),
-                 ("Transport", "run"), ("UtsClient", "uts"), ("Protocol", "uts"), ("EventBus", "evt")]
+                 ("Transport", "run"), ("UtsAdapter", "uts"), ("Protocol", "uts"), ("EventBus", "evt")]
     steps = [
         ("Test", "Comm", "send(msg)", "call"),
         ("Comm", "TxScheduler", "send(msg)", "call"),
@@ -225,10 +225,10 @@ def tx_sequence() -> str:
         ("Mesaj", "TxScheduler", "raw, image", "ret"),
         ("TxScheduler", "Transport", "send(channel, raw)", "call"),
         ("Transport", "Transport", "envelope.on_send", "self"),
-        ("Transport", "UtsClient", "send(kanal, wire)", "call"),
-        ("UtsClient", "Protocol", "encode(kanal, wire)", "call"),
-        ("Protocol", "UtsClient", "gövde (dict)", "ret"),
-        ("UtsClient", "UtsClient", "post(path, if, gövde, timeout)", "self"),
+        ("Transport", "UtsAdapter", "send(kanal, wire)", "call"),
+        ("UtsAdapter", "Protocol", "encode(kanal, wire)", "call"),
+        ("Protocol", "UtsAdapter", "gövde (dict)", "ret"),
+        ("UtsAdapter", "UtsAdapter", "post(path, if, gövde, timeout)", "self"),
         ("Transport", "TxScheduler", "wire", "ret"),
         ("TxScheduler", "Mesaj", "_sent(): sayaç, after_send", "call"),
         ("TxScheduler", "EventBus", "WireSent, MessageSent", "call"),
@@ -239,16 +239,16 @@ def tx_sequence() -> str:
 
 
 def rx_sequence() -> str:
-    lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsClient", "uts"), ("Protocol", "uts"),
+    lifelines = [("RxPoller", "run"), ("Transport", "run"), ("UtsAdapter", "uts"), ("Protocol", "uts"),
                  ("Framing", "core"), ("Dispatcher", "run"), ("Mesaj", "msg"), ("EventBus", "evt")]
     steps = [
         ("RxPoller", "RxPoller", "kanalın thread'i, her poll_interval", "note"),
         ("RxPoller", "Transport", "poll(kanal)", "call"),
-        ("Transport", "UtsClient", "receive(kanal)", "call"),
-        ("UtsClient", "UtsClient", "get(path, if, timeout)", "self"),
-        ("UtsClient", "Protocol", "decode(kanal, öğe)", "call"),
-        ("Protocol", "UtsClient", "bayt + zaman", "ret"),
-        ("UtsClient", "Transport", "bayt + zaman listesi", "ret"),
+        ("Transport", "UtsAdapter", "receive(kanal)", "call"),
+        ("UtsAdapter", "UtsAdapter", "get(path, if, timeout)", "self"),
+        ("UtsAdapter", "Protocol", "decode(kanal, öğe)", "call"),
+        ("Protocol", "UtsAdapter", "bayt + zaman", "ret"),
+        ("UtsAdapter", "Transport", "bayt + zaman listesi", "ret"),
         ("Transport", "Framing", "split, envelope", "call"),
         ("Framing", "Transport", "mesaj baytları / ret", "ret"),
         ("Transport", "RxPoller", "RxFrame listesi", "ret"),
@@ -278,7 +278,7 @@ def thread_diagram() -> str:
         box(20, 210, 960, 120, "Paylaşılan veri ve korunması", [
             "Mesaj nesnesi (RX): decode yeni değerleri ayrı tamponda hazırlar, tek kopyayla yazar → okuyan eski ya da yeni paketi görür",
             "Mesaj nesnesi (TX): _pack özel alanları kopyada hesaplar, sadece değişen özel alanları geri yazar → CRC her zaman pakete uyar",
-            "Gönderim: mesaj kilidi → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz; UtsClient: interface başına tek POST",
+            "Gönderim: mesaj kilidi → test ve periyodik gönderim sayaç / CRC'yi karıştırmaz; UtsAdapter: interface başına tek POST",
             "MessageHistory: kilit + koşul değişkeni; RxState / TxState sayaçları tek thread yazar, okuma tek adım",
             "Olaylar: değişmez kayıtlar, baytların kopyasını taşır; abone event.snapshot() ile okur"], "core", title_size=14),
     ]
@@ -384,25 +384,24 @@ def table(head: list[str], rows: list[list[str]]) -> str:
 def page() -> str:
     responsibility = table(["Modül / sınıf", "Sorumluluğu", "Bilmediği", "Kullanan"], [
         ["<code>Comm</code>", "Katmanları kurar, thread'leri açar / kapatır; test kodunun tek giriş noktası "
-         "(send, start, wait_new, wait_for, subscribe, control).", "Paket biçimi, UTS JSON'u", "Test kodu"],
+         "(send, start, wait_new, wait_for, subscribe, adapter).", "Paket biçimi, UTS JSON'u", "Test kodu"],
         ["<code>BaseMessageStructure</code>", "Alanlar, varsayılanlar, pack (TX baytları), validate / decode (RX), sayaçlar, geçmiş, kancalar.",
          "UTS, kanal biçimi, thread'ler", "Proje tanımı, Dispatcher, TxScheduler"],
         ["<code>FieldType</code> ve alt tipleri", "Özel alanın yaşam döngüsü: uzunluk, sayaç, CRC, ASCII, komut bitleri.",
          "Diğer alanlar, UTS", "BaseMessageStructure"],
-        ["<code>Signature</code>", "Alan listesinden offset + mask; paketten tek kimlik.", "Kanal, UTS", "Registry, UtsControl"],
+        ["<code>Signature</code>", "Alan listesinden offset + mask; paketten tek kimlik.", "Kanal, UTS", "Registry, UtsAdapter (filtre)"],
         ["<code>Registry</code>", "Ailenin nesneleri; (kanal, signature) → nesne; zaman aşımı listesi.", "Paket içeriği",
          "BaseMessageStructure, Dispatcher, RxPoller"],
         ["<code>RxState</code> / <code>TxState</code>", "Sayaçlar ve zamanlar (has_new, has_sent, rx_age).", "Mesaj içeriği", "BaseMessageStructure"],
         ["<code>MessageHistory</code>", "Son N alınan paketin kaydı; mark / since / wait_for.", "Kanal, UTS", "BaseMessageStructure, Comm"],
         ["<code>Channel</code> / <code>ChannelSet</code>", "Bir UTS interface'i: numara, protokol adı, framing; "
-         "bir interface bir kanal kuralı.", "Mesajlar, UTS biçimi", "Proje, Transport, UtsClient"],
+         "bir interface bir kanal kuralı.", "Mesajlar, UTS biçimi", "Proje, Transport, UtsAdapter"],
         ["<code>Envelope</code> / <code>Splitter</code>", "Başlık ekleme / çıkarma; akıştan paket ayırma.", "Mesaj, UTS JSON'u", "Transport"],
         ["<code>Protocol</code> tanımları", "Bir protokolün UTS biçimi: yol, hattaki baytlar ↔ UTS gövdesi / öğesi (encode, decode, simulate).",
-         "Mesaj, signature, envelope, zamanlama", "UtsClient"],
-        ["<code>UtsClient</code>", "Protokol tanımlarını tutar; kanalın protokol adına göre seçer (send, receive); UTS'e istek (post, get, config, filter).", "Mesaj, framing", "Transport, UtsControl"],
-        ["<code>FakeUtsClient</code>", "UTS yerine geçer: gönderilenleri tutar; inject(kanal, ...) ile cihazı oynar, aynı protokol tanımlarını kullanır.", "Gerçek zaman davranışı",
+         "Mesaj, signature, envelope, zamanlama", "UtsAdapter"],
+        ["<code>UtsAdapter</code>", "UTS'e ait her şey: protokol tanımları; kanalın protokol adına göre gönderir / alır (send, receive); config ve filtre (kanal ya da mesajla); UTS istekleri (post, get, read_ / write_).", "Mesaj, framing", "Transport, test (comm.adapter)"],
+        ["<code>FakeUtsAdapter</code>", "UTS yerine geçer: gönderilenleri tutar; inject(kanal, ...) ile cihazı oynar, aynı protokol tanımlarını kullanır.", "Gerçek zaman davranışı",
          "Testler, örnekler"],
-        ["<code>UtsControl</code>", "Interface ayarı ve alım filtresi; testten doğrudan, senkron.", "RX / TX thread'leri", "Comm.control"],
         ["<code>Transport</code>", "Kanal ↔ UTS: envelope, kanalın protokolü, splitter.", "Mesaj, signature, zamanlama",
          "TxScheduler, RxPoller"],
         ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "UTS JSON'u", "Comm"],
@@ -424,20 +423,21 @@ def page() -> str:
         ["<code>RxTimeout</code>, <code>RxRestored</code>", "RxPoller", "Periyodik RX mesajı gecikti / yeniden geldi"],
     ])
     extend = table(["Ne eklenir", "Nerede", "Ne yazılır"], [
-        ["Yeni hat tipi (ör. CAN)", "<code>uts/protocols.py</code>, <code>uts/client.py</code>, <code>channel/channel.py</code>",
-         "<code>Protocol</code> alt sınıfı (path; gerekirse to_list, to_bytes), <code>UtsClient.protocols</code>'a kayıt ve <code>protocol</code> adı o olan kanal sınıfı"],
+        ["Yeni hat tipi (ör. CAN)", "<code>adapter/uts/protocols.py</code>, <code>adapter/uts/adapter.py</code>, <code>channel/channel.py</code>",
+         "<code>Protocol</code> alt sınıfı (path; gerekirse to_list, to_bytes), <code>UtsAdapter.protocols</code>'a kayıt ve <code>protocol</code> adı o olan kanal sınıfı"],
         ["Yeni özel alan (ör. farklı CRC)", "Projenin <code>types.py</code>'si", "<code>ChecksumType</code> / <code>FieldType</code> alt sınıfı"],
         ["Proje başlığı", "Projenin <code>framing.py</code>'si", "<code>Envelope</code> alt sınıfı (on_send, on_receive, offset)"],
         ["Akış ayırma", "Projenin <code>framing.py</code>'si", "<code>Splitter</code> alt sınıfı (split)"],
         ["Yeni servis (ör. simülasyon düğümü)", "<code>services/</code>", "<code>comm.subscribe(...)</code> ile olay dinleyen sınıf"],
-        ["Gerçek UTS", "<code>uts/http.py</code>", "<code>post</code>, <code>get</code>, config ve filtre çağrıları"],
+        ["Gerçek UTS", "<code>UtsAdapter</code> alt sınıfı", "<code>post</code>, <code>get</code> (eldeki <code>ApiWrapper</code> ile); gerektiğinde <code>read_</code> / <code>write_</code> config ve filtre"],
     ])
     tree = """asl_testing/
   __init__.py        tek import yüzeyi
   comm.py            Comm
   message/           base, fields, signature, registry, state, history, timing
   channel/           channel (Channel, ChannelSet, kanal tipleri), framing (Envelope, Splitter)
-  uts/               client (UtsClient), protocols (Protocol tanımları), http, fake, control (UtsControl), filters
+  adapter/           base (Adapter, AdapterError, Received)
+  adapter/uts/       adapter (UtsAdapter), protocols (Protocol tanımları), filters, fake (FakeUtsAdapter)
   runtime/           transport, rx (RxPoller), tx (TxScheduler), dispatcher, clock
   events/            bus (EventBus), types
   services/          comm_logger (CommLogger), errors (ErrorLog), monitor/
@@ -526,7 +526,7 @@ yayınlayanı ya da diğer aboneleri bekletmez. Sıra: önce hat olayı (<code>W
 
 <h2 id="acik">Açık noktalar</h2>
 <ul>
-<li><b>Gerçek UTS:</b> <code>HttpUtsClient</code> taslak; JSON alan adları, zaman birimi, config / filtre gövdeleri UTS API'sine bağlı.</li>
+<li><b>Gerçek UTS:</b> adaptör henüz yazılmadı (<code>UtsAdapter</code> alt sınıfı, <code>ApiWrapper</code> ile); JSON alan adları, zaman birimi, config / filtre gövdeleri UTS API'sine bağlı.</li>
 <li><b>CAN ve diğer hatlar:</b> protokol ve kanal sınıfı yok; eklemek için bkz. Genişletme noktaları.</li>
 <li><b>K3:</b> özel alan tipleri big-endian mesajda little-endian kalıyor (1553 big-endian projeyi etkiler).</li>
 <li>Diğerleri: <code>docs/KNOWN_ISSUES.md</code>.</li>
