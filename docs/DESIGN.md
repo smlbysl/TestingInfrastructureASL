@@ -21,21 +21,17 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     timing.py                Timing(period, tolerance), Direction
     state.py                 RxState (UTS zamanı, yeni paket), TxState
   channel/                   2. Kanal: nereden gider
-    channel.py               Channel (interface + protokol nesnesi + framing), kanal tipleri, ChannelSet
+    channel.py               Channel (interface + protokol adı + framing), kanal tipleri, ChannelSet
     framing.py               Splitter, Envelope, Framing
-  protocol/                  Protokol: bir hat tipinin baytları UTS'e nasıl yazılır / UTS'ten nasıl okunur
-    base.py                  Protocol (path, encode, decode, simulate), Received
-    ethernet.py, rs422.py    EthernetProtocol, Rs422Protocol: {"message": [baytlar], "timestamp": t}
-    mil1553.py               Mil1553Protocol: {"message": [rt, subnet, word_count, word, ...]}
-    defaults.py              hat tipi -> protokol nesnesi (varsayılanlar)
-  uts/                       3. Sürücü: UTS'ye nasıl ulaşılır
-    client.py                UtsClient (arayüz: post, get, config, filtre)
+  uts/                       3. UTS: protokol tanımları ve UTS'e nasıl ulaşılır
+    protocols.py             Protocol (path, encode, decode, simulate), Received; Ethernet / RS422 / 1553 tanımları
+    client.py                UtsClient: protokol tablosu, send / receive; istekler post, get, config, filtre
     http.py                  HttpUtsClient (yer tutucu)
     fake.py                  FakeUtsClient
     control.py               UtsControl: config ve filtre (testten dikine, doğrudan çağrı)
     filters.py               filtre hesapları (mesaj -> hattaki byte konumu, değer)
   runtime/                   4. Çalışma zamanı: ne zaman ve nasıl taşınır
-    transport.py             kanal başına: envelope, protokol, UTS isteği, splitter
+    transport.py             kanal başına: envelope, UTS client (send / receive), splitter
     rx.py                    RxPoller: sorgu, WireReceived, zaman aşımı
     tx.py                    TxScheduler: send (kilit), periyodik gönderim, WireSent
     dispatcher.py            lookup + decode + olay, unknown listesi
@@ -68,32 +64,36 @@ Comm             katmanları kurar, open/close
 TxScheduler      ne zaman gönderilir        RxPoller   ne zaman sorgulanır + zaman aşımı
                                             Dispatcher registry ile eşleme, decode, olay
 EventBus         olayları abonelere dağıtır (CommLogger, ErrorLog, test dinleyicileri, ileride simülasyon/UI)
-Transport        kanal başına: envelope, protokol, UTS isteği, splitter
-Protocol         hat tipine göre baytlar <-> UTS isteği / öğesi (encode, decode)
-UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu gibi taşır
+Transport        kanal başına: envelope, splitter; baytları UTS client'a verir / alır
+UtsClient        kanalın protokol adına göre tanımı seçer (send / receive), istekleri yapar (post / get)
+  Protocol       protokol tanımı: baytlar <-> UTS isteği / öğesi (encode, decode), URL yolu
 ```
 
-## Protokol nesneleri
-- Her hat tipinin bir protokol nesnesi var: `EthernetProtocol`, `Rs422Protocol`. Çekirdek protokole hattaki baytları
-  verir, UTS isteğinin gövdesini alır (`encode`); UTS'in döndürdüğü öğeyi verir, baytları ve zamanı alır (`decode`).
+## Protokol tanımları (UTS client)
+- Kanal sadece protokolünün adını taşır (`Channel.protocol`: "ethernet", "rs422", "mil1553"); UTS'e ait hiçbir şeyi
+  import etmez. Tanımlar UTS client'tadır (`uts/protocols.py`, `UtsClient.protocols`): yol, `encode`, `decode`,
+  `simulate`. Ortak kod `Protocol` temel sınıfında bir kez; 1553 sadece 16 bitlik çeviriyi (`to_list`, `to_bytes`) ekler.
+- `UtsClient.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`. `receive(kanal)`: `get`,
+  her öğeye `decode`. Gerçek UTS için sadece `post` ve `get` yazılır; `FakeUtsClient` aynı tanımları kullanır.
+- Ayarın yeri: 1553 kelime sırası mesaj yapısına bağlı, kanalda (`Mil1553Channel(byte_order=...)`); UTS zaman birimi
+  UTS'e bağlı, client'ta (`UtsClient(time_unit=...)`).
 - Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
   eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
-- Protokol nesnesi kanalın parçasıdır (`channel.protocol`); verilmezse kanal tipinin varsayılanı. Transport ve
-  sahte UTS aynı nesneyi kanaldan alır, protokol ayarı tek yerde durur.
 - Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
 - MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
   olarak taşır, ör. `[30, 1, 3, 0x0001, 0x3344, 0x1122]`. `rt`, `subnet`, `word_count` mesajın ilk alanlarıdır
   (projede `c_uint16`); protokol sadece mesaj baytlarını 16 bitlik değer listesine çevirir ve geri. Değerler
   kontrol edilmez. Tanıma bugünkü signature ile: `Signature("rt", "subnet")`.
-  `byte_order` mesaj yapısının endian'ıyla aynı olmalı: little + "little" → 32 bit alanın düşük kelimesi önce,
+  Her alan 16 bitlik sınırda başlamalı ve çift bayt olmalı; değilse bir kelime iki alanın parçasını taşır (kontrol yok).
+  Kanalın `byte_order`'ı mesaj yapısının endian'ıyla aynı olmalı: little + "little" → 32 bit alanın düşük kelimesi önce,
   big + "big" → yüksek kelime önce; uyuşmazsa her değerin baytları ters gider (`30` → `7680`).
   Big-endian 1553 projesinde K3 (özel alanların endian'ı) etkili olur.
 - Açık: gerçek UTS'te alan adları ve timestamp birimi (`time_unit` = UTS birimi başına saniye).
 
 ## Kanal ve framing
-- `Channel`: bir UTS interface'i = interface numarası + protokol nesnesi + `Framing`
-  (alt sınıflar: `EthernetChannel`, `Rs422Channel`, `Mil1553Channel`; varsayılan protokolü belirler).
+- `Channel`: bir interface = interface numarası + protokol adı + `Framing`
+  (alt sınıflar: `EthernetChannel`, `Rs422Channel`, `Mil1553Channel`; protokol adını belirler, 1553 `byte_order` ekler).
   IP, port, baud gibi fiziksel ayarlar kanalda yok. Eşitlik kimliğe göre: her kanal bir kez tanımlanır.
 - `Framing(splitter, envelope)`, ikisi de isteğe bağlı; varsayılanları bir şey yapmaz.
   - Splitter: akış seviyesi; UTS'ten geleni paketlere böler.
@@ -106,8 +106,8 @@ UtsClient        HTTP (POST / GET, path + interface); gövdeyi anlamaz, olduğu 
 - Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her turda sabit sırayla
   (protokol, interface).
 ```
-TX:  msg.pack() -> envelope.on_send -> protocol.encode -> uts.post(path, interface)
-RX:  uts.get(path, interface) -> protocol.decode -> splitter -> envelope.on_receive -> Dispatcher
+TX:  msg.pack() -> envelope.on_send -> uts.send(kanal) [protocol.encode -> post(path, interface)]
+RX:  uts.receive(kanal) [get(path, interface) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
 ```
 
 ## Monitor (services/monitor)
@@ -129,7 +129,8 @@ RX:  uts.get(path, interface) -> protocol.decode -> splitter -> envelope.on_rece
 ## UTS yönetimi (comm.control)
 - Mesaj akışından ayrı, dikine bir yol: test -> `comm.control` (UtsControl) -> UtsClient. RX/TX thread'leri ve
   olaylar kullanılmaz; çağrı senkron, sonucu döner ya da istisna fırlatır (`UtsError`). Her çağrı INFO loglanır.
-- Hedef bir mesaj nesnesi ya da kanal; mesaj kendi kanalını verir. Kanalın protocol + interface'i UTS arayüzünü seçer.
+- Hedef bir mesaj nesnesi ya da kanal; mesaj kendi kanalını verir. Kanalın protokol tanımının yolu (client'tan) +
+  interface'i UTS arayüzünü seçer.
 - `get_config` / `set_config(**ayarlar)`, `get_filter -> (kind, groups)`, `set_filter(groups, kind)`, `clear_filter`.
 - `add_filter(msg)` / `remove_filter(msg)`: filtreyi okur, mesajın signature byte'larını ekler/çıkarır, geri yazar.
   Konumlar hattaki konumlardır: kanal envelope'unun `offset`'i (mesajın önündeki byte sayısı) eklenir

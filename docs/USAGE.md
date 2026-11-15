@@ -217,7 +217,7 @@ wire = ch.framing.envelope.on_send(status.pack())      # başlık varsa eklenir,
 uts.inject(ch, wire)
 ```
 
-`inject` paketi kanalın protokolüne göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
+`inject` paketi kanalın protokol tanımına (UTS client'taki) göre UTS'in döndüreceği biçime çevirir (Ethernet / RS422: bayt listesi,
 1553: 16 bitlik değer listesi). Gönderilenleri kontrol etmek için `uts.posted` kullanılır:
 
 ```python
@@ -327,27 +327,29 @@ class MyChannels(ChannelSet):
 
 ### Protokol: UTS'e ne gider
 
-Her kanal tipinin bir protokol nesnesi vardır. Protokol, hattaki baytları UTS isteğine çevirir ve UTS'ten geleni geri baytlara çevirir.
+Kanal sadece protokolünün adını taşır (`ch.protocol`: `"ethernet"`, `"rs422"`, `"mil1553"`). O protokolün UTS'te
+nasıl yazıldığı UTS client'taki tanımdadır: hattaki baytları UTS isteğine çevirir, UTS'ten geleni geri baytlara çevirir.
 Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde aynıdır.
 
-| Kanal | Protokol | UTS'e giden / UTS'ten gelen |
+| Kanal | Protokol tanımı (UTS client) | UTS'e giden / UTS'ten gelen |
 |---|---|---|
 | `EthernetChannel` | `EthernetProtocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
 | `Rs422Channel` | `Rs422Protocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
 | `Mil1553Channel` | `Mil1553Protocol` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
 
-Protokol nesnesi kanalın parçasıdır. Verilmezse kanal tipinin varsayılanı kullanılır. UTS'in zamanı saniye değilse
-ya da 1553 projesi big-endian ise nesne kanal tanımında verilir:
+Ayarın yeri, neye bağlı olduğuna göre:
+
+- 1553 kelime sırası projenin mesaj yapısına bağlıdır, kanalda verilir.
+- UTS zaman birimi UTS'e bağlıdır, client'ta verilir.
 
 ```python
-from asl_testing import EthernetProtocol, Mil1553Protocol
-
 class MyChannels(ChannelSet):
-    DIAG  = EthernetChannel(1, Framing(envelope=EthHeader()), protocol=EthernetProtocol(time_unit=1e-6))
-    BUS_A = Mil1553Channel(1, protocol=Mil1553Protocol(byte_order="big", time_unit=1e-6))
+    BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
+
+uts = FakeUtsClient(time_unit=1e-6)                # UTS zamanı mikrosaniye ise (gerçek client için de aynı)
 ```
 
-Gönderim, alım ve sahte UTS (`uts.inject(kanal, ...)`) aynı nesneyi kanaldan alır; ayrıca bir yere verilmez.
+Gönderim, alım ve sahte UTS (`uts.inject(kanal, ...)`) aynı tanımı client'tan, kelime sırasını kanaldan alır.
 
 ### 1553 mesajı tanımlamak
 
@@ -366,8 +368,10 @@ class rt30_status(Bus1553):
 # mode=1, speed=0x11223344 -> {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}
 ```
 
-- Değerleri protokol kontrol etmez; `rt`, `subnet` ve `wordCount` mesaj tanımından ve testten gelir.
-- `Mil1553Protocol(byte_order=...)` mesaj yapısının endian'ıyla aynı olmalı. `LittleEndianStructure` için `"little"` (32 bitlik alanda düşük kelime önce),
+- Değerleri protokol tanımı kontrol etmez; `rt`, `subnet` ve `wordCount` mesaj tanımından ve testten gelir.
+- Her alan 16 bitlik sınırda başlamalı ve boyu çift bayt olmalı (`c_uint16`, `c_uint32`, `c_uint16` bit alanı).
+  Aksi halde bir kelime iki alanın parçalarını taşır ve liste yanlış olur; kod bunu kontrol etmez.
+- `Mil1553Channel(..., byte_order=...)` mesaj yapısının endian'ıyla aynı olmalı. `LittleEndianStructure` için `"little"` (32 bitlik alanda düşük kelime önce),
   `BigEndianStructure` için `"big"` (yüksek kelime önce). Uyuşmazsa her değerin baytları ters gider: `30` → `7680`.
 
 ### Başlık ve akış (framing)
@@ -424,4 +428,4 @@ assert len(comm.unknown) == 0
 - **Hata enjeksiyonu** (CRC, uzunluk, bit bozma): tasarlandı, henüz eklenmedi. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Gönderim sırası `pack()` → fault → envelope → UTS.
 - **`comm.unsubscribe`** kısayolu: şimdilik `comm.bus.unsubscribe(sub)`.
 - **Gerçek HTTP UTS istemcisi:** `HttpUtsClient` henüz taslak (`post` / `get` UTS API'si netleşince yazılacak).
-- **CAN:** kanal sınıfı ve protokol nesnesi yok.
+- **CAN:** kanal sınıfı ve protokol tanımı yok.
