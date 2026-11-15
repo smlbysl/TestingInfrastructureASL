@@ -103,6 +103,7 @@
   <a href="#mesaj">Mesaj (BaseMessageStructure)</a>
   <a href="#mesaj-tanim">&nbsp;&nbsp;Tanım ayarları</a>
   <a href="#mesaj-nesne">&nbsp;&nbsp;Nesne API'si</a>
+  <a href="#mesaj-update">&nbsp;&nbsp;Birlikte yazmak: update</a>
   <a href="#mesaj-kanca">&nbsp;&nbsp;Kancalar (callout)</a>
   <a href="#alanlar">Alan tipleri (FieldType)</a>
   <a href="#alan-hook">&nbsp;&nbsp;Hook'lar</a>
@@ -317,6 +318,25 @@ values = [r.snapshot().speed for r in status.rx_history.since(mark)]</code></pre
 <p>Paketi kanal ve imzaya göre eşleştirir. Dispatcher bunları kullanır; test kodu genelde gerekmez.</p>
 <div class="sig">Cls.clear_registry() <span class="ret">-&gt; None</span></div>
 <p>Projenin bütün kayıtlarını temizler. Testler arasında kullanılabilir.</p>
+
+<h3 id="mesaj-update">Birden fazla alanı birlikte yazmak: update</h3>
+<div class="sig">msg.update(values=None, **alanlar) <span class="ret">-&gt; None</span></div>
+<p>Alanları birlikte yazar; periyodik gönderimde araya paket girmez, istek biti gönderilmeden silinmez (B12).
+Mesaj o an gönderiliyorsa en fazla bir gönderim süresi bekler; döndüğünde değerler nesnededir.
+İç içe alanlar nokta ile sözlükte verilir. Yanlış alan adı <code>AttributeError</code> verir ve hiçbir alan yazılmaz.
+<code>FieldType</code> alanına değer <code>.val</code>'e yazılır.</p>
+<pre><code>motor.update(speed=500)
+motor.update({"speed": 500, "cmd.mode": 2})
+motor.update({"cmd.startReq": 1})          # bir sonraki pakette kesin gider
+
+with motor.update():                       # blok: içindeki düz yazmalar birlikte gider
+    motor.cmd.mode = 2
+    motor.speed = 500</code></pre>
+<div class="note"><strong>Kurallar</strong>
+Blok kısa tutulur; içinde <code>sleep</code> ya da bekleme olmaz. Blok sürerken bu mesajın periyodik gönderimi bekler
+(yaklaşık 1 ms'de bir yeniden denenir), aynı kanaldaki diğer mesajlar etkilenmez. Blok içinden <code>comm.send(motor)</code> çağrılabilir.
+Blok biçimi alan adını kontrol etmez. Düz yazma (<code>motor.speed = 5</code>) kilitsizdir: CRC pakete uyar ama iki alan arasına paket girebilir.
+TX yönü olan mesajda <code>snapshot()</code> süren bir <code>update</code>'i ya da gönderimi bekler.</div>
 
 <h3 id="mesaj-kanca">Kancalar (callout)</h3>
 <p>Bunlar nesne başına eklenen, mesajla ilgili kullanıcı kodlarıdır. Sınıf tanımındaki özel alan hook'larından ayrıdır.</p>

@@ -220,9 +220,12 @@ RX:  backend.receive(kanal) -> splitter -> envelope.on_receive -> Dispatcher   [
 - Denetçi her `poll_interval`'da: RX mesajı olan ya da `listen` edilen kanalın thread'ini başlatır (kanallar
   `open`'dan sonra da ortaya çıkabilir) ve RX zaman aşımlarını kontrol eder. Artık gerekmeyen kanalın thread'i biter.
 - TX thread'i kanalın ilk `comm.start(msg)` çağrısında açılır, `close`'a kadar yaşar.
-- Gönderim kanalın kilidi altında: counter, checksum, byte, backend isteği, `after_send`. Bir mesaj hep aynı kanaldan
-  gittiği için tutarlılık aynı; farklı kanallardaki gönderimler birbirini beklemez (kapasite interface başına).
-  Kilit sırası: kanal gönderim kilidi -> backend'in interface kilidi.
+- Gönderim mesajın kilidi (`RLock`) altında: kancalar, counter, checksum, byte, backend isteği, `after_send`.
+  `msg.update()` aynı kilidi alır (Tasarım 1). Envelope ve backend isteği ayrıca kanalın kilidini alır; kancalar
+  kanal kilidi dışında çalışır, böylece bir kancanın başka mesajın `update`'ini çağırması kanal üzerinden kilitlenmez.
+  Kilit sırası: mesaj -> kanal -> backend'in interface kilidi. Farklı mesajlar ve kanallar birbirini beklemez.
+- Periyodik mesajın kilidi doluysa (uzun `update` bloğu) TX thread'i beklemez: o mesajı `DEFER` (1 ms, periyottan
+  uzun değil) sonra yeniden dener, kanalın diğer mesajlarıyla devam eder. Mesajın zamanı (`due`) kaymaz.
 - `UtsClock` bütün RX thread'lerinden güncellenir, denetçiden okunur; kendi kilidi var.
 - `close`, o an cevap bekleyen bir isteğin bitmesini bekler (en fazla isteğin timeout'u kadar).
 - `decode` yeni durumu ayrı tamponda hazırlayıp nesneye tek kopyayla yazar: tek alan okuması eski ya da yeni
@@ -281,10 +284,8 @@ RX:  backend.receive(kanal) -> splitter -> envelope.on_receive -> Dispatcher   [
 - Length = signature olan sabit boylu mesajlarla değişken boylu (kanala göre) bir mesaj aynı kanaldaysa, değişken
   paketin boyu sabit bir mesajın boyuna eşit olduğunda paketi sabit mesaj alır (signature önce denenir; CRC de
   tutabilir). Bu boylar çakışmamalı ya da signature'a ayırt edici başka bir alan eklenmeli.
-- Periyodik gönderimde `after_send` yarışı (B12): test thread'i istek bitini pack ile after_send arasında yazarsa
-  sıfırlama bu değeri siler (istek gitmez). **Bilinçli kullanım:** tek seferlik istek bitleri periyodik mesaj
-  üzerinden değiştirilecekse bu risk bilinerek yapılır; gerekmiyorsa `comm.send()` ile tek seferlik gönderim
-  kullanılır (yarış oluşmaz). Olası iyileştirme aşağıda.
+- Periyodik gönderimde `after_send` yarışı (B12): `msg.update(...)` ile çözüldü (Tasarım 1). Düz yazmada
+  (`msg.cmd.startReq = 1`) test thread'i biti pack ile after_send arasında yazarsa sıfırlama bu değeri siler.
 - **RX doğrulamada kilitlenme (K1, çözüldü):** değişken boylu mesajda uzunluk alanı checksum boyundan küçük
   gelince RxPoller thread'i ölüyordu. Artık `LengthType.on_receive` alt sınırı (`min_length`) kontrol ediyor,
   `validate()` hook istisnasında `False` dönüyor, RX döngüsü tek paketteki hatayı loglayıp devam ediyor.
@@ -306,7 +307,7 @@ Zorunlu değil; ihtiyaç olursa ele alınacak fikirler.
   - Alternatif: "bir sonraki gönderimde bir kez" yardımcısı (`msg.once(...)`); istek TX thread'inde uygulanıp geri
     alınır, yarış yapısal olarak kalkar ama yeni API gerektirir.
 
-## Tasarım 1: mesaj başına kilit ve `update()` (tasarım aşamasında, uygulanmadı)
+## Tasarım 1: mesaj başına kilit ve `update()` (uygulandı: Tasarım 2a adım 7)
 
 **Sorun.** Periyodik gönderimde paketi TX thread'i hazırlıyor, test thread'i aynı mesaja yazıyor.
 - Birbirine bağlı iki alan (`speed`, `mode`) ayrı ayrı yazılırken paket araya girerse yarım güncellenmiş içerik gider
@@ -506,7 +507,10 @@ UTS hakkında öğrenilenlerle Tasarım 2'deki "sürücü" yerine istemci korunu
 5. UTS zamanı `MessageSent.timestamp`'e (CSV `uts_time`), `isBufferOverflow` bayrağı `RxOverflow` olayına. **Uygulandı.**
    `DELETE` kapsamdan çıktı (GET buffer'ı zaten tüketiyor).
 6. Kanal tanımında bus ayarları, açılışta config kontrolü, port açık kontrolü.
-7. Tasarım 1 (mesaj kilidi ve `update()`).
+7. Tasarım 1 (mesaj kilidi ve `update()`). **Uygulandı.** Kilit sırası Adım 4'e göre: mesaj -> kanal -> interface;
+   kancalar kanal kilidi dışında. Testler kilitsiz kodda başarısız olduğu doğrulandı (blok, B12, snapshot, erteleme);
+   argümanlı biçimin "karışmama" testi kilitsiz kodda da geçer (GIL iki yazma arasında nadiren değişir), asıl
+   kanıt blok testi.
 8. `TxLate`, kaçan periyotları atlama, performans ölçümü (keep-alive, POST süresi).
 9. İhtiyaç olunca: `Bench` ve cihaz katmanı, tam UTS istemcisi, UTS periyodik gönderimi, CameraLink.
 

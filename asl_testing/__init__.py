@@ -15,7 +15,7 @@ Sub-packages (each uses only the ones below it):
 """
 
 __author__ = "İsmail Baysal"
-__version__ = "2.1.dev5"
+__version__ = "2.1.dev6"
 
 # comm first: it imports the layers below; the rest only re-exports names
 from asl_testing.comm import Comm

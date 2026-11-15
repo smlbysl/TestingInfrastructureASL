@@ -66,6 +66,27 @@ motor.cmd.startReq = 1          # bit alanı
 req.request[1] = 50             # dizi elemanı
 ```
 
+Periyodik gönderilen bir mesajda birbirine bağlı alanlar ve istek bitleri `update` ile yazılır. Alanlar birlikte
+yazılır; araya bir paket girmez ve istek biti gönderilmeden silinmez:
+
+```python
+motor.update(speed=500)
+motor.update({"speed": 500, "cmd.mode": 2})     # iç içe alan: nokta ile
+motor.update({"cmd.startReq": 1})               # bir sonraki pakette kesin gider
+
+with motor.update():                            # blok: içindeki düz yazmalar birlikte gider
+    motor.cmd.mode = 2
+    motor.speed = 500
+```
+
+- `update`, mesaj o an gönderiliyorsa en fazla bir gönderim süresi bekler; döndüğünde değerler nesnededir.
+- Yanlış alan adı `AttributeError` verir ve hiçbir alan yazılmaz. Blok biçimi düz atama olduğu için ad kontrol etmez.
+- `FieldType` alanına (`messageCounter` gibi) değer `.val`'e yazılır.
+- Blok kısa tutulur: içinde `sleep`, `wait_new`, `wait_for` olmaz. Blok sürerken bu mesajın periyodik gönderimi
+  bekler (yaklaşık 1 ms'de bir yeniden denenir); aynı kanaldaki diğer mesajlar etkilenmez. Blok içinden
+  `comm.send(motor)` çağrılabilir.
+- Düz yazma (`motor.speed = 5`) kilitsizdir: CRC her zaman pakete uyar ama iki alan arasına bir paket girebilir.
+
 Her gönderimde bir değeri o an hesaplamak için `on_send` kancası kullanılır:
 
 ```python
@@ -79,6 +100,8 @@ comm.start(motor)                   # her periyodik gönderimde önce update_spe
 - Kanca her `pack()` çağrısında, yani her gönderimde (tek seferlik ya da periyodik) çalışır.
 - Kancanın yazdığı değerler pakete girer: uzunluk, sayaç ve CRC kancadan **sonra** hesaplanır.
 - Periyodik mesajda kanca TX thread'inde çalışır; kısa tutulmalı, beklememeli.
+- Kanca içinden aynı mesajın `update`'i çağrılabilir. Başka bir mesajın `update`'i ya da `comm.send`'i çağrılmaz
+  (iki mesaj birbirini beklerse kilitlenir).
 - Kanca checksum'a dokunmamalıdır; `pack()` onu en son hesaplar.
 - Gelen paket için karşılığı `msg.on_receive(fn)`: geçerli paket nesneye yazıldıktan sonra RX thread'inde çalışır.
 

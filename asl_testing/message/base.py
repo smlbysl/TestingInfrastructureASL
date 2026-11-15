@@ -22,8 +22,11 @@ __author__ = "İsmail Baysal"
 
 import ctypes
 import logging
+import threading
 import time
+from contextlib import nullcontext
 from ctypes import Structure
+from functools import lru_cache
 from typing import Callable, ClassVar, Optional
 
 from asl_testing.channel.channel import Channel
@@ -38,6 +41,29 @@ from asl_testing.message.timing import Timing
 _log = logging.getLogger(__name__)
 
 Callout = Callable[["BaseMessageStructure"], None]
+
+
+@lru_cache(maxsize=None)
+def _field_types(cls) -> dict[str, type]:
+    """Field name -> ctypes type of a structure, base class fields included."""
+    types: dict[str, type] = {}
+    for klass in reversed(cls.__mro__):
+        for name, ftype, *_ in klass.__dict__.get("_fields_", []):
+            types[name] = ftype
+    return types
+
+
+@lru_cache(maxsize=None)
+def _field_path(cls, path: str) -> tuple[str, ...]:
+    """Checked field path of update(): "cmd.mode" -> ("cmd", "mode"); AttributeError if a name is not a field."""
+    names = tuple(path.split("."))
+    owner = cls
+    for name in names:
+        ftype = _field_types(owner).get(name) if isinstance(owner, type) else None
+        if ftype is None:
+            raise AttributeError(f"{cls.__name__} has no field {path!r}")
+        owner = ftype
+    return names
 
 
 def _explicit_none(cls) -> bool:
@@ -66,7 +92,10 @@ class BaseMessageStructure(Structure):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        own = [(ftype._order, name) for name, ftype, *_ in cls.__dict__.get("_fields_", [])
+        fields = cls.__dict__.get("_fields_", [])
+        if any(name == "update" for name, *_ in fields):
+            raise TypeError(f"{cls.__name__}: a field cannot be named 'update' (msg.update() writes fields)")
+        own = [(ftype._order, name) for name, ftype, *_ in fields
                if isinstance(ftype, type) and issubclass(ftype, FieldType)]
         cls._special = sorted(cls._special + own)
 
@@ -92,6 +121,8 @@ class BaseMessageStructure(Structure):
                  **kw):
         self._apply_defaults()
         super().__init__(*args, **kw)                   # field values given here override the defaults
+        # Held for a whole send (pack, request, after_send) and by update(); RLock: hooks may call update().
+        self._lock = threading.RLock()
 
         # Object settings start with "_" so they do not clash with ICD field names.
         self._channel = channel if channel is not None else type(self)._channel
@@ -163,8 +194,41 @@ class BaseMessageStructure(Structure):
         return self._rx.history if self._rx is not None else None
 
     def snapshot(self):
-        """Copy of the current values, taken in one step; use it to read several fields together."""
-        return type(self).from_buffer_copy(bytes(self))
+        """Copy of the current values, taken in one step; use it to read several fields together.
+
+        For a message with a TX direction it waits for a running update() or send, so it never sees half of
+        an update(). An RX-only message is not locked by anyone and does not wait.
+        """
+        if getattr(self, "_tx", None) is None:
+            return type(self).from_buffer_copy(bytes(self))
+        with self._guard():
+            return type(self).from_buffer_copy(bytes(self))
+
+    # ---------------------------------------------------------------- writing several fields
+
+    def update(self, values: Optional[dict] = None, /, **fields):
+        """Writes several fields together; a send never goes out between them.
+
+            msg.update(speed=500, mode=2)
+            msg.update({"speed": 500, "cmd.mode": 2})       # nested fields with a dot
+            with msg.update():                              # block: plain writes, held together
+                msg.cmd.mode = 2
+                msg.speed = 500
+
+        Waits while the message is being sent (at most one request); then the values are in the object
+        and go out with the next packet. A request bit written here is never cleared by after_send before
+        it was sent. A wrong field name raises AttributeError and nothing is written; the block form does
+        not check names. A FieldType field gets the value in .val, as in _defaults.
+        Keep the block short: no sleep or wait in it (the periodic send of this message waits for it).
+        """
+        if values is None and not fields:
+            return self._guard()
+        items = {**(values or {}), **fields}
+        paths = [(_field_path(type(self), path), value) for path, value in items.items()]
+        with self._guard():
+            for names, value in paths:
+                self._set_field(names, value)
+        return None
 
     def has_new(self) -> int:
         """Valid packets received since the last call; clears the count."""
@@ -316,6 +380,21 @@ class BaseMessageStructure(Structure):
             field.after_send(self)
 
     # ---------------------------------------------------------------- helpers
+
+    def _guard(self):
+        """The lock of the message; a copy (snapshot, from_buffer_copy) has none and is not shared."""
+        lock = self.__dict__.get("_lock")
+        return lock if lock is not None else nullcontext()
+
+    def _set_field(self, names: tuple[str, ...], value) -> None:
+        target = self
+        for name in names[:-1]:
+            target = getattr(target, name)
+        field = getattr(target, names[-1])
+        if isinstance(field, FieldType):
+            field.val = value
+        else:
+            setattr(target, names[-1], value)
 
     def _apply_defaults(self) -> None:
         for name, value in self._all_defaults.items():

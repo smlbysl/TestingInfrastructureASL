@@ -55,7 +55,9 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `msg.has_new()` | Yeni geçerli paket sayısı, sayacı sıfırlar | Evet | Evet |
 | `msg.peek_new()` | Aynısı, sıfırlamadan | Evet | Evet |
 | `msg.rx_history` | Gelen paketler sırayla (son N): `mark()`, `since(mark)`, `last()`, `wait_for(...)`, `dropped`, `capacity` | Evet | Evet |
-| `msg.snapshot()` | Canlı nesnenin tek kopyayla alınmış hali; birden fazla alanı aynı paketten okumak için | Evet | Evet |
+| `msg.snapshot()` | Canlı nesnenin tek kopyayla alınmış hali; birden fazla alanı aynı paketten okumak için. TX yönü olan mesajda süren bir `update` / gönderimi bekler | Evet | Evet |
+| `msg.update(a=1, ...)` / `msg.update({"b.c": 2})` | Alanları birlikte yazar; periyodik gönderimle karışmaz, istek biti kaybolmaz; yanlış adda `AttributeError` | Evet | Evet |
+| `with msg.update(): ...` | Bloktaki düz yazmalar birlikte gider; ad kontrolü yok, kısa tutulur | Evet | Evet |
 | `msg.rx_timestamp` | UTS'ten gelen son paketin zamanı | Evet | Evet |
 | `msg.rx_host_time` | Bu makinenin saatinde son paket zamanı | Evet | Evet |
 | `msg.rx_age` | Son paketten bu yana geçen süre | Evet | Evet |

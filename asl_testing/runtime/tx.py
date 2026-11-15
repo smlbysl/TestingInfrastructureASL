@@ -1,9 +1,14 @@
 """TxScheduler: one-shot sends and one TX thread per channel for its periodic messages.
 
-send(msg)      pack, envelope and backend request under the lock of the channel, so the TX thread and
-               the test cannot mix up the counter; then after_send, WireSent and MessageSent.
-               Sends on different channels do not wait for each other.
-start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up
+send(msg)      under the lock of the message: pack (hooks, length, counter, checksum), envelope and backend
+               request, after_send. msg.update() takes the same lock, so fields written together go out
+               together and a request bit is not cleared before it was sent. The envelope and the request
+               also hold the lock of the channel. Then WireSent and MessageSent.
+               Lock order: message -> channel -> interface (backend). Sends on different channels and of
+               different messages do not wait for each other.
+start / stop   add / remove a periodic message; the next time is due + period, so delays do not add up.
+               If the message is locked (a long update block), its send is tried again a little later
+               (DEFER) and the other messages of the channel go on.
 A message that is no longer registered (replaced by a new object) is dropped from the table.
 """
 
@@ -21,13 +26,16 @@ from asl_testing.message.base import BaseMessageStructure
 from asl_testing.channel.channel import Channel
 
 
+DEFER = 0.001                   # seconds before a locked periodic message is tried again
+
+
 class ChannelTx:
     """Send lock, periodic table and TX thread of one channel."""
 
     def __init__(self, channel: Channel):
         self.channel = channel
         self.lock = threading.Lock()
-        # id(msg) -> [msg, next due time (monotonic)]; ctypes objects are not hashable
+        # id(msg) -> [msg, next due time, earliest retry (monotonic)]; ctypes objects are not hashable
         self.table: dict[int, list] = {}
         self.wake = threading.Event()
         self.thread: Optional[threading.Thread] = None
@@ -54,10 +62,11 @@ class TxScheduler:
 
     def send(self, msg: BaseMessageStructure) -> Response:
         """Sends a message once; the response is False in a condition if the request failed (LinkError is published)."""
-        with self._line(msg._channel).lock:
+        with msg._lock:
             raw, image = msg._pack()
             try:
-                wire, response = self.transport.send(msg._channel, raw)
+                with self._line(msg._channel).lock:
+                    wire, response = self.transport.send(msg._channel, raw)
                 error = None if response.ok else BackendError(response)      # logged by the backend
             except Exception as failure:
                 self.log.exception("send of %s failed on %s", type(msg).__name__, msg._channel)
@@ -78,7 +87,7 @@ class TxScheduler:
         if msg._tx is None or not msg._tx.timing.is_periodic:
             raise ValueError(f"{type(msg).__name__} has no periodic TX timing (tx=Timing(period))")
         line = self._line(msg._channel)
-        line.table[id(msg)] = [msg, time.monotonic()]
+        line.table[id(msg)] = [msg, time.monotonic(), 0.0]
         self.log.info("periodic TX started: %s every %s s", type(msg).__name__, msg._tx.timing.period)
         self._start_line(line)
         line.wake.set()
@@ -96,16 +105,24 @@ class TxScheduler:
         """Sends what is due on a channel; returns seconds to its next due message, None if there is none."""
         now = time.monotonic()
         for key, entry in list(line.table.items()):
-            msg, due = entry
+            msg, due, retry = entry
             if not msg._registered:
                 line.table.pop(key, None)
                 continue
-            if due <= now:
-                self.send(msg)
-                entry[1] = due + msg._tx.timing.period
+            if due <= now and retry <= now:
+                period = msg._tx.timing.period
+                if not msg._lock.acquire(blocking=False):          # in an update block: try again soon
+                    entry[2] = now + min(DEFER, period)
+                    continue
+                try:
+                    self.send(msg)
+                finally:
+                    msg._lock.release()
+                entry[1] = due + period
         if not line.table:
             return None
-        return max(0.0, min(due for _, due in list(line.table.values())) - time.monotonic())
+        nxt = min(max(due, retry) for _, due, retry in list(line.table.values()))
+        return max(0.0, nxt - time.monotonic())
 
     # ---------------------------------------------------------------- threads
 
