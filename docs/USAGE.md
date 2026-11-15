@@ -257,7 +257,7 @@ uts.inject(ch, wire)
 
 ```python
 comm.send(req)
-path, interface, body = uts.posted[-1]                 # ("rs422", 0, {"message": [...]})
+path, interface, body = uts.posted[-1]                 # ("serials", 0, {"message": [...]})
 ```
 
 Bozuk paket göndermek için baytları değiştirip enjekte edersin:
@@ -377,11 +377,11 @@ Kanal sadece protokolünün adını taşır (`ch.protocol`: `"ethernet"`, `"rs42
 nasıl yazıldığı UTS client'taki tanımdadır: hattaki baytları UTS isteğine çevirir, UTS'ten geleni geri baytlara çevirir.
 Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde aynıdır.
 
-| Kanal | Protokol tanımı (UTS client) | UTS'e giden / UTS'ten gelen |
-|---|---|---|
-| `EthernetChannel` | `EthernetProtocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
-| `Rs422Channel` | `Rs422Protocol` | `{"message": [b0, b1, ...], "timestamp": t}` |
-| `Mil1553Channel` | `Mil1553Protocol` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
+| Kanal | Protokol tanımı (UTS client) | UTS yolu | UTS'e giden / UTS'ten gelen |
+|---|---|---|---|
+| `EthernetChannel` | `EthernetProtocol` | `/ethernet` | `{"message": [b0, b1, ...], "timestamp": t}` |
+| `Rs422Channel` | `Rs422Protocol` | `/serials` | `{"message": [b0, b1, ...], "timestamp": t}` |
+| `Mil1553Channel` | `Mil1553Protocol` | `/mil1553` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
 
 Ayarın yeri, neye bağlı olduğuna göre:
 

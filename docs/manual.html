@@ -478,7 +478,7 @@ Test kodu bunu görmez; <code>send</code>, <code>start</code>, <code>wait_for</c
 <table>
   <tr><th>Kanal</th><th>Protokol tanımı (UTS client)</th><th>UTS'e giden / gelen</th></tr>
   <tr><td><code>EthernetChannel</code></td><td><code>EthernetProtocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
-  <tr><td><code>Rs422Channel</code></td><td><code>Rs422Protocol</code></td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
+  <tr><td><code>Rs422Channel</code></td><td><code>Rs422Protocol</code> (<code>/serials</code>)</td><td><code>{"message": [b0, b1, ...], "timestamp": t}</code></td></tr>
   <tr><td><code>Mil1553Channel</code></td><td><code>Mil1553Protocol</code></td><td><code>{"message": [rt, subnet, word_count, word, ...], "timestamp": t}</code></td></tr>
 </table>
 <p>1553 kelime sırası mesaj yapısına bağlıdır, kanalda verilir. UTS zaman birimi UTS'e bağlıdır, client'ta verilir.
@@ -637,7 +637,7 @@ uts.inject(ch, wire)                                  # cihaz bu paketi gönderd
 bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
 uts.inject(ch, bytes(bad))                            # -&gt; InvalidReceived
 
-uts.posted[-1]        # ("rs422", 0, {"message": [...]}): son gönderilen istek</code></pre>
+uts.posted[-1]        # ("serials", 0, {"message": [...]}): son gönderilen istek</code></pre>
 
 <h3>comm.control: UTS yönetimi</h3>
 <p>Hedef olarak bir kanal veya bir mesaj verilebilir.</p>

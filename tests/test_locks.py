@@ -178,9 +178,9 @@ class LockedUpdateTests(CommTestCase):
 class ClientLockTests(unittest.TestCase):
     def test_lock_per_interface(self):
         uts = FakeUtsClient()
-        self.assertIs(uts._post_lock("rs422", 0), uts._post_lock("rs422", 0))
-        self.assertIsNot(uts._post_lock("rs422", 0), uts._post_lock("rs422", 2))
-        self.assertIsNot(uts._post_lock("rs422", 1), uts._post_lock("ethernet", 1))
+        self.assertIs(uts._post_lock("serials", 0), uts._post_lock("serials", 0))
+        self.assertIsNot(uts._post_lock("serials", 0), uts._post_lock("serials", 2))
+        self.assertIsNot(uts._post_lock("serials", 1), uts._post_lock("ethernet", 1))
 
 
 if __name__ == "__main__":

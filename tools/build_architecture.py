@@ -494,7 +494,7 @@ yazan aile kanalıyla tanınır (kanal başına bir RX mesajı).</li>
 {bytes_diagram()}
 {table(["Protokol tanımı", "UTS'e giden / gelen", "Not"], [
         ["<code>EthernetProtocol</code>", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", ""],
-        ["<code>Rs422Protocol</code>", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", "Öğe akış parçası olabilir; splitter böler"],
+        ["<code>Rs422Protocol</code> (<code>/serials</code>)", "<code>{{\"message\": [b0, b1, ...], \"timestamp\": t}}</code>", "Öğe akış parçası olabilir; splitter böler"],
         ["<code>Mil1553Protocol</code>", "<code>{{\"message\": [rt, subnet, word_count, word, ...]}}</code>",
          "16 bitlik değerler; kanalın <code>byte_order</code>'ı yapının endian'ıyla aynı olmalı"],
     ])}

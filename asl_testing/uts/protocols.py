@@ -6,7 +6,7 @@ The UTS client holds one definition per protocol name; a channel only names its 
     decode(channel, item)             RX: one item of the UTS GET -> Received(bytes, time)
     simulate(channel, data, time)     the item UTS would return (used by FakeUtsClient)
 
-Ethernet, RS422:
+Ethernet, RS422 (UTS path: serials):
     POST body : {"message": [b0, b1, ...]}
     GET item  : {"message": [b0, b1, ...], "timestamp": t}
     An RS422 item may hold part of a stream; the channel's splitter cuts it into packets after decode.
@@ -83,7 +83,7 @@ class EthernetProtocol(Protocol):
 
 
 class Rs422Protocol(Protocol):
-    path = "rs422"
+    path = "serials"                    # UTS calls it serial (RS422 or RS232 on the same endpoint)
     timeout = 3.0
 
 

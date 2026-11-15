@@ -25,7 +25,7 @@ class Rs422ProtocolTests(unittest.TestCase):
         self.assertAlmostEqual(received.timestamp, 1.5)
 
     def test_path(self):
-        self.assertEqual(Rs422Protocol.path, "rs422")
+        self.assertEqual(Rs422Protocol.path, "serials")
 
 
 class EthernetProtocolTests(unittest.TestCase):
@@ -83,10 +83,10 @@ class ClientProtocolTests(unittest.TestCase):
         uts = RecordingClient()
         uts.send(SER, b"\x01")
         uts.receive(ETH)
-        self.assertEqual(uts.timeouts, [("POST", "rs422", 3.0), ("GET", "ethernet", 2.0)])
+        self.assertEqual(uts.timeouts, [("POST", "serials", 3.0), ("GET", "ethernet", 2.0)])
         uts = RecordingClient(timeout=0.5)
         uts.send(SER, b"\x01")
-        self.assertEqual(uts.timeouts, [("POST", "rs422", 0.5)])
+        self.assertEqual(uts.timeouts, [("POST", "serials", 0.5)])
 
     def test_channel_with_an_unknown_protocol_is_an_error(self):
         class OtherChannel(Rs422Channel):
@@ -112,7 +112,7 @@ class EthernetThroughCommTests(CommTestCase):
     def test_rs422_goes_to_post(self):
         self.send(comut(SRC, DEST, 0x21, direction=Direction.TX))              # CONTROL: RS422
         path, interface, body = self.uts.posted[-1]
-        self.assertEqual((path, interface), ("rs422", 0))
+        self.assertEqual((path, interface), ("serials", 0))
         self.assertTrue(comut(SRC, DEST, 0x21).validate(bytes(body["message"])))  # the packet, as a list of bytes
 
     def test_packet_rejected_by_the_envelope_is_unknown_on_its_channel(self):

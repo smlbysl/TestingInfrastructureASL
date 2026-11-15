@@ -70,7 +70,8 @@ UtsClient        kanalın protokol adına göre tanımı seçer (send / receive)
 ```
 
 ## Protokol tanımları (UTS client)
-- Kanal sadece protokolünün adını taşır (`Channel.protocol`: "ethernet", "rs422", "mil1553"); UTS'e ait hiçbir şeyi
+- Kanal sadece protokolünün adını taşır (`Channel.protocol`: "ethernet", "rs422", "mil1553"; UTS yolları
+  `ethernet`, `serials`, `mil1553`); UTS'e ait hiçbir şeyi
   import etmez. Tanımlar UTS client'tadır (`uts/protocols.py`, `UtsClient.protocols`): yol, `encode`, `decode`,
   `simulate`. Ortak kod `Protocol` temel sınıfında bir kez; 1553 sadece 16 bitlik çeviriyi (`to_list`, `to_bytes`) ekler.
 - `UtsClient.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`. `receive(kanal)`: `get`,

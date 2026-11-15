@@ -36,9 +36,10 @@ class FakeUtsClient(UtsClient):
     def inject(self, channel: Channel, data: bytes, timestamp: Optional[float] = None) -> None:
         """The device sent data (bytes on the line) on the channel's interface."""
         stamp = time.time() if timestamp is None else timestamp
-        item = self.protocol(channel).simulate(channel, bytes(data), stamp)
+        protocol = self.protocol(channel)
+        item = protocol.simulate(channel, bytes(data), stamp)
         with self._lock:
-            self._items[channel.key].append(item)
+            self._items[(protocol.path, channel.interface)].append(item)     # where get() looks
 
     # ---------------------------------------------------------------- management
 
