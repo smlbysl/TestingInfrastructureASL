@@ -421,3 +421,85 @@ blok boyunca kilitler. Blok kuralları: kısa tutulur; içinden `comm.send` ça�
   isteğinin (ms) binde birinden az; seçim kullanım ve güvenlik için. `snapshot()` sadece TX yönü olan mesajda kilit alır; RX'te `decode`
 tek kopyayla yazdığı için gerekmez. `pack()`'teki kopya ve seçerek geri yazma kalır: düz yazmalar kilitsiz olduğu için
 CRC tutarlılığını onlar sağlar.
+
+## Tasarım 3: kanal başına thread ve kilitler (tasarım aşamasında, uygulanmadı)
+
+Amaç: cevap vermeyen ya da yavaş bir interface diğerlerini bekletmesin. Kanal ile interface bire bir eşleşir;
+"kanal başına" ile "interface başına" aynı anlamdadır.
+
+**Thread'ler.**
+
+| Thread | Sayı | Görevi | Ne zaman açılır |
+|---|---|---|---|
+| `Rx-<kanal>` | Dinlenen kanal başına 1 | GET → decode → dispatch → `poll_interval` bekle | Denetçi, kanalda RX mesajı görünce ya da `listen` edilince |
+| `RxWatchdog` | 1 | Yeni kanalların RX thread'ini başlatır; RX zaman aşımlarını kontrol eder | `comm.open()` |
+| `Tx-<kanal>` | Periyodik mesajı olan kanal başına 1 | O kanalın periyodik mesajları (kendi tablosu, kendi uyandırma olayı) | O kanalda ilk `comm.start(msg)` |
+| Test thread'i | — | `comm.send()` | — |
+
+Zaman aşımı kontrolü tek bir denetçide: kanal thread'i isteğinde takılıyken kendi mesajlarını kontrol edemez.
+Yoklama sabit aralıkla (`poll_interval`); denetçi de aynı aralıkla döner.
+
+**Kilitler: her biri koruduğu şeye ait, aynı işi yapan iki kilit yok.**
+
+| Kilit | Sahibi | Kapsadığı iş |
+|---|---|---|
+| Mesaj kilidi (`RLock`) | Her mesaj nesnesi | Paketleme (kancalar, sayaç, CRC) → envelope → istek → `after_send` |
+| Interface kilidi | `UtsClient` (`(yol, interface)` başına) | Yalnızca POST (UTS'nin ezme kuralı) |
+| Yaprak kilitler | `UtsClock`, `FakeUtsClient` tamponu, geçmiş, olay yolu | Tek bir veri yapısı; içinde başka kilit alınmaz |
+
+- Sıra: mesaj → interface → yaprak. Ters sırada alınan kilit yok, kilitlenme yok.
+- Kanal kilidi yok. Mesaj tutarlılığını mesaj kilidi, ezmeyi interface kilidi sağlar; kanal kilidi bunların ikisini
+  birden, daha kaba yapan bir kilit olurdu (aynı kanaldaki iki mesaj birbirinin kancasını beklerdi). Bir interface'in
+  tek kanalı olduğu için kanal kilidi interface kilidiyle aynı kapsamdadır.
+- Yalnızca interface kilidi yetmez: paketleme ve `after_send` kilidin dışında kalır; aynı mesajın iki gönderimi
+  aynı sayacı alabilir, paketler ters sırada gidebilir, `after_send` başka thread'in isteğini silebilir (B12).
+- RX'te mesaj kilidi yok: bir mesaja sadece kendi kanalının RX thread'i yazar (tek kopyayla). GET'i de sadece o
+  thread atar; kilit gerekmez.
+- `update()` ve kilitli periyodik mesajın ertelenmesi (Tasarım 1) sonra eklenir; aynı mesaj kilidini kullanır.
+
+**Envelope ve kilit (tasarım ihtiyacı).** Envelope paketi değiştirmez; verilen baytlardan yeni bayt üretir. Durum
+tutmayan envelope'u (sabit başlık, pakete göre hesaplanan uzunluk ya da başlık CRC'si; bugünkü `EthHeader`) aynı
+kanaldaki iki mesaj aynı anda çağırabilir, kilit gerekmez. Kanal genelinde değişen bir değer tutan envelope farklıdır:
+
+- Örnek: her pakette bir artan sıra numarası yazan başlık (`self.seq += 1`). Kanal kilidi olmadığı için aynı
+  kanaldaki iki mesaj (test thread'inden `comm.send` ve periyodik TX) `on_send`'i aynı anda çağırabilir; ikisi de
+  aynı değeri okuyup aynı numarayla gönderebilir. Mesaj kilidi bunu önlemez (iki mesajın kilidi ayrı).
+- Numara tekrar etmesin yeterliyse: kilit envelope'un içinde (`on_send` içinde oku-artır-yaz). Altyapıda değişiklik yok.
+- Numara gönderim sırasıyla kesin artmalıysa: numaranın verilmesi ile POST aynı kilit altında olmalı; envelope içi kilit
+  yetmez (6'yı alan, 7'yi alandan sonra POST edebilir). Bu durumda o kanalın gönderimleri sıraya girmeli.
+  Öneri: `Envelope.ordered = True` işareti; TX katmanı böyle bir envelope'un kanalında envelope + `client.send`'i
+  kanal başına bir kilit altında yapar. Sıra: mesaj → kanal (sadece `ordered`) → interface.
+- RX'te durum tutan envelope ya da splitter (son sıra numarası kontrolü, yarım paket tamponu) kilit gerektirmez:
+  bir kanalı sadece kendi RX thread'i okur.
+- Bugünkü projede durum tutan envelope yok; bu ihtiyaç böyle bir cihaz gelince ele alınır.
+
+Bu kararın etkilediği yerler:
+
+| Yer | Etki |
+|---|---|
+| `channel/framing.py` (`Envelope`) | Kural açıklamaya yazılır: varsayılan durumsuz; durum tutan envelope kilidini kendisi taşır. `ordered` işareti gerekirse buraya eklenir (varsayılan `False`). Bugün kod değişmez. |
+| `runtime/tx.py` | Kanal kilidi yok; envelope aynı kanalda paralel çağrılabilir. `ordered` gelirse: o kanalda envelope + `client.send` için kanal başına kilit (~6 satır). |
+| `uts/client.py` | Etkilenmez; interface kilidi en içte kalır. |
+| RX (`runtime/rx.py`, `transport.poll`) | Etkilenmez; kanal başına tek thread. |
+| Mesaj kilidi (Tasarım 1) | Etkilenmez; kancalar sadece mesaj kilidi altında çalışır. |
+| Testler | Durum tutan envelope eklenirse: aynı kanaldan paralel gönderimde numara tekrar etmez; `ordered` ise numaralar gönderim sırasıyla artar. |
+| Belgeler | `USAGE.md` framing bölümüne kural. |
+
+**Paylaşılan yapılar.** `UtsClock` bütün RX thread'lerinden güncellenir, denetçiden okunur: kilit gerekir.
+Dispatcher, registry, `comm.unknown` bugün de test thread'iyle paylaşılıyor; tek adımlık işlemler (GIL). Zaman aşımı
+durumunu sadece denetçi yazar. Kanalın periyodik tablosunu test thread'i değiştirir, TX thread'i kopyasında döner.
+
+**Ön koşul: istek timeout'u.** Kanal başına thread ile takılan bir istek diğer kanalları bekletmez, ama
+`comm.close()` o thread'i beklerken takılır. Client'a istek timeout'u bu yapıdan önce eklenir.
+
+**Değişen davranış.** Takılan ya da yavaş bir interface diğerlerinin RX'ini, TX'ini ve zaman aşımı kontrolünü
+bekletmez. TX kapasitesi (~230/s) interface başına olur. Farklı kanalların olayları arasındaki sıra kesin değildir;
+kanal içi sıra korunur.
+
+**Sıra (her biri ayrı onay ve commit).**
+1. Client'ta istek timeout'u.
+2. Client'ta interface kilidi.
+3. RX: kanal başına thread, denetçi, `UtsClock` kilidi.
+4. TX: kanal başına thread; genel `_send_lock` yerine mesaj kilidi.
+5. Sonra: `update()` ve erteleme (Tasarım 1).
+
