@@ -16,7 +16,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 
 1. ~~K1: Uzunluk alanı RX thread'ini öldürüyor~~ (çözüldü)
 2. ~~B1: `decode` okuyuculara yarım değer gösteriyor~~ (çözüldü)
-3. K3: Özel alan tipleri projenin endian'ını takip etmiyor (çözüm tasarlandı, karar bekliyor)
+3. ~~K3: Özel alan tipleri projenin endian'ını takip etmiyor~~ (çözüldü)
 4. ~~B9–B11: `pack()` ile gönderilen baytlar tutarsız olabiliyor~~ (çözüldü)
 5. ~~B2, B6: Mesaj geçmişi (ring buffer) ve çağırana ait imleç~~ (çözüldü)
 6. B13: GIL kontrolü
@@ -50,7 +50,10 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
   splitter ayırıyor.
 
 ### K3 — Özel alan tipleri projenin endian'ını takip etmiyor
-- **Önem:** Yüksek (big-endian projede Kritik) — **Durum:** Açık (çözüm tasarlandı, uygulanmadı)
+- **Önem:** Yüksek (big-endian projede Kritik) — **Durum:** Çözüldü
+- **Çözüm:** `endian=ENDIAN` (proje `settings.py`). `EndianMeta` proje sınıfına ve özel tiplere aynı bayt sırasını
+  verir; sırası mesajdan farklı bir özel tip mesaj tanımlanırken `TypeError` verir. Aşağıdaki ikiz tasarımı
+  uygulanmadı (geçmiş için duruyor).
 - **Nerede:** `FieldType(Structure)`; proje tipleri `Length16`, `Counter8`, `CRC16`, `CmdByte`
 - **Ne oluyor:** `BigEndianStructure` alanları `ctypes._endian._other_endian` ile çevirir: temel tipler
   (`c_uint16` …) `__ctype_be__` karşılığına, diziler eleman tipine göre çevrilir; iç içe `Structure` ise **olduğu gibi

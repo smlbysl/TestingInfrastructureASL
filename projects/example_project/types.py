@@ -4,20 +4,21 @@ __author__ = "İsmail Baysal"
 from ctypes import c_char, c_uint8, c_uint16
 
 from asl_testing import AsciiType, ChecksumType, CounterType, FieldType, LengthType
+from projects.example_project.settings import ENDIAN
 
 
-class Length16(LengthType):
+class Length16(LengthType, endian=ENDIAN):
     _fields_ = [("value", c_uint16)]
 
 
-class Counter8(CounterType):
+class Counter8(CounterType, endian=ENDIAN):
     _fields_ = [("value", c_uint16)]
 
     def on_set(self, v) -> int:
         return v % 256
 
 
-class CRC16(ChecksumType):
+class CRC16(ChecksumType, endian=ENDIAN):
     _fields_ = [("value", c_uint16)]
 
     def compute(self, data: bytes) -> int:
@@ -30,15 +31,15 @@ class CRC16(ChecksumType):
         return crc
 
 
-class Ascii4(AsciiType):
+class Ascii4(AsciiType, endian=ENDIAN):
     _fields_ = [("value", c_char * 4)]
 
 
-class AsciiChar(AsciiType):
+class AsciiChar(AsciiType, endian=ENDIAN):
     _fields_ = [("value", c_char)]
 
 
-class CmdByte(FieldType):
+class CmdByte(FieldType, endian=ENDIAN):
     """Command byte: startReq is sent once and cleared after a successful send; mode keeps its value.
 
     Access: msg.cmd.startReq, msg.cmd.mode (no .val).

@@ -29,6 +29,7 @@ from typing import Callable, ClassVar, Optional
 
 from asl_testing.channel.channel import Channel
 from asl_testing.message.timing import Direction
+from asl_testing.message.endian import EndianMeta, byte_order
 from asl_testing.message.fields import ChecksumType, FieldType, LengthType
 from asl_testing.message.history import MessageHistory, Record, next_seq
 from asl_testing.message.registry import Registry
@@ -46,7 +47,7 @@ def _explicit_none(cls) -> bool:
     return "_signature" in cls.__dict__ and cls.__dict__["_signature"] is None
 
 
-class BaseMessageStructure(Structure):
+class BaseMessageStructure(Structure, metaclass=EndianMeta):
     """Base of all messages (see the module docstring)."""
     _pack_ = 1
 
@@ -67,9 +68,13 @@ class BaseMessageStructure(Structure):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        own = [(ftype._order, name) for name, ftype, *_ in cls.__dict__.get("_fields_", [])
-               if isinstance(ftype, type) and issubclass(ftype, FieldType)]
-        cls._special = sorted(cls._special + own)
+        fields = [(name, ftype) for name, ftype, *_ in cls.__dict__.get("_fields_", [])
+                  if isinstance(ftype, type) and issubclass(ftype, FieldType)]
+        for name, ftype in fields:                       # ctypes would keep the field's own byte order
+            if byte_order(ftype) != byte_order(cls):
+                raise TypeError(f"{cls.__name__}.{name}: {ftype.__name__} is {byte_order(ftype)}-endian, "
+                                f"the message is {byte_order(cls)}-endian (give both endian=ENDIAN)")
+        cls._special = sorted(cls._special + [(ftype._order, name) for name, ftype in fields])
 
         merged: dict[str, object] = {}
         for klass in reversed(cls.__mro__):             # subclass wins

@@ -405,19 +405,46 @@ Ayarın yeri, neye bağlı olduğuna göre:
 
 ```python
 class MyChannels(ChannelSet):
-    BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
+    BUS_A = Mil1553Channel(1, byte_order="big")    # proje endian="big"
 
 adapter = FakeUtsAdapter(time_unit=1e-3)            # UTS zamanı milisaniye olsaydı (varsayılan 1e-6)
 ```
 
 Gönderim, alım ve sahte UTS (`adapter.inject(kanal, ...)`) aynı tanımı adaptörden, kelime sırasını kanaldan alır.
 
+### Bayt sırası (endian)
+
+Projenin bayt sırası tek yerde, projenin `settings.py` dosyasında tutulur; proje sınıfı ve projenin bütün özel alan
+tipleri onu `endian=ENDIAN` ile alır. Verilmezse little-endian'dır.
+
+```python
+# projects/<proje>/settings.py
+ENDIAN = "big"
+
+# types.py
+class Counter8(CounterType, endian=ENDIAN):
+    _fields_ = [("value", c_uint16)]
+
+# header.py
+class ProjectBase(BaseMessageStructure, endian=ENDIAN):
+    ...
+
+class motor_cmd(Family1):                           # alt sınıflar endian'ı miras alır, yazılmaz
+    ...
+```
+
+- Big-endian mesaja little-endian bir özel tip konursa (ya da tersi) sınıf tanımlanırken `TypeError` verir. Bir tipte
+  `endian=ENDIAN` unutulursa hata bu şekilde hemen görünür.
+- Big-endian'da bit alanları baytın en yüksek bitinden başlar: `CmdByte.startReq = 1` big'de `0x80`, little'da `0x01`.
+- Eski yazım `class X(BaseMessageStructure, BigEndianStructure)` artık hata verir (`metaclass conflict`);
+  `endian="big"` yazılır.
+
 ### 1553 mesajı tanımlamak
 
 `rt`, `subnet` ve `word_count` mesajın ilk üç alanıdır ve `c_uint16` tanımlanır. Liste bu alanların değerleriyle başlar:
 
 ```python
-class Bus1553(BaseMessageStructure, LittleEndianStructure):
+class Bus1553(BaseMessageStructure, endian=ENDIAN):
     _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
     _signature = Signature("rt", "subnet")          # gelen paket rt + subnet ile tanınır
     _channel = MyChannels.BUS_A
@@ -432,8 +459,8 @@ class rt30_status(Bus1553):
 - Değerleri protokol tanımı kontrol etmez; `rt`, `subnet` ve `wordCount` mesaj tanımından ve testten gelir.
 - Her alan 16 bitlik sınırda başlamalı ve boyu çift bayt olmalı (`c_uint16`, `c_uint32`, `c_uint16` bit alanı).
   Aksi halde bir kelime iki alanın parçalarını taşır ve liste yanlış olur; kod bunu kontrol etmez.
-- `Mil1553Channel(..., byte_order=...)` mesaj yapısının endian'ıyla aynı olmalı. `LittleEndianStructure` için `"little"` (32 bitlik alanda düşük kelime önce),
-  `BigEndianStructure` için `"big"` (yüksek kelime önce). Uyuşmazsa her değerin baytları ters gider: `30` → `7680`.
+- `Mil1553Channel(..., byte_order=...)` projenin `ENDIAN` değeriyle aynı olmalı: `"little"` (32 bitlik alanda düşük kelime önce),
+  `"big"` (yüksek kelime önce). Uyuşmazsa her değerin baytları ters gider: `30` → `7680`.
 
 ### Başlık ve akış (framing)
 

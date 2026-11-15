@@ -75,7 +75,7 @@ class rt30_status(Project1553):
     _defaults = {"wordCount": 3}
 
 
-class BigEndian1553(BaseMessageStructure, BigEndianStructure):
+class BigEndian1553(BaseMessageStructure, endian="big"):
     _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
     _signature = Signature("rt", "subnet")
     _channel = Bus.B

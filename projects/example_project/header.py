@@ -9,14 +9,15 @@ The checksum is not in the header; every message adds it as its last field.
 """
 
 __author__ = "İsmail Baysal"
-from ctypes import LittleEndianStructure, c_uint32
+from ctypes import c_uint32
 
 from asl_testing import BaseMessageStructure, Direction, Signature, Timing
 from projects.example_project.channels import MyChannels
+from projects.example_project.settings import ENDIAN
 from projects.example_project.types import Counter8, Length16
 
 
-class ProjectBase(BaseMessageStructure, LittleEndianStructure):
+class ProjectBase(BaseMessageStructure, endian=ENDIAN):
     _fields_ = [
         ("sourceId",        c_uint32),
         ("destinationId",   c_uint32),

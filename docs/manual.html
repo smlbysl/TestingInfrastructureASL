@@ -484,14 +484,21 @@ Test kodu bunu görmez; <code>send</code>, <code>start</code>, <code>wait_for</c
 <p>1553 kelime sırası mesaj yapısına bağlıdır, kanalda verilir. UTS zaman birimi UTS'e bağlıdır, adaptörde verilir.
 Gönderim, alım ve sahte UTS aynı tanımı adaptörden, kelime sırasını kanaldan alır.</p>
 <pre><code>class MyChannels(ChannelSet):
-    BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
+    BUS_A = Mil1553Channel(1, byte_order="big")    # proje endian="big"
 
 adapter = FakeUtsAdapter(time_unit=1e-3)            # UTS zamanı milisaniye olsaydı (varsayılan 1e-6)</code></pre>
+
+<h3 id="endian">Bayt sırası (endian)</h3>
+<p>Projenin bayt sırası tek yerde, <code>settings.py</code> içinde tutulur (<code>ENDIAN = "big"</code>); proje sınıfı ve projenin özel alan tipleri
+<code>endian=ENDIAN</code> ile alır, alt sınıflar miras alır. Verilmezse little-endian'dır. Big-endian mesaja little-endian özel tip konursa
+sınıf tanımlanırken <code>TypeError</code> verir. Big-endian'da bit alanları baytın en yüksek bitinden başlar.</p>
+<pre><code>class Counter8(CounterType, endian=ENDIAN): ...
+class ProjectBase(BaseMessageStructure, endian=ENDIAN): ...</code></pre>
 
 <h3 id="mil1553">MIL-STD-1553 mesajı</h3>
 <p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
 Gelen paket <code>Signature("rt", "subnet")</code> ile tanınır. Protokol değerleri kontrol etmez.</p>
-<pre><code>class Bus1553(BaseMessageStructure, LittleEndianStructure):
+<pre><code>class Bus1553(BaseMessageStructure, endian=ENDIAN):
     _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16)]
     _signature = Signature("rt", "subnet")
     _channel = MyChannels.BUS_A
@@ -502,9 +509,9 @@ class rt30_status(Bus1553):
 
 # mode=1, speed=0x11223344 -&gt; {"message": [30, 1, 3, 0x0001, 0x3344, 0x1122]}</code></pre>
 <table>
-  <tr><th>Mesaj yapısı</th><th>byte_order</th><th>Liste</th><th>32 bitlik alan</th></tr>
-  <tr><td><code>LittleEndianStructure</code></td><td><code>"little"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, düşük kelime önce</td></tr>
-  <tr><td><code>BigEndianStructure</code></td><td><code>"big"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, yüksek kelime önce</td></tr>
+  <tr><th>Proje endian</th><th>byte_order</th><th>Liste</th><th>32 bitlik alan</th></tr>
+  <tr><td><code>endian="little"</code></td><td><code>"little"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, düşük kelime önce</td></tr>
+  <tr><td><code>endian="big"</code></td><td><code>"big"</code></td><td><code>[30, 1, ...]</code></td><td>2 kelime, yüksek kelime önce</td></tr>
   <tr><td>uyuşmazlık</td><td></td><td><code>[7680, 256, ...]</code></td><td>her değerin baytları ters</td></tr>
 </table>
 

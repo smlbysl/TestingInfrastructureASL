@@ -96,6 +96,7 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 | `ChecksumType` | Paketlemede hesaplanır | Evet, ama bozuk CRC için fault gerekir |
 | `AsciiType` | Metin alanı | Evet |
 | `CmdByte` (örnek) | `on_init` + `after_send` ile tek seferlik bit | Evet, tasarım örneği |
+| `class X(CounterType, endian=ENDIAN)` / `class P(BaseMessageStructure, endian=ENDIAN)` | Bayt sırası; değer projenin `settings.py`'sinde, varsayılan little; uyuşmazlık `TypeError` | Evet |
 
 Özel tiplerin hook'ları: `on_init`, `on_send` (paketlemede), `on_receive` (doğrulama), `after_send` (başarılı gönderimden sonra).
 

@@ -14,8 +14,10 @@ __author__ = "İsmail Baysal"
 import ctypes
 from ctypes import Structure
 
+from asl_testing.message.endian import EndianMeta
 
-class FieldType(Structure):
+
+class FieldType(Structure, metaclass=EndianMeta):
     """Base of the special field types; .val reads / writes the value through on_get / on_set."""
     _pack_ = 1
     _order = 0                           # lower runs first

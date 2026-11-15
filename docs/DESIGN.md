@@ -16,6 +16,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
   message/                   1. Mesaj modeli: ne gönderilir
     base.py                  BaseMessageStructure: init, validate/decode, pack, callout, varsayılanlar
     fields.py                FieldType hook'ları, Length/Counter/Checksum/Ascii
+    endian.py                EndianMeta: endian="big" / "little" (mesaj ve özel tipler)
     signature.py             Signature: alan listesinden offset+mask, tek ID
     registry.py              Registry: aile başına kayıtlar, lookup, yer değiştirme kuralı
     timing.py                Timing(period, tolerance), Direction
@@ -48,6 +49,7 @@ projects/
   example_project/           PROJEYE ÖZEL (ICD)
     header.py                ProjectBase (header, varsayılan kanal) ve aileler
     types.py                 Length16, Counter8, CRC16 ...
+    settings.py              ENDIAN (projenin bayt sırası)
     channels.py              MyChannels
     framing.py               örnek EthHeader
     messages.py              mesaj sınıfları
@@ -116,7 +118,6 @@ Adapter          çekirdeğin gördüğü sözleşme: send / receive (config, fi
   Her alan 16 bitlik sınırda başlamalı ve çift bayt olmalı; değilse bir kelime iki alanın parçasını taşır (kontrol yok).
   Kanalın `byte_order`'ı mesaj yapısının endian'ıyla aynı olmalı: little + "little" → 32 bit alanın düşük kelimesi önce,
   big + "big" → yüksek kelime önce; uyuşmazsa her değerin baytları ters gider (`30` → `7680`).
-  Big-endian 1553 projesinde K3 (özel alanların endian'ı) etkili olur.
 - Açık: Ethernet ve 1553 cevaplarının seri port ile aynı biçimde olduğu (belgelenmiş olan seri port).
 
 ## Kanal ve framing
@@ -253,6 +254,12 @@ RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.
 
 ## Mesaj katmanı (özet)
 - Hiyerarşi: BaseMessageStructure -> Proje -> Aile (`_signature`, kendi Registry'si) -> mesaj sınıfı -> nesne.
+- Bayt sırası (`message/endian.py`): `BaseMessageStructure` ve `FieldType`'ın metaclass'ı `EndianMeta`.
+  `endian="big"` verilen sınıfa `BigEndianStructure` tabanını ekler ve uygun metaclass'ı seçer (big metaclass
+  little olandan türediği için çakışma olmaz, ikinci kök sınıf gerekmez). Varsayılan little; alt sınıflar
+  tabanlarının sırasını alır. Değer projede tek yerde (`settings.py: ENDIAN`), proje sınıfı ve proje özel tipleri
+  `endian=ENDIAN` ile alır. ctypes iç içe `Structure`'ı çevirmediği için mesaj, sırası farklı bir özel tipi
+  tanımlanırken `TypeError` ile reddeder (K3). Python 3.13 ve 3.14'te denendi.
 - İsimlendirme: `_x_` sadece ctypes; sınıf ayarları `_x`; nesne bilgisi alt çizgili, dışarıya property.
   Çerçeve kodu her zaman alt çizgili bilgiyi kullanır (ICD alan adlarıyla çakışmaz).
 - `decode(raw, timestamp)`: UTS zamanı `rx_state.timestamp`'e yazılır (ctypes alanı değil).
