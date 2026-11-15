@@ -19,7 +19,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `Comm(uts, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
-| `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur (kanal başına RX thread'i ve denetçi, TX thread'i) | Evet | Evet |
+| `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur (kanal başına RX thread'i ve denetçi; periyodik mesajı olan kanal başına TX thread'i) | Evet | Evet |
 | `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
 | `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
 | `start_all(channel=None)` / `stop_all(channel=None)` | Kanaldaki (ya da hepsindeki) periyodik TX mesajlarını başlatır / durdurur; listelerini döndürür | Evet | Evet |

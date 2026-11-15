@@ -208,7 +208,10 @@ RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> sp
   Cevap vermeyen bir kanal diğerlerini ve zaman aşımı kontrolünü bekletmez; artık gerekmeyen kanalın thread'i biter.
   `UtsClock` bütün RX thread'lerinden güncellenir, kendi kilidi var. `comm.close()` cevap bekleyen bir GET'i en fazla
   timeout kadar bekler.
-- TX: 1 TxScheduler thread'i (kanal başına thread henüz yok). Abone başına 1 thread. Mesaj başına thread yok.
+- TX: periyodik mesajı olan kanal başına 1 thread (`Tx-<kanal>`), kanalın ilk `comm.start(msg)`'inde açılır; her
+  kanalın kendi tablosu ve uyandırma olayı var. POST'u takılan bir kanal diğerlerinin periyodik gönderimini durdurmaz.
+  Kanal kaydını (tablo, thread) küçük bir iç kilit korur: aynı kanal için iki thread açılmaz; gönderimde alınmaz.
+  `comm.close()` cevap bekleyen bir POST'u en fazla timeout kadar bekler. Abone başına 1 thread. Mesaj başına thread yok.
 - Gönderim mesajın kilidi (`RLock`) altında: kancalar, counter, checksum, byte, UTS isteği, `after_send`. Aynı mesajın
   iki gönderimi (test ve periyodik) birbirini bekler; farklı mesajlar beklemez.
 - UTS client aynı interface'e bir anda tek POST gönderir (`(yol, interface)` başına kilit, sadece POST çevresinde);
@@ -528,6 +531,6 @@ kanal içi sıra korunur.
 1. Client'ta istek timeout'u. **Uygulandı.**
 2. Client'ta interface kilidi. **Uygulandı** (mesaj kilidiyle birlikte, thread'lerden önce).
 3. RX: kanal başına thread, denetçi, `UtsClock` kilidi. **Uygulandı.**
-4. TX: kanal başına thread. (Genel `_send_lock` yerine mesaj kilidi **uygulandı**; tek TX thread'iyle.)
+4. TX: kanal başına thread ve mesaj kilidi. **Uygulandı.** Kanal kaydı için iç kilit (denetçiye bırakmak yerine).
 5. Sonra: `update()` ve erteleme (Tasarım 1).
 

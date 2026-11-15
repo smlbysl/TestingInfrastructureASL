@@ -125,7 +125,7 @@ def layer_diagram() -> str:
          chip(670, 110, 280, "uts/control.py  UtsControl", "config ve filtre, doğrudan çağrı"),
 
          band(20, 170, W, 64, "Çalışma|zamanı", "run"),
-         chip(150, 190, 150, "TxScheduler", "gönderim, periyot"),
+         chip(150, 190, 150, "TxScheduler", "kanal başına periyot"),
          chip(310, 190, 150, "RxPoller", "kanal başına yoklama"),
          chip(470, 190, 150, "Dispatcher", "tanıma, decode"),
          chip(630, 190, 150, "Transport", "kanal ↔ UTS"),
@@ -234,7 +234,7 @@ def tx_sequence() -> str:
         ("TxScheduler", "EventBus", "WireSent, MessageSent", "call"),
         ("TxScheduler", "Test", "True (hata: False + LinkError)", "ret"),
     ]
-    return sequence(lifelines, steps, "Gönderim (TX): tek seferlik send; periyodik gönderimde TxScheduler thread'i aynı send'i çağırır",
+    return sequence(lifelines, steps, "Gönderim (TX): tek seferlik send; periyodik gönderimde kanalın TX thread'i aynı send'i çağırır",
                     col=122)
 
 
@@ -269,7 +269,7 @@ def thread_diagram() -> str:
     b = [
         box(20, 20, 225, 150, "Test thread'i", ["alan yazar / okur", "send, start, stop", "has_new, wait_for",
                                                 "snapshot, rx_history"], "test"),
-        box(265, 20, 225, 150, "TxScheduler thread'i", ["periyodik mesajlar", "_pack, transport.send",
+        box(265, 20, 225, 150, "TX thread'leri", ["kanal başına bir (Tx-<kanal>)", "periyodik mesajlar, _pack, send",
                                                         "_sent, olay yayını"], "run"),
         box(510, 20, 225, 150, "RX thread'leri", ["kanal başına bir (Rx-<kanal>)", "UTS get, decode, dispatch",
                                                   "msg.on_receive kancaları", "denetçi: zaman aşımı"], "run"),

@@ -158,7 +158,7 @@ from projects.example_project.header import ProjectBase
 
 uts = FakeUtsClient()                 # gerçek hat için HttpUtsClient
 comm = Comm(uts, [ProjectBase])
-comm.open()                           # RX (kanal başına) ve TX thread'leri başlar
+comm.open()                           # RX ve TX thread'leri başlar (kanal başına)
 try:
     ...
 finally:
@@ -173,7 +173,7 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <div class="sig">Comm(uts, projects, poll_interval=0.01, channels=(), logger=None)</div>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
-  <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi ve TX thread'i. Cevap vermeyen bir kanal diğerlerinin alımını bekletmez.</td></tr>
+  <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi; periyodik mesajı olan kanal başına bir TX thread'i (kanalın ilk <code>start</code>'ında açılır). Cevap vermeyen bir kanal diğerlerinin alımını ve gönderimini bekletmez.</td></tr>
   <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır.</td></tr>
   <tr><td><code>with comm:</code></td><td><code>open()</code> ve <code>close()</code> yerine geçer.</td></tr>
 </table>
