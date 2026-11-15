@@ -79,6 +79,9 @@ UtsClient        kanalın protokol adına göre tanımı seçer (send / receive)
   UTS'e bağlı, client'ta (`UtsClient(time_unit=...)`).
 - Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
   eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
+- İstek timeout'u: protokol tanımında (Ethernet ve 1553: 2 sn, RS422: 3 sn; UTS'in TX timeout'u + pay), ya da
+  `UtsClient(timeout=...)` ile hepsi için tek değer. `send` / `receive` süreyi `post` / `get`'e verir; gerçek client
+  süre içinde cevap yoksa `UtsError` fırlatır. İstek tekrar denenmez. RS422 süresi baud'dan hesaplanmıyor (sabit).
 - Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
 - MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
@@ -106,8 +109,8 @@ UtsClient        kanalın protokol adına göre tanımı seçer (send / receive)
 - Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her turda sabit sırayla
   (protokol, interface).
 ```
-TX:  msg.pack() -> envelope.on_send -> uts.send(kanal) [protocol.encode -> post(path, interface)]
-RX:  uts.receive(kanal) [get(path, interface) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
+TX:  msg.pack() -> envelope.on_send -> uts.send(kanal) [protocol.encode -> post(path, interface, timeout)]
+RX:  uts.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
 ```
 
 ## Monitor (services/monitor)
@@ -517,7 +520,7 @@ kanal içi sıra korunur.
 | Belgeler | `DESIGN.md` (Thread modeli), `USAGE.md`, `TEST_API.md`, `manual.html` (`open` açıklaması), `KNOWN_ISSUES.md` (RX sırası notu), mimari sayfa (thread kutuları, TX/RX akış notları). | 3, 4 | kısa |
 
 **Sıra (her biri ayrı onay ve commit).**
-1. Client'ta istek timeout'u.
+1. Client'ta istek timeout'u. **Uygulandı.**
 2. Client'ta interface kilidi. **Uygulandı** (mesaj kilidiyle birlikte, thread'lerden önce).
 3. RX: kanal başına thread, denetçi, `UtsClock` kilidi.
 4. TX: kanal başına thread. (Genel `_send_lock` yerine mesaj kilidi **uygulandı**; tek TX thread'iyle.)

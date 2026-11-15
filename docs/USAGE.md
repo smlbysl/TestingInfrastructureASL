@@ -269,6 +269,17 @@ comm.control.clear_filter(channel)
 
 Hedef olarak kanal ya da mesaj verilebilir.
 
+**İstek timeout'u.** Her UTS isteği cevabı sınırlı süre bekler: Ethernet ve 1553'te 2 sn, RS422'de 3 sn (GET için
+de aynı). Süre dolarsa istek başarısız sayılır (`UtsError`); tekrar denenmez. Gönderimde `comm.send` `False` döner ve
+`LinkError` yayınlanır. Hepsi için tek değer vermek istersen:
+
+```python
+uts = FakeUtsClient(timeout=5.0)        # gerçek client için de aynı parametre
+```
+
+Gerçek UTS client'ı yazarken `post` ve `get` bu süreyi `timeout` parametresi olarak alır; süre içinde cevap gelmezse
+`UtsError` fırlatmalıdır.
+
 Hatalar `UtsError` olarak fırlatılır:
 
 ```python

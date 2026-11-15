@@ -22,14 +22,14 @@ class SlowUtsClient(FakeUtsClient):
         self.running = self.most = 0
         self._count = threading.Lock()
 
-    def post(self, path, interface, body):
+    def post(self, path, interface, body, timeout=0.0):
         with self._count:
             self.running += 1
             self.most = max(self.most, self.running)
         time.sleep(self.delay)
         with self._count:
             self.running -= 1
-        super().post(path, interface, body)
+        super().post(path, interface, body, timeout)
 
 
 class LockTests(CommTestCase):

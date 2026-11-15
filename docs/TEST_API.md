@@ -116,6 +116,8 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 |---|---|---|---|
 | `UtsClient(time_unit)` / `FakeUtsClient(time_unit)` | Protokol tanımlarını kurar; `time_unit` UTS birimi başına saniye | Evet (zaman birimi farklıysa) | Evet |
 | `uts.protocols`, `uts.protocol(channel)` | Protokol adı → tanım; kanalın tanımı | Sınırlı | Evet |
+| `UtsClient(timeout=...)`, `uts.timeout_of(protocol)` | İstek bekleme süresi; verilmezse protokolünki (Ethernet / 1553: 2 sn, RS422: 3 sn) | Evet | Evet |
+| `post(path, interface, body, timeout)` / `get(path, interface, timeout)` | Gerçek client'ın yazacağı istekler; süre içinde cevap yoksa `UtsError` | Evet (gerçek client) | Evet |
 | `uts.send(channel, wire)` / `uts.receive(channel)` | Tanımla encode + `post` / `get` + decode (Transport kullanır) | Sınırlı | Evet |
 | `EthernetProtocol`, `Rs422Protocol` | Bayt listesi: `{"message": [...], "timestamp": t}` | Sınırlı | Evet |
 | `Mil1553Protocol` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]`; kelime sırası kanaldan | Sınırlı | Evet |

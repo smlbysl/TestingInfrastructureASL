@@ -28,6 +28,9 @@ MIL-STD-1553: a packet is a list of 16-bit values.
     Every field must start on a 16-bit boundary and have an even size; otherwise a word holds parts
     of two fields.
 
+timeout is how long an answer of UTS is waited for: the TX timeout of UTS for the protocol plus a margin
+(UTS: 1 s for Ethernet and 1553; for serial it depends on the baud rate, at least 1 s).
+
 A protocol sees only the bytes on the line; envelope, splitter, signature and timing stay in the core.
 To check with the real UTS: field names and timestamp unit (time_unit = seconds per UTS unit).
 """
@@ -46,6 +49,7 @@ class Received:
 
 class Protocol:
     path: str = ""                      # bus name in the UTS URL: /{path}/{interface}/messages
+    timeout: float = 2.0                # seconds to wait for an answer of UTS
 
     def __init__(self, time_unit: float = 1.0):
         self.time_unit = time_unit
@@ -80,6 +84,7 @@ class EthernetProtocol(Protocol):
 
 class Rs422Protocol(Protocol):
     path = "rs422"
+    timeout = 3.0
 
 
 class Mil1553Protocol(Protocol):

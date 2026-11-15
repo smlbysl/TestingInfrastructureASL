@@ -18,18 +18,18 @@ class FakeUtsClient(UtsClient):
     Configs and filters are only stored; the filter is not applied.
     """
 
-    def __init__(self, time_unit: float = 1.0):
-        super().__init__(time_unit)
+    def __init__(self, time_unit: float = 1.0, timeout: Optional[float] = None):
+        super().__init__(time_unit, timeout)
         self.posted: list[tuple[str, int, dict]] = []                  # (path, interface, body)
         self._items: dict[tuple[str, int], list[dict]] = defaultdict(list)
         self._lock = threading.Lock()         # inject (test thread) vs get (RX thread)
         self.configs: dict[tuple[str, int], dict] = defaultdict(dict)
         self.filters: dict[tuple[str, int], tuple[str, FilterGroups]] = {}
 
-    def post(self, path: str, interface: int, body: dict) -> None:
+    def post(self, path: str, interface: int, body: dict, timeout: float = 0.0) -> None:
         self.posted.append((path, interface, dict(body)))
 
-    def get(self, path: str, interface: int) -> list[dict]:
+    def get(self, path: str, interface: int, timeout: float = 0.0) -> list[dict]:
         with self._lock:
             return self._items.pop((path, interface), [])
 

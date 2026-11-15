@@ -2,16 +2,18 @@
 
 __author__ = "İsmail Baysal"
 
+from typing import Optional
+
 from asl_testing.uts.client import UtsClient
 
 
 class HttpUtsClient(UtsClient):
-    def __init__(self, base_url: str, time_unit: float = 1.0):
-        super().__init__(time_unit)
+    def __init__(self, base_url: str, time_unit: float = 1.0, timeout: Optional[float] = None):
+        super().__init__(time_unit, timeout)
         self.base_url = base_url
 
-    def post(self, path: str, interface: int, body: dict) -> None:
+    def post(self, path: str, interface: int, body: dict, timeout: float) -> None:
         raise NotImplementedError("UTS API not integrated yet")
 
-    def get(self, path: str, interface: int) -> list[dict]:
+    def get(self, path: str, interface: int, timeout: float) -> list[dict]:
         raise NotImplementedError("UTS API not integrated yet")

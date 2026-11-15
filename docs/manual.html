@@ -594,11 +594,12 @@ comm.bus.unsubscribe(sub)</code></pre>
 
 <h3>UtsClient: gerçek hat</h3>
 <p>Gerçek cihaz için bir istemci yazılır. Zorunlu iki metot:</p>
-<div class="sig">post(path, interface, body) <span class="ret">-&gt; None</span></div>
-<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa <code>UtsError</code> fırlatır.</p>
-<div class="sig">get(path, interface) <span class="ret">-&gt; list[dict]</span></div>
+<div class="sig">post(path, interface, body, timeout) <span class="ret">-&gt; None</span></div>
+<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa ya da <code>timeout</code> saniye içinde cevap gelmezse <code>UtsError</code> fırlatır.</p>
+<div class="sig">get(path, interface, timeout) <span class="ret">-&gt; list[dict]</span></div>
 <p>Son çağrıdan beri gelen öğeleri döner; her öğeyi protokol tanımı çözer.</p>
 <p>Transport bu ikisini doğrudan değil <code>uts.send(kanal, bayt)</code> ve <code>uts.receive(kanal)</code> ile kullanır: client kanalın protokol adına göre tanımı seçer, gövdeyi hazırlar ya da çözer. Gerçek UTS için yalnızca <code>post</code> ve <code>get</code> yazılır.</p>
+<p>Bekleme süresi protokol tanımından gelir: Ethernet ve 1553'te 2 sn, RS422'de 3 sn. <code>FakeUtsClient(timeout=5.0)</code> (gerçek client'ta da aynı) hepsi için tek değer verir. İstek tekrar denenmez.</p>
 <h4>Protokol tanımları</h4>
 <p>Her protokolün baytlarının UTS'e nasıl yazıldığını ve UTS'ten nasıl okunduğunu client'taki bir tanım belirler (<code>uts.protocols</code>):
 <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code> (kanal: <code>Mil1553Channel</code>). Ethernet ve RS422'nin biçimi bugün aynı:
