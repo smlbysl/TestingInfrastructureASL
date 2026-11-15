@@ -20,6 +20,7 @@ from asl_testing.message.endian import EndianMeta
 class FieldType(Structure, metaclass=EndianMeta):
     """Base of the special field types; .val reads / writes the value through on_get / on_set."""
     _pack_ = 1
+    _layout_ = "ms"                       # same layout on Windows and Linux (ctypes 3.14)
     _order = 0                           # lower runs first
 
     @property

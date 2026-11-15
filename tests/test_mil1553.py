@@ -15,6 +15,7 @@ LITTLE, BIG = Mil1553Channel(8), Mil1553Channel(9, byte_order="big")
 def packet_type(base):
     class Packet(base):
         _pack_ = 1
+        _layout_ = "ms"
         _fields_ = [("rt", c_uint16), ("subnet", c_uint16), ("wordCount", c_uint16),
                     ("mode", c_uint16), ("speed", c_uint32)]
     return Packet(rt=30, subnet=1, wordCount=3, mode=0x0001, speed=0x11223344)

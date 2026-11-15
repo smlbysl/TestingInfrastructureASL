@@ -438,6 +438,9 @@ class motor_cmd(Family1):                           # alt sınıflar endian'ı m
 - Big-endian'da bit alanları baytın en yüksek bitinden başlar: `CmdByte.startReq = 1` big'de `0x80`, little'da `0x01`.
 - Eski yazım `class X(BaseMessageStructure, BigEndianStructure)` artık hata verir (`metaclass conflict`);
   `endian="big"` yazılır.
+- Bir bit grubu tek tiple yazılır (ör. hepsi `c_uint8`). `c_uint8` bitlerinin hemen arkasından `c_uint16` bitleri
+  gelirse yerleşim Python sürümüne göre değişir: Linux'ta 3.13 ikisini aynı bayta sıkıştırır, 3.14 `c_uint16`'yı
+  kendi kelimesinde başlatır. Kütüphane `_layout_ = "ms"` (MSVC kuralları) kullanır, Windows ve Linux'ta aynıdır.
 
 ### 1553 mesajı tanımlamak
 

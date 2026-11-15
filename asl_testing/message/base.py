@@ -50,6 +50,7 @@ def _explicit_none(cls) -> bool:
 class BaseMessageStructure(Structure, metaclass=EndianMeta):
     """Base of all messages (see the module docstring)."""
     _pack_ = 1
+    _layout_ = "ms"                                    # same layout on Windows and Linux (ctypes 3.14)
 
     _special: ClassVar[list[tuple[int, str]]] = []      # (order, name) of the FieldType fields
     _defaults: ClassVar[dict[str, object]] = {}         # defaults declared by this class

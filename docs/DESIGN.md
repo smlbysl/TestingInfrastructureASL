@@ -260,6 +260,10 @@ RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.
   tabanlarının sırasını alır. Değer projede tek yerde (`settings.py: ENDIAN`), proje sınıfı ve proje özel tipleri
   `endian=ENDIAN` ile alır. ctypes iç içe `Structure`'ı çevirmediği için mesaj, sırası farklı bir özel tipi
   tanımlanırken `TypeError` ile reddeder (K3). Python 3.13 ve 3.14'te denendi.
+- Yerleşim: `BaseMessageStructure` ve `FieldType`'ta `_pack_ = 1` ve `_layout_ = "ms"`. `_pack_` 3.14'te sadece MSVC
+  kurallarıyla geçerli (`gcc-sysv` ile `ValueError`); açıkça yazılmazsa Windows dışında uyarı verir, 3.19'da hata
+  olacak. 3.13 `_layout_`'u yok sayar. Fark yalnız karışık tipli bit alanlarında (Linux'ta 3.13 ile 3.14 farklı);
+  bit grubu tek tiple yazılır.
 - İsimlendirme: `_x_` sadece ctypes; sınıf ayarları `_x`; nesne bilgisi alt çizgili, dışarıya property.
   Çerçeve kodu her zaman alt çizgili bilgiyi kullanır (ICD alan adlarıyla çakışmaz).
 - `decode(raw, timestamp)`: UTS zamanı `rx_state.timestamp`'e yazılır (ctypes alanı değil).
