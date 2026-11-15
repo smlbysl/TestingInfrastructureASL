@@ -496,6 +496,23 @@ durumunu sadece denetçi yazar. Kanalın periyodik tablosunu test thread'i deği
 bekletmez. TX kapasitesi (~230/s) interface başına olur. Farklı kanalların olayları arasındaki sıra kesin değildir;
 kanal içi sıra korunur.
 
+**Etkilenen dosyalar (thread ve kilit yapısı).**
+
+| Dosya | Değişiklik | Adım | Tahmini |
+|---|---|---|---|
+| `uts/client.py` | İstek timeout'u (client ya da protokol tanımı başına süre; gerçek client `post` / `get` içinde kullanır). `send` içinde `(yol, interface)` başına kilit, sadece `post` çevresinde. | 1, 2 | ~15 satır |
+| `uts/fake.py`, `uts/http.py` | Timeout parametresini temel sınıfa geçirir; kilit temel sınıftan gelir. | 1 | ~3 satır |
+| `runtime/clock.py` | `UtsClock` kilidi (bütün RX thread'leri günceller, denetçi okur). | 3 | ~5 satır |
+| `runtime/rx.py` | Tek döngü yerine: `poll_channel(kanal)` (yokla, olay, dispatch), kanal başına `Rx-<kanal>` thread'i, `RxWatchdog` (yeni kanalın thread'ini başlatır, zaman aşımı kontrolü). Gerekmeyen kanalın thread'i biter. `poll_once()` testler için kalır (bütün kanallar + zaman aşımı, çağıran thread'de). | 3 | ~+40 satır |
+| `runtime/tx.py` | Genel `_send_lock` kalkar; `send` mesaj kilidi altında (pack → envelope → `client.send` → `after_send`). Tek tablo ve thread yerine kanal başına tablo, uyandırma olayı ve `Tx-<kanal>` thread'i (ilk `start(msg)`'de açılır). `tick` kanal başına. | 4 | ~+40 satır |
+| `message/base.py` | `__init__`'te `self._lock = threading.RLock()`. `_pack`'in kopyası kilidi de taşır; kancalar mesaj kilidi altında çalışır. | 4 | ~3 satır |
+| `comm.py` | `open` / `close` aynı çağrılar; `close` cevap bekleyen isteği en fazla timeout kadar bekler (açıklama). | 3, 4 | ~2 satır |
+| `runtime/dispatcher.py`, `message/registry.py` | Kod değişmez. Birden fazla RX thread'inden çağrılır; işlemler tek adım (GIL), uygularken tek tek kontrol. | 3 | — |
+| `events/*`, `services/*`, `channel/*` | Değişmez. | — | — |
+| `examples/` | Değişmez (`comm.tx.is_running` kalır). | — | — |
+| Testler | Yeni: takılan kanal diğerinin RX'ini ve zaman aşımını bekletmez; takılan POST diğer kanalın periyodik TX'ini durdurmaz; `open`'dan sonra tanımlanan kanal dinlenir; `close` bütün thread'leri durdurur; aynı interface'e iki POST üst üste gitmez, farklı interface'ler beklemez; timeout. Mevcut testler değişmez. | 1–4 | ~200 satır |
+| Belgeler | `DESIGN.md` (Thread modeli), `USAGE.md`, `TEST_API.md`, `manual.html` (`open` açıklaması), `KNOWN_ISSUES.md` (RX sırası notu), mimari sayfa (thread kutuları, TX/RX akış notları). | 3, 4 | kısa |
+
 **Sıra (her biri ayrı onay ve commit).**
 1. Client'ta istek timeout'u.
 2. Client'ta interface kilidi.
