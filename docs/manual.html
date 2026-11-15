@@ -486,7 +486,7 @@ Gönderim, alım ve sahte UTS aynı tanımı adaptörden, kelime sırasını kan
 <pre><code>class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
 
-adapter = FakeUtsAdapter(time_unit=1e-6)            # UTS zamanı mikrosaniye ise</code></pre>
+adapter = FakeUtsAdapter(time_unit=1e-3)            # UTS zamanı milisaniye olsaydı (varsayılan 1e-6)</code></pre>
 
 <h3 id="mil1553">MIL-STD-1553 mesajı</h3>
 <p><code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır ve <code>c_uint16</code> tanımlanır; liste bu değerlerle başlar.
@@ -588,14 +588,15 @@ ya da mesaja özel <code>comm.on_receive(msg, handler)</code> kullanılır.</p>
 <table>
   <tr><th>Olay</th><th>Ne zaman</th><th>Ek alanlar</th></tr>
   <tr><td><code>MessageReceived</code></td><td>Geçerli paket alındı.</td><td>Ortak alanlar, <code>timestamp</code> (UTS zamanı).</td></tr>
-  <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar.</td></tr>
+  <tr><td><code>MessageSent</code></td><td>Mesaj başarıyla gönderildi.</td><td>Ortak alanlar, <code>timestamp</code> (UTS'in POST cevabındaki gönderim zamanı).</td></tr>
   <tr><td><code>InvalidReceived</code></td><td>Paket geldi ama doğrulanamadı.</td><td>Ortak alanlar, <code>timestamp</code>. <code>image</code> boştur.</td></tr>
   <tr><td><code>UnknownReceived</code></td><td>Hiçbir mesajla eşleşmedi.</td><td><code>channel</code> (eşleşen kanal, yoksa <code>None</code>), <code>raw</code>, <code>host_time</code>, <code>timestamp</code>.</td></tr>
   <tr><td><code>WireReceived</code></td><td>Tel üzerinde bir paket alındı.</td><td><code>channel</code>, <code>protocol</code>, <code>interface</code>, <code>wire</code>, <code>timestamp</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>WireSent</code></td><td>Tel üzerine bir paket gönderildi.</td><td><code>channel</code>, <code>message</code>, <code>wire</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxTimeout</code></td><td>Periyodik RX mesajı zaman aşımına uğradı.</td><td><code>message</code>, <code>age</code>, <code>host_time</code>.</td></tr>
   <tr><td><code>RxRestored</code></td><td>Periyodik RX mesajı yeniden geldi.</td><td><code>message</code>, <code>host_time</code>.</td></tr>
-  <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim veya yoklama).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>RxOverflow</code></td><td>UTS'in alım tamponu taştı; önceki paketler kayboldu.</td><td><code>channel</code>, <code>host_time</code>.</td></tr>
+  <tr><td><code>LinkError</code></td><td>UTS hatası (gönderim veya yoklama).</td><td><code>channel</code>, <code>operation</code> (<code>"send"</code> veya <code>"poll"</code>), <code>error</code> (hata cevabında <code>status</code>, <code>code</code>), <code>host_time</code>.</td></tr>
 </table>
 <p class="muted">Alan adları ve sırası <code>asl_testing/events/types.py</code> ile aynıdır. Her paket önce <code>WireReceived</code>, sonra alım sonucu olayını üretir.</p>
 
@@ -618,10 +619,14 @@ comm.bus.unsubscribe(sub)</code></pre>
 <h4>Protokol tanımları</h4>
 <p>Her protokolün baytlarının UTS'e nasıl yazıldığını ve UTS'ten nasıl okunduğunu adaptördeki bir tanım belirler (<code>adapter.protocols</code>):
 <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code> (kanal: <code>Mil1553Channel</code>). Ethernet ve RS422'nin biçimi bugün aynı:
-<code>{"message": [b0, b1, ...], "timestamp": t}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
+<code>{"message": [b0, b1, ...]}</code>. 1553'te paket <code>[rt, subnet, word_count, word, ...]</code> listesidir;
 <code>rt</code>, <code>subnet</code> ve <code>word_count</code> mesajın ilk üç alanıdır (<code>c_uint16</code>), tanıma
 <code>Signature("rt", "subnet")</code> ile yapılır. <code>Mil1553Channel(..., byte_order=...)</code> mesaj yapısının endian'ıyla aynı olmalıdır;
-her alan 16 bitlik sınırda başlamalı ve çift bayt olmalıdır. Zaman birimi adaptörde verilir: <code>FakeUtsAdapter(time_unit=1e-6)</code>.</p>
+her alan 16 bitlik sınırda başlamalı ve çift bayt olmalıdır. Zaman birimi adaptörde verilir (varsayılan mikrosaniye: <code>time_unit=1e-6</code>).</p>
+<p>UTS cevapları: POST <code>{"statusInfo": {...}, "timestamp": t}</code>, GET <code>{"statusInfo": {...}, "messages": [{"message": [...], "timestamp": t}], "isBufferOverflow": false}</code>.
+<code>post</code> / <code>get</code> cevap gövdesini döndürür; 200 olmayan cevabı <code>UtsAdapter.answer(status, body)</code> <code>AdapterError</code> yapar.
+POST zamanı <code>MessageSent.timestamp</code> olur. Taşmada RX thread'i uyarı loglar ve <code>RxOverflow</code> yayınlar; paketler yine işlenir.
+Simülasyonda <code>FakeUtsAdapter.overflow(channel)</code> bir sonraki GET'te taşma bildirir.</p>
 <p>Config ve filtre istekleri (<code>read_config</code>, <code>write_config</code>, <code>read_filter</code>, <code>write_filter</code>) gerektiğinde yazılır;
 yazılmamışsa <code>NotImplementedError</code> fırlatır, mesaj akışı yine de çalışır.</p>
 <div class="note"><strong>Durum</strong>
@@ -746,7 +751,7 @@ Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu or
   <tr><td>Alan tipleri</td><td><code>FieldType</code>, <code>LengthType</code>, <code>CounterType</code>, <code>ChecksumType</code>, <code>AsciiType</code></td></tr>
   <tr><td>Kanal</td><td><code>Channel</code>, <code>ChannelSet</code>, <code>EthernetChannel</code>, <code>Rs422Channel</code>, <code>Mil1553Channel</code></td></tr>
   <tr><td>Çerçeveleme</td><td><code>Framing</code>, <code>Envelope</code>, <code>Splitter</code></td></tr>
-  <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
+  <tr><td>Olaylar</td><td><code>MessageEvent</code>, <code>MessageReceived</code>, <code>MessageSent</code>, <code>InvalidReceived</code>, <code>UnknownReceived</code>, <code>RxTimeout</code>, <code>RxRestored</code>, <code>RxOverflow</code>, <code>LinkError</code>, <code>WireReceived</code>, <code>WireSent</code>, <code>EventBus</code>, <code>Subscriber</code></td></tr>
   <tr><td>Adaptör</td><td><code>Adapter</code>, <code>AdapterError</code>, <code>Received</code>, <code>UtsAdapter</code>, <code>FakeUtsAdapter</code>, <code>Protocol</code>, <code>EthernetProtocol</code>, <code>Rs422Protocol</code>, <code>Mil1553Protocol</code></td></tr>
   <tr><td>Servisler</td><td><code>CommLogger</code>, <code>ErrorLog</code>, <code>MonitorService</code></td></tr>
 </table>

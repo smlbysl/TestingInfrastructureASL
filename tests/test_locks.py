@@ -29,7 +29,7 @@ class SlowUtsAdapter(FakeUtsAdapter):
         time.sleep(self.delay)
         with self._count:
             self.running -= 1
-        super().post(path, interface, body, timeout)
+        return super().post(path, interface, body, timeout)
 
 
 class LockTests(CommTestCase):
@@ -113,7 +113,7 @@ class HoldingUtsAdapter(FakeUtsAdapter):
         if self.holding:
             self.entered.set()
             self._released.wait()
-        super().post(path, interface, body, timeout)
+        return super().post(path, interface, body, timeout)
 
 
 class LockedUpdateTests(CommTestCase):

@@ -229,12 +229,13 @@ Olay tipleri:
 | Olay | Ne zaman |
 |---|---|
 | `MessageReceived` | Geçerli paket alındı |
-| `MessageSent` | Mesaj gönderildi |
+| `MessageSent` | Mesaj gönderildi (`ev.timestamp`: UTS'in POST cevabındaki gönderim zamanı) |
 | `InvalidReceived` | Paket geldi ama doğrulanamadı (bozuk CRC, yanlış boy ...) |
 | `UnknownReceived` | Hiçbir mesajla eşleşmeyen paket (`ev.channel` ile kanalı belli) |
 | `WireReceived` / `WireSent` | Tel üzerindeki ham bayt |
 | `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi |
-| `LinkError` | UTS hatası (gönderim veya alım) |
+| `RxOverflow` | UTS'in alım tamponu taştı, önceki paketler kayboldu (o GET'in paketleri yine işlenir) |
+| `LinkError` | UTS hatası (gönderim veya alım; hata cevabında `ev.error.status`, `ev.error.code`) |
 
 Olayın içinde `ev.message`, `ev.raw` (envelope'suz mesaj baytları; tel üzerindeki hali için `WireReceived` / `WireSent`), `ev.host_time`, `ev.image` ve `ev.snapshot()` bulunur. `snapshot()` olayın anındaki değerleri ayrı bir nesne olarak verir; sonraki paketlerden etkilenmez.
 
@@ -379,20 +380,34 @@ Test kodu bunu görmez; `comm.send` / `comm.start` / `wait_for` her protokolde a
 
 | Kanal | Protokol tanımı (`UtsAdapter`) | UTS yolu | UTS'e giden / UTS'ten gelen |
 |---|---|---|---|
-| `EthernetChannel` | `EthernetProtocol` | `/ethernet` | `{"message": [b0, b1, ...], "timestamp": t}` |
-| `Rs422Channel` | `Rs422Protocol` | `/serials` | `{"message": [b0, b1, ...], "timestamp": t}` |
-| `Mil1553Channel` | `Mil1553Protocol` | `/mil1553` | `{"message": [rt, subnet, word_count, word, ...], "timestamp": t}` |
+| `EthernetChannel` | `EthernetProtocol` | `/ethernet` | `{"message": [b0, b1, ...]}` |
+| `Rs422Channel` | `Rs422Protocol` | `/serials` | `{"message": [b0, b1, ...]}` |
+| `Mil1553Channel` | `Mil1553Protocol` | `/mil1553` | `{"message": [rt, subnet, word_count, word, ...]}` |
+
+UTS'in cevapları (seri port için belgelenmiş; diğerlerinde aynı biçim varsayılıyor):
+
+```
+POST 200: {"statusInfo": {"status": "OK", "code": 200, "message": "..."}, "timestamp": t}
+GET  200: {"statusInfo": {...}, "messages": [{"message": [...], "timestamp": t}, ...], "isBufferOverflow": false}
+Hata    : aynı statusInfo; ör. 400 (boş mesaj / port kapalı), 404 (geçersiz interface), 500 (HAL timeout), 503 (eINIT)
+```
+
+- `t` mikrosaniyedir; adaptör saniyeye çevirir (`time_unit=1e-6`, varsayılan).
+- POST cevabındaki zaman `MessageSent.timestamp` olur.
+- GET tamponu boşaltır. Tampon taşarsa UTS en yeni paketleri tutar ve `isBufferOverflow` verir; RX thread'i bir uyarı
+  loglar ve `RxOverflow` yayınlar, gelen paketler yine işlenir.
+- 200 olmayan cevap `AdapterError` olur (`status`, `code`, mesaj); gönderim başarısız sayılır, `LinkError` yayınlanır.
 
 Ayarın yeri, neye bağlı olduğuna göre:
 
 - 1553 kelime sırası projenin mesaj yapısına bağlıdır, kanalda verilir.
-- UTS zaman birimi UTS'e bağlıdır, adaptörde verilir.
+- UTS zaman birimi UTS'e bağlıdır, adaptörde verilir (varsayılan mikrosaniye).
 
 ```python
 class MyChannels(ChannelSet):
     BUS_A = Mil1553Channel(1, byte_order="big")    # mesaj yapısı BigEndianStructure
 
-adapter = FakeUtsAdapter(time_unit=1e-6)            # UTS zamanı mikrosaniye ise (gerçek adaptör için de aynı)
+adapter = FakeUtsAdapter(time_unit=1e-3)            # UTS zamanı milisaniye olsaydı (varsayılan 1e-6)
 ```
 
 Gönderim, alım ve sahte UTS (`adapter.inject(kanal, ...)`) aynı tanımı adaptörden, kelime sırasını kanaldan alır.

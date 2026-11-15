@@ -134,7 +134,7 @@ def layer_diagram() -> str:
          band(20, 250, W, 64, "Olaylar", "evt"),
          chip(150, 270, 260, "EventBus", "publish / subscribe, abone başına thread"),
          chip(430, 270, 520, "MessageReceived, MessageSent, InvalidReceived, UnknownReceived,",
-              "WireReceived, WireSent, RxTimeout, RxRestored, LinkError"),
+              "WireReceived, WireSent, RxTimeout, RxRestored, RxOverflow, LinkError"),
 
          band(20, 330, W, 64, "Adaptör", "uts"),
          chip(150, 350, 400, "adapter/uts/  UtsAdapter: send / receive, config, filtre",
@@ -421,6 +421,7 @@ def page() -> str:
         ["<code>InvalidReceived</code>", "Dispatcher", "Mesaja ait, boy / uzunluk / CRC tutmuyor"],
         ["<code>UnknownReceived</code>", "Dispatcher", "Hiçbir mesaja ait değil"],
         ["<code>RxTimeout</code>, <code>RxRestored</code>", "RxPoller", "Periyodik RX mesajı gecikti / yeniden geldi"],
+        ["<code>RxOverflow</code>", "RxPoller", "UTS GET cevabında isBufferOverflow"],
     ])
     extend = table(["Ne eklenir", "Nerede", "Ne yazılır"], [
         ["Yeni hat tipi (ör. CAN)", "<code>adapter/uts/protocols.py</code>, <code>adapter/uts/adapter.py</code>, <code>channel/channel.py</code>",

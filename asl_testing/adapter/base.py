@@ -1,7 +1,9 @@
 """Adapter: what the core needs from the system between the test PC and the device.
 
-    send(channel, wire)     sends the bytes on the line of a channel
-    receive(channel)        what the channel's interface received since the last call: list of Received
+    send(channel, wire)     sends the bytes on the line of a channel; returns the adapter's time of the send
+                            in seconds, or None if it does not report one
+    receive(channel)        what the channel's interface received since the last call: Polled
+                            (list of Received, and whether the adapter's receive buffer lost packets)
 
 Config and filters are optional; an adapter without them raises AdapterError("... not supported").
 The target of those calls is a channel or a message (its channel).
@@ -21,8 +23,22 @@ class Received:
     timestamp: Optional[float]          # time of the adapter (UTS) in seconds
 
 
+@dataclass(frozen=True)
+class Polled:
+    received: list[Received]            # in the order the adapter returned them
+    overflow: bool = False              # the adapter's receive buffer overflowed: packets before these were lost
+
+
 class AdapterError(Exception):
-    """A request of the adapter failed (error answer, not reachable, no answer within the timeout)."""
+    """A request of the adapter failed (error answer, not reachable, no answer within the timeout).
+
+    status: answer status (HTTP code) if there was an answer; code / text: what the answer said.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None, code: Optional[str] = None):
+        super().__init__(message)
+        self.status = status
+        self.code = code
 
 
 FilterGroups = list[list[tuple[int, int]]]   # OR of groups; a group is an AND of (byte position, value)
@@ -30,11 +46,11 @@ FilterGroups = list[list[tuple[int, int]]]   # OR of groups; a group is an AND o
 
 class Adapter(ABC):
     @abstractmethod
-    def send(self, channel, wire: bytes) -> None:
-        """Sends the bytes on the line of a channel; AdapterError if it fails."""
+    def send(self, channel, wire: bytes) -> Optional[float]:
+        """Sends the bytes on the line of a channel; time of the send (seconds) or None; AdapterError if it fails."""
 
     @abstractmethod
-    def receive(self, channel) -> list[Received]:
+    def receive(self, channel) -> Polled:
         """What the channel's interface received since the last call; AdapterError if it fails."""
 
     # ---------------------------------------------------------------- config and filters (optional)

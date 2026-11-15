@@ -4,7 +4,7 @@ __author__ = "İsmail Baysal"
 
 import unittest
 
-from asl_testing import Adapter, AdapterError, FakeUtsAdapter, UtsAdapter
+from asl_testing import Adapter, AdapterError, FakeUtsAdapter, Polled, UtsAdapter
 from projects.example_project.channels import MyChannels
 from projects.example_project.messages import bambaşka, comut
 from tests.base import CommTestCase
@@ -55,7 +55,7 @@ class AdapterWithoutRequestsTests(unittest.TestCase):
                 pass
 
             def receive(self, channel):
-                return []
+                return Polled([])
 
         with self.assertRaises(AdapterError):
             BytesOnly().add_filter(comut(DEST, SRC, 0x20))
@@ -65,10 +65,10 @@ class AdapterWithoutRequestsTests(unittest.TestCase):
     def test_uts_request_not_written_yet(self):
         class OnlyMessages(UtsAdapter):
             def post(self, path, interface, body, timeout):
-                pass
+                return {}
 
             def get(self, path, interface, timeout):
-                return []
+                return {}
 
         with self.assertRaises(NotImplementedError):
             OnlyMessages().get_config(MyChannels.CONTROL)

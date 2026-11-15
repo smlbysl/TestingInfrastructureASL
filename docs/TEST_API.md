@@ -115,12 +115,14 @@ Test, mesajın değerlerini ve durumunu bu nesne üzerinden okur ve yazar.
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `UtsAdapter(time_unit)` / `FakeUtsAdapter(time_unit)` | Protokol tanımlarını kurar; `time_unit` UTS birimi başına saniye | Evet (zaman birimi farklıysa) | Evet |
+| `UtsAdapter(time_unit)` / `FakeUtsAdapter(time_unit)` | Protokol tanımlarını kurar; `time_unit` UTS birimi başına saniye (varsayılan 1e-6) | Evet (zaman birimi farklıysa) | Evet |
 | `adapter.protocols`, `adapter.protocol(channel)` | Protokol adı → tanım; kanalın tanımı | Sınırlı | Evet |
 | `UtsAdapter(timeout=...)`, `adapter.timeout_of(protocol)` | İstek bekleme süresi; verilmezse protokolünki (Ethernet / 1553: 2 sn, RS422: 3 sn) | Evet | Evet |
-| `post(path, interface, body, timeout)` / `get(path, interface, timeout)` | Gerçek adaptörün yazacağı istekler; süre içinde cevap yoksa `AdapterError` | Evet (gerçek adaptör) | Evet |
-| `adapter.send(channel, wire)` / `adapter.receive(channel)` | Tanımla encode + `post` / `get` + decode (Transport kullanır) | Sınırlı | Evet |
-| `EthernetProtocol`, `Rs422Protocol` | Bayt listesi: `{"message": [...], "timestamp": t}` | Sınırlı | Evet |
+| `post(path, interface, body, timeout)` / `get(path, interface, timeout)` | Gerçek adaptörün yazacağı istekler; UTS cevap gövdesini döndürür, süre içinde cevap yoksa `AdapterError` | Evet (gerçek adaptör) | Evet |
+| `UtsAdapter.answer(status, body)` | 200 ise gövde, değilse `statusInfo`'dan `AdapterError` (`status`, `code`) | Evet (gerçek adaptör) | Evet |
+| `adapter.send(channel, wire)` / `adapter.receive(channel)` | Tanımla encode + `post` → gönderim zamanı / `get` + decode → `Polled(received, overflow)` (Transport kullanır) | Sınırlı | Evet |
+| `EthernetProtocol`, `Rs422Protocol` | Bayt listesi: `{"message": [...]}` | Sınırlı | Evet |
+| `protocol.sent_time(answer)` / `items(answer)` / `overflow(answer)` | POST cevabındaki zaman (sn); GET cevabındaki öğeler ve taşma bayrağı | Sınırlı | Evet |
 | `Mil1553Protocol` | 16 bitlik değer listesi: `[rt, subnet, word_count, word, ...]`; kelime sırası kanaldan | Sınırlı | Evet |
 | `protocol.encode(channel, data)` / `decode(channel, item)` / `simulate(channel, data, ts)` | Bayt ↔ UTS gövdesi / öğesi | Sınırlı (protokol testi) | Evet |
 | `Mil1553Channel(1, byte_order="big")` | 16 bitlik kelimelerin bayt sırası; mesaj yapısıyla aynı olmalı | Evet (big-endian projede) | Evet |
@@ -140,11 +142,12 @@ Test, paket akışını olaylardan izleyebilir.
 
 | Olay | İçerik | Anlamlı mı | Tasarım |
 |---|---|---|---|
-| `MessageReceived` / `MessageSent` | Mesaj nesnesi, gönderilen/alınan görüntü | Evet | Evet |
+| `MessageReceived` / `MessageSent` | Mesaj nesnesi, gönderilen/alınan görüntü; `MessageSent.timestamp` UTS'in gönderim zamanı | Evet | Evet |
 | `InvalidReceived` | Bozuk paket | Evet | Evet |
 | `UnknownReceived` | Eşleşmeyen çerçeve, kanal bilgisiyle | Evet | Evet |
 | `WireReceived` / `WireSent` | Tel üzerindeki bayt, UTS zamanı | Evet (framing testi) | Evet |
 | `RxTimeout` / `RxRestored` | Periyodik RX kesildi / geri geldi | Evet | Evet |
+| `RxOverflow` | UTS alım tamponu taştı (kanal, zaman) | Evet | Evet |
 | `LinkError` | UTS hatası (gönderim veya alım) | Evet | Evet |
 | `event.snapshot()` | Olayın görüntüsünü kopyalar | Sınırlı | Evet |
 
@@ -155,6 +158,7 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `FakeUtsAdapter.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokol tanımıyla) | Evet (sahte cihaz) | Evet |
+| `FakeUtsAdapter.overflow(channel)` | Kanalın bir sonraki GET'i taşma bildirir | Evet (simülasyon) | Evet |
 | `FakeUtsAdapter.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
 | `comm.adapter.get_config / set_config` | Hedefin UTS yapılandırması | Evet | Evet |
 | `comm.adapter.add_filter(msg)` / `remove_filter(msg)` | Mesajın imzasını filtreye ekler / çıkarır | Evet | Evet |

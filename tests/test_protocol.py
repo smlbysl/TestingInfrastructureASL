@@ -33,8 +33,8 @@ class EthernetProtocolTests(unittest.TestCase):
         self.assertEqual(EthernetProtocol().encode(ETH, b"\x01\x02"), {"message": [1, 2]})
 
     def test_decode(self):
-        received = EthernetProtocol().decode(ETH, {"message": [1, 2], "timestamp": 5})
-        self.assertEqual((received.data, received.timestamp), (b"\x01\x02", 5))
+        received = EthernetProtocol().decode(ETH, {"message": [1, 2], "timestamp": 5_000_000})
+        self.assertEqual((received.data, round(received.timestamp, 6)), (b"\x01\x02", 5.0))   # microseconds
 
     def test_time_unit(self):
         received = EthernetProtocol(time_unit=1e-6).decode(ETH, {"message": [], "timestamp": 2_000_000})
@@ -74,7 +74,7 @@ class AdapterProtocolTests(unittest.TestCase):
 
             def post(self, path, interface, body, timeout=0.0):
                 self.timeouts.append(("POST", path, timeout))
-                super().post(path, interface, body, timeout)
+                return super().post(path, interface, body, timeout)
 
             def get(self, path, interface, timeout=0.0):
                 self.timeouts.append(("GET", path, timeout))

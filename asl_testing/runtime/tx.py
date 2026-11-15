@@ -58,7 +58,7 @@ class TxScheduler:
         with msg._lock:
             raw, image = msg._pack()
             try:
-                wire = self.transport.send(msg._channel, raw)
+                wire, sent_time = self.transport.send(msg._channel, raw)
             except Exception as error:
                 self.log.exception("UTS send of %s failed on %s", type(msg).__name__, msg._channel)
                 self.bus.publish(LinkError(msg._channel, "send", error, time.time()))
@@ -67,7 +67,7 @@ class TxScheduler:
         self.log.debug("TX %s on %s (%d bytes)", type(msg).__name__, msg._channel, len(raw))
         now = time.time()
         self.bus.publish(WireSent(msg._channel, msg, wire, now))
-        self.bus.publish(MessageSent(msg, raw, now, image))
+        self.bus.publish(MessageSent(msg, raw, now, image, sent_time))
         return True
 
     # ---------------------------------------------------------------- periodic

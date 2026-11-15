@@ -12,27 +12,44 @@ from asl_testing.adapter.base import FilterGroups
 from asl_testing.adapter.uts.adapter import UtsAdapter
 
 
+OK = {"status": "OK", "code": 200, "message": "OK"}
+
+
 class FakeUtsAdapter(UtsAdapter):
     """post() records what is sent; inject() plays the device; get() drains the receive buffer.
+
+    The answers have the layout of UTS: POST {statusInfo, timestamp}; GET {statusInfo, messages,
+    isBufferOverflow}. overflow(channel) makes the next GET of the channel report a buffer overflow.
 
     inject() stores the item UTS would return, built by the protocol definition (protocol.simulate).
     Configs and filters are only stored; the filter is not applied.
     """
 
-    def __init__(self, time_unit: float = 1.0, timeout: Optional[float] = None, log=None):
+    def __init__(self, time_unit: float = 1e-6, timeout: Optional[float] = None, log=None):
         super().__init__(time_unit, timeout, log)
+        self.time_unit = time_unit
         self.posted: list[tuple[str, int, dict]] = []                  # (path, interface, body)
         self._items: dict[tuple[str, int], list[dict]] = defaultdict(list)
+        self._overflowed: set[tuple[str, int]] = set()
         self._items_lock = threading.Lock()   # inject (test thread) vs get (RX thread)
         self.configs: dict[tuple[str, int], dict] = defaultdict(dict)
         self.filters: dict[tuple[str, int], tuple[str, FilterGroups]] = {}
 
-    def post(self, path: str, interface: int, body: dict, timeout: float = 0.0) -> None:
+    def post(self, path: str, interface: int, body: dict, timeout: float = 0.0) -> dict:
         self.posted.append((path, interface, dict(body)))
+        return {"statusInfo": dict(OK), "timestamp": round(time.time() / self.time_unit)}
 
-    def get(self, path: str, interface: int, timeout: float = 0.0) -> list[dict]:
+    def get(self, path: str, interface: int, timeout: float = 0.0) -> dict:
         with self._items_lock:
-            return self._items.pop((path, interface), [])
+            items = self._items.pop((path, interface), [])
+            overflow = (path, interface) in self._overflowed
+            self._overflowed.discard((path, interface))
+        return {"statusInfo": dict(OK), "messages": items, "isBufferOverflow": overflow}
+
+    def overflow(self, channel: Channel) -> None:
+        """The next GET of the channel reports that the receive buffer of UTS overflowed."""
+        with self._items_lock:
+            self._overflowed.add((self.protocol(channel).path, channel.interface))
 
     def inject(self, channel: Channel, data: bytes, timestamp: Optional[float] = None) -> None:
         """The device sent data (bytes on the line) on the channel's interface."""

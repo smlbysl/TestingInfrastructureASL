@@ -3,6 +3,7 @@
 RX thread of a channel (Rx-<channel>), every interval:
 1. reads what the channel's interface received
 2. publishes WireReceived for each packet and passes it to the dispatcher
+   (RxOverflow first, if the adapter reports that its receive buffer lost packets)
 
 Watchdog (RxWatchdog), every interval:
 1. starts the RX thread of a channel that has RX messages or was added with listen()
@@ -23,7 +24,7 @@ from asl_testing.runtime.clock import UtsClock
 from asl_testing.runtime.dispatcher import Dispatcher
 from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
-from asl_testing.events.types import LinkError, RxRestored, RxTimeout, WireReceived
+from asl_testing.events.types import LinkError, RxOverflow, RxRestored, RxTimeout, WireReceived
 from asl_testing.message.base import BaseMessageStructure
 from asl_testing.channel.channel import Channel
 
@@ -68,11 +69,14 @@ class RxPoller:
     def poll_channel(self, channel: Channel) -> None:
         """Reads one channel and passes its packets on."""
         try:
-            frames = self.transport.poll(channel)
+            frames, overflow = self.transport.poll(channel)
         except Exception as error:
             self.log.exception("UTS poll failed on %s", channel)
             self.bus.publish(LinkError(channel, "poll", error, time.time()))
             return
+        if overflow:
+            self.log.warning("receive buffer of %s overflowed: packets were lost", channel)
+            self.bus.publish(RxOverflow(channel, time.time()))
         for frame in frames:
             self.clock.update(frame.timestamp)
             self.bus.publish(WireReceived(frame.channel, frame.wire, frame.timestamp, frame.host_time))

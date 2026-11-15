@@ -37,10 +37,10 @@ from asl_testing.adapter.uts.protocols import EthernetProtocol, Mil1553Protocol,
 # events
 from asl_testing.events.bus import EventBus, Subscriber
 from asl_testing.events.types import (InvalidReceived, LinkError, MessageEvent, MessageReceived, MessageSent,
-                                      RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
+                                      RxOverflow, RxRestored, RxTimeout, UnknownReceived, WireReceived, WireSent)
 
 # adapters
-from asl_testing.adapter.base import Adapter, AdapterError, Received
+from asl_testing.adapter.base import Adapter, AdapterError, Polled, Received
 from asl_testing.adapter.uts.adapter import UtsAdapter
 from asl_testing.adapter.uts.fake import FakeUtsAdapter
 
@@ -55,7 +55,7 @@ __all__ = [
     "Channel", "ChannelSet", "EthernetChannel", "Rs422Channel", "Mil1553Channel",
     "Framing", "Envelope", "Splitter", "Protocol", "Received", "EthernetProtocol", "Rs422Protocol", "Mil1553Protocol",
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
-    "UnknownReceived", "RxTimeout", "RxRestored", "LinkError", "WireReceived", "WireSent",
-    "Adapter", "AdapterError", "UtsAdapter", "FakeUtsAdapter",
+    "UnknownReceived", "RxTimeout", "RxRestored", "RxOverflow", "LinkError", "WireReceived", "WireSent",
+    "Adapter", "AdapterError", "Polled", "UtsAdapter", "FakeUtsAdapter",
     "ErrorLog", "CommLogger", "MonitorService",
 ]

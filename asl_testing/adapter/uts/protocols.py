@@ -3,8 +3,16 @@
 The UTS adapter holds one definition per protocol name; a channel only names its protocol.
 
     encode(channel, data)             TX: bytes on the line -> body of the UTS POST
+    sent_time(answer)                 TX: time of the send in the answer of the POST, in seconds
+    items(answer), overflow(answer)   RX: list of items and the overflow flag in the answer of the GET
     decode(channel, item)             RX: one item of the UTS GET -> Received(bytes, time)
     simulate(channel, data, time)     the item UTS would return (used by FakeUtsAdapter)
+
+Answers of UTS (documented for serial; the same layout is assumed for the others):
+    POST : {"statusInfo": {"status": "OK", "code": 200, "message": "..."}, "timestamp": t}
+    GET  : {"statusInfo": {...}, "messages": [item, ...], "isBufferOverflow": false}
+    t is in microseconds (time_unit = seconds per UTS unit, 1e-6). GET empties the buffer of UTS;
+    on overflow UTS keeps the newest packets (ring) and sets isBufferOverflow.
 
 Ethernet, RS422 (UTS path: serials):
     POST body : {"message": [b0, b1, ...]}
@@ -32,7 +40,7 @@ timeout is how long an answer of UTS is waited for: the TX timeout of UTS for th
 (UTS: 1 s for Ethernet and 1553; for serial it depends on the baud rate, at least 1 s).
 
 A protocol sees only the bytes on the line; envelope, splitter, signature and timing stay in the core.
-To check with the real UTS: field names and timestamp unit (time_unit = seconds per UTS unit).
+To check with the real UTS: that Ethernet and 1553 answer like serial, and that t is in microseconds.
 """
 
 __author__ = "İsmail Baysal"
@@ -46,25 +54,42 @@ class Protocol:
     path: str = ""                      # bus name in the UTS URL: /{path}/{interface}/messages
     timeout: float = 2.0                # seconds to wait for an answer of UTS
 
-    def __init__(self, time_unit: float = 1.0):
+    def __init__(self, time_unit: float = 1e-6):
         self.time_unit = time_unit
 
     def encode(self, channel, data: bytes) -> dict:
         """Bytes on the line -> UTS request body."""
         return {"message": self.to_list(channel, data)}
 
+    def sent_time(self, answer: Optional[dict]) -> Optional[float]:
+        """Time of the send in the answer of a POST, in seconds."""
+        return self._seconds((answer or {}).get("timestamp"))
+
+    def items(self, answer: Optional[dict]) -> list[dict]:
+        """Received items in the answer of a GET."""
+        return (answer or {}).get("messages") or []
+
+    def overflow(self, answer: Optional[dict]) -> bool:
+        """True if the receive buffer of UTS overflowed before the GET."""
+        return bool((answer or {}).get("isBufferOverflow"))
+
     def decode(self, channel, item: dict) -> Received:
         """One UTS item -> bytes and time."""
-        timestamp = item.get("timestamp")
-        return Received(self.to_bytes(channel, item["message"]),
-                        None if timestamp is None else timestamp * self.time_unit)
+        return Received(self.to_bytes(channel, item["message"]), self._seconds(item.get("timestamp")))
 
     def simulate(self, channel, data: bytes, timestamp: Optional[float]) -> dict:
         """UTS item for data, as if the device had sent it."""
         item = self.encode(channel, data)
         if timestamp is not None:
-            item["timestamp"] = timestamp / self.time_unit
+            item["timestamp"] = self.uts_time(timestamp)
         return item
+
+    def uts_time(self, seconds: float) -> int:
+        """Seconds -> UTS time units (whole number, as UTS reports)."""
+        return round(seconds / self.time_unit)
+
+    def _seconds(self, timestamp) -> Optional[float]:
+        return None if timestamp is None else timestamp * self.time_unit
 
     def to_list(self, channel, data: bytes) -> list[int]:
         return list(data)

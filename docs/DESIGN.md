@@ -90,16 +90,24 @@ Adapter          çekirdeğin gördüğü sözleşme: send / receive (config, fi
   `ethernet`, `serials`, `mil1553`); UTS'e ait hiçbir şeyi
   import etmez. Tanımlar `UtsAdapter`'dadır (`adapter/uts/protocols.py`, `UtsAdapter.protocols`): yol, `encode`, `decode`,
   `simulate`. Ortak kod `Protocol` temel sınıfında bir kez; 1553 sadece 16 bitlik çeviriyi (`to_list`, `to_bytes`) ekler.
-- `UtsAdapter.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`. `receive(kanal)`: `get`,
-  her öğeye `decode`. Gerçek UTS için sadece `post` ve `get` yazılır; `FakeUtsAdapter` aynı tanımları kullanır.
+- `UtsAdapter.send(kanal, bayt)`: tanımı seçer, `encode`, `post(yol, interface, gövde)`, cevaptan gönderim zamanı
+  (`sent_time`). `receive(kanal)`: `get`, cevabın `messages` öğelerine `decode`, `isBufferOverflow` → `Polled(received,
+  overflow)`. Gerçek UTS için sadece `post` ve `get` yazılır, ikisi cevap gövdesini döndürür; `FakeUtsAdapter` aynı
+  tanımları ve aynı cevap biçimini kullanır.
+- UTS cevabı: `{"statusInfo": {status, code, message}, ...}`. POST'ta `timestamp` (µs), GET'te `messages` ve
+  `isBufferOverflow`. 200 olmayan cevabı `UtsAdapter.answer(status, gövde)` `AdapterError(status, code)` yapar;
+  mevcut modül JSON'u nasıl verirse versin gerçek adaptör `post` / `get` içinde bunu çağırır.
+- Taşma: UTS tamponu ring olarak tutar, GET boşaltır, taşınca sadece bayrak verir (silme isteği yok). RX thread'i uyarı
+  loglar, `RxOverflow(kanal)` yayınlar (ErrorLog yazar), paketleri işlemeye devam eder.
+- Gönderim zamanı: `Transport.send` → `(tel, zaman)`, `MessageSent.timestamp` (CSV log'da `uts_time`).
 - Ayarın yeri: 1553 kelime sırası mesaj yapısına bağlı, kanalda (`Mil1553Channel(byte_order=...)`); UTS zaman birimi
-  UTS'e bağlı, adaptörde (`UtsAdapter(time_unit=...)`).
+  UTS'e bağlı, adaptörde (`UtsAdapter(time_unit=...)`, varsayılan 1e-6: mikrosaniye).
 - Protokol mesajı, signature'ı, envelope'u, splitter'ı ve zamanlamayı bilmez. Envelope TX'te `encode`'dan önce
   eklenir; splitter ve envelope RX'te `decode`'dan sonra çalışır (bugünkü gibi).
 - İstek timeout'u: protokol tanımında (Ethernet ve 1553: 2 sn, RS422: 3 sn; UTS'in TX timeout'u + pay), ya da
   `UtsAdapter(timeout=...)` ile hepsi için tek değer. `send` / `receive` süreyi `post` / `get`'e verir; gerçek adaptör
   süre içinde cevap yoksa `AdapterError` fırlatır. İstek tekrar denenmez. RS422 süresi baud'dan hesaplanmıyor (sabit).
-- Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar], "timestamp": t}`) ama ayrı sınıflar:
+- Ethernet ve RS422'nin UTS biçimi bugün aynı (`{"message": [baytlar]}`) ama ayrı sınıflar:
   biri değişirse diğeri etkilenmez.
 - MIL-STD-1553 (`Mil1553Protocol`, `Mil1553Channel`): UTS paketi `[rt, subnet, word_count, word, word, ...]` listesi
   olarak taşır, ör. `[30, 1, 3, 0x0001, 0x3344, 0x1122]`. `rt`, `subnet`, `word_count` mesajın ilk alanlarıdır
@@ -109,7 +117,7 @@ Adapter          çekirdeğin gördüğü sözleşme: send / receive (config, fi
   Kanalın `byte_order`'ı mesaj yapısının endian'ıyla aynı olmalı: little + "little" → 32 bit alanın düşük kelimesi önce,
   big + "big" → yüksek kelime önce; uyuşmazsa her değerin baytları ters gider (`30` → `7680`).
   Big-endian 1553 projesinde K3 (özel alanların endian'ı) etkili olur.
-- Açık: gerçek UTS'te alan adları ve timestamp birimi (`time_unit` = UTS birimi başına saniye).
+- Açık: Ethernet ve 1553 cevaplarının seri port ile aynı biçimde olduğu (belgelenmiş olan seri port).
 
 ## Kanal ve framing
 - `Channel`: bir interface = interface numarası + protokol adı + `Framing`
@@ -126,8 +134,8 @@ Adapter          çekirdeğin gördüğü sözleşme: send / receive (config, fi
 - Sorgulanan kanallar: RX mesajı kayıtlı kanallar ve `comm.listen(kanal)` ile eklenenler; her kanal kendi RX
   thread'inde. Kanal içi paket sırası korunur; farklı kanalların olayları arasında sıra yok.
 ```
-TX:  msg.pack() -> envelope.on_send -> adapter.send(kanal) [protocol.encode -> post(path, interface, timeout)]
-RX:  adapter.receive(kanal) [get(path, interface, timeout) -> protocol.decode] -> splitter -> envelope.on_receive -> Dispatcher
+TX:  msg.pack() -> envelope.on_send -> adapter.send(kanal) [protocol.encode -> post(path, interface, timeout) -> sent_time]
+RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.decode, overflow] -> splitter -> envelope.on_receive -> Dispatcher
 ```
 
 ## Monitor (services/monitor)

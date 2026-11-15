@@ -38,7 +38,7 @@ class MessageReceived(MessageEvent):
 
 @dataclass(frozen=True)
 class MessageSent(MessageEvent):
-    pass
+    timestamp: Optional[float] = None   # adapter (UTS) time of the send in seconds, if it reports one
 
 
 @dataclass(frozen=True)
@@ -68,6 +68,13 @@ class RxTimeout:
 class RxRestored:
     """A message that had timed out arrived again."""
     message: BaseMessageStructure
+    host_time: float
+
+
+@dataclass(frozen=True)
+class RxOverflow:
+    """The receive buffer of an interface overflowed: packets before this poll were lost."""
+    channel: Channel
     host_time: float
 
 

@@ -28,7 +28,7 @@ class HangingUtsAdapter(FakeUtsAdapter):
     def post(self, path, interface, body, timeout=0.0):
         if (path, interface) in {(self.protocol(ch).path, ch.interface) for ch in self.hanging}:
             self._released.wait()
-        super().post(path, interface, body, timeout)
+        return super().post(path, interface, body, timeout)
 
     def sent_on(self, channel) -> int:
         key = (self.protocol(channel).path, channel.interface)

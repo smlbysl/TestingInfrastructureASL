@@ -39,11 +39,11 @@ class ListFormatTests(unittest.TestCase):
             with self.subTest(base=base.__name__):
                 original = packet_type(base)
                 received = protocol.decode(channel, {"message": protocol.to_list(channel, bytes(original)),
-                                                     "timestamp": 2})
+                                                     "timestamp": 2_000_000})
                 copy = type(original).from_buffer_copy(received.data)
                 self.assertEqual((copy.rt, copy.subnet, copy.wordCount, copy.mode, copy.speed),
                                  (30, 1, 3, 0x0001, 0x11223344))
-                self.assertEqual(received.timestamp, 2)
+                self.assertAlmostEqual(received.timestamp, 2.0)      # UTS gives microseconds
 
     def test_time_unit(self):
         protocol = Mil1553Protocol(time_unit=1e-6)
@@ -129,9 +129,9 @@ class ThroughCommTests(unittest.TestCase):
         status = rt30_status(30, 1)
         other = rt30_status(30, 2)                          # same rt, other subnet: told apart by the signature
         status.has_new()
-        self.uts_item({"message": [30, 1, 3, 0x0002, 0x0010, 0x0000], "timestamp": 5})
+        self.uts_item({"message": [30, 1, 3, 0x0002, 0x0010, 0x0000], "timestamp": 5_000_000})
         self.assertEqual(self.comm.wait_new(status, timeout=1.0), 1)
-        self.assertEqual((status.mode, status.speed, status.rx_timestamp), (2, 0x10, 5))
+        self.assertEqual((status.mode, status.speed, round(status.rx_timestamp, 6)), (2, 0x10, 5.0))
         self.assertEqual(other.peek_new(), 0)
 
     def test_inject_from_a_message(self):

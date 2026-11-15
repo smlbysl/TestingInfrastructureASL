@@ -9,8 +9,15 @@
 The adapter holds the protocol definitions (protocols.py). A channel names its protocol; the adapter
 finds the definition and uses it:
 
-    send(channel, wire)     protocol.encode -> post(path, interface, body, timeout)
-    receive(channel)        get(path, interface, timeout) -> protocol.decode of every item
+    send(channel, wire)     protocol.encode -> post(path, interface, body, timeout) -> time of the send
+    receive(channel)        get(path, interface, timeout) -> protocol.decode of every item, overflow flag
+
+post and get return the JSON body of the answer of UTS. For an answer that is not 200, the adapter for
+the real UTS raises answer(status, body), which reads statusInfo into an AdapterError:
+
+    def post(self, path, interface, body, timeout):
+        status, answer = self.wrapper.....              # the existing module
+        return self.answer(status, answer)
 
 POST sends on an interface; GET returns what was received there and empties the buffer. An adapter for
 the real UTS subclasses UtsAdapter, calls super().__init__() and writes post and get (the config and
@@ -33,7 +40,7 @@ import threading
 from abc import abstractmethod
 from typing import Any, Optional, Union
 
-from asl_testing.adapter.base import Adapter, FilterGroups, Received
+from asl_testing.adapter.base import Adapter, AdapterError, FilterGroups, Polled
 from asl_testing.adapter.uts.filters import signature_filter
 from asl_testing.adapter.uts.protocols import EthernetProtocol, Mil1553Protocol, Protocol, Rs422Protocol
 from asl_testing.channel.channel import Channel
@@ -43,7 +50,7 @@ Target = Union[Channel, BaseMessageStructure]
 
 
 class UtsAdapter(Adapter):
-    def __init__(self, time_unit: float = 1.0, timeout: Optional[float] = None, log=None):
+    def __init__(self, time_unit: float = 1e-6, timeout: Optional[float] = None, log=None):
         # protocol name (Channel.protocol) -> definition; time_unit: seconds per UTS time unit
         self.protocols: dict[str, Protocol] = {
             "ethernet": EthernetProtocol(time_unit),
@@ -68,22 +75,32 @@ class UtsAdapter(Adapter):
 
     # ---------------------------------------------------------------- message flow
 
-    def send(self, channel, wire: bytes) -> None:
-        """Sends the bytes on the line of a channel."""
+    def send(self, channel, wire: bytes) -> Optional[float]:
+        """Sends the bytes on the line of a channel; returns the UTS time of the send in seconds (or None)."""
         protocol = self.protocol(channel)
         body = protocol.encode(channel, wire)
         with self._post_lock(protocol.path, channel.interface):
-            self.post(protocol.path, channel.interface, body, self.timeout_of(protocol))
+            answer = self.post(protocol.path, channel.interface, body, self.timeout_of(protocol))
+        return protocol.sent_time(answer)
 
     def _post_lock(self, path: str, interface: int) -> threading.Lock:
         with self._guard:
             return self._post_locks.setdefault((path, interface), threading.Lock())
 
-    def receive(self, channel) -> list[Received]:
+    def receive(self, channel) -> Polled:
         """What the channel's interface received since the last call."""
         protocol = self.protocol(channel)
-        items = self.get(protocol.path, channel.interface, self.timeout_of(protocol))
-        return [protocol.decode(channel, item) for item in items]
+        answer = self.get(protocol.path, channel.interface, self.timeout_of(protocol))
+        return Polled([protocol.decode(channel, item) for item in protocol.items(answer)], protocol.overflow(answer))
+
+    @staticmethod
+    def answer(status: Optional[int], body: Optional[dict]) -> dict:
+        """Body of a UTS answer; for a status other than 200, AdapterError with what statusInfo says."""
+        if status == 200:
+            return body or {}
+        info = (body or {}).get("statusInfo") or {}
+        raise AdapterError(f"UTS answered {status}: {info.get('status')} {info.get('message')}",
+                           status=status, code=info.get("status"))
 
     # ---------------------------------------------------------------- config
 
@@ -143,12 +160,18 @@ class UtsAdapter(Adapter):
     # ---------------------------------------------------------------- UTS requests
 
     @abstractmethod
-    def post(self, path: str, interface: int, body: dict, timeout: float) -> None:
-        """POST /{path}/{interface}/messages with the body from the protocol; AdapterError after timeout seconds."""
+    def post(self, path: str, interface: int, body: dict, timeout: float) -> dict:
+        """POST /{path}/{interface}/messages with the body from the protocol; returns the answer body.
+
+        AdapterError for an error answer (see answer()) or no answer within timeout seconds.
+        """
 
     @abstractmethod
-    def get(self, path: str, interface: int, timeout: float) -> list[dict]:
-        """GET /{path}/{interface}/messages: items received since the last call; AdapterError after timeout seconds."""
+    def get(self, path: str, interface: int, timeout: float) -> dict:
+        """GET /{path}/{interface}/messages; returns the answer body ({"messages": [...], "isBufferOverflow": ...}).
+
+        AdapterError for an error answer (see answer()) or no answer within timeout seconds.
+        """
 
     def read_config(self, path: str, interface: int) -> dict:
         """Settings of an interface."""
