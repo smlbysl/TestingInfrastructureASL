@@ -16,6 +16,7 @@ from asl_testing.runtime.transport import Transport
 from asl_testing.events.bus import EventBus
 from asl_testing.events.types import LinkError, MessageSent, WireSent
 from asl_testing.message.base import BaseMessageStructure
+from asl_testing.channel.channel import Channel
 
 
 class TxScheduler:
@@ -65,6 +66,10 @@ class TxScheduler:
 
     def is_running(self, msg: BaseMessageStructure) -> bool:
         return id(msg) in self._table
+
+    def running(self, channel: Optional[Channel] = None) -> list[BaseMessageStructure]:
+        """Messages sent periodically now; with a channel, only those on it."""
+        return [msg for msg, _ in list(self._table.values()) if channel is None or msg._channel is channel]
 
     def tick(self) -> Optional[float]:
         """Sends what is due; returns seconds to the next due message, None if there is none."""

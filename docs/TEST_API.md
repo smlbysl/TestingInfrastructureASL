@@ -22,6 +22,7 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 | `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur | Evet | Evet |
 | `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
 | `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
+| `start_all(channel=None)` / `stop_all(channel=None)` | Kanaldaki (ya da hepsindeki) periyodik TX mesajlarını başlatır / durdurur; listelerini döndürür | Evet | Evet |
 | `on_receive(msg, handler)` | Mesaj alındığında handler (kendi thread'inde) | Evet | Evet |
 | `wait_new(msg, timeout)` | Yeni geçerli paket gelene kadar bekler | Evet | Evet |
 | `wait_for(msg, predicate, timeout, after) -> Record \| None` | Değerleri koşulu sağlayan paket gelene kadar bekler; tek yoklamadaki ara paketlere de bakar | Evet | Evet |

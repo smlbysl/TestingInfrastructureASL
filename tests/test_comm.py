@@ -5,7 +5,8 @@ __author__ = "İsmail Baysal"
 import time
 
 from asl_testing import Direction, InvalidReceived, MessageReceived, RxTimeout, Timing
-from projects.example_project.messages import comut, diag_log, motor_cmd
+from projects.example_project.channels import MyChannels
+from projects.example_project.messages import comut, diag_log, motor_cmd, request, ser_cmd
 from tests.base import CommTestCase
 from tests.settings import DEST, SRC
 
@@ -69,6 +70,43 @@ class CommTests(CommTestCase):
         self.comm.start(motor)
         self.addCleanup(self.comm.stop, motor)
         self.assertGreaterEqual(self.comm.wait_sent(motor, timeout=0.5), 1)
+
+
+
+class StartAllTests(CommTestCase):
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.comm.stop_all)
+        self.motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.05))      # CONTROL
+        self.req = request(SRC, DEST, 0x10, direction=Direction.TX, tx=Timing(0.05))          # CONTROL
+        self.ser = ser_cmd(SRC, DEST, 0x50, direction=Direction.TX, tx=Timing(0.05))          # SER2
+
+    def test_start_all_on_a_channel(self):
+        started = self.comm.start_all(MyChannels.CONTROL)
+        self.assertEqual({id(m) for m in started}, {id(self.motor), id(self.req)})
+        self.assertTrue(self.comm.tx.is_running(self.motor) and self.comm.tx.is_running(self.req))
+        self.assertFalse(self.comm.tx.is_running(self.ser))
+        self.assertGreaterEqual(self.comm.wait_sent(self.req, timeout=0.5), 1)
+
+    def test_start_all_skips_running_and_not_periodic_messages(self):
+        self.comm.start(self.motor)
+        once = comut(SRC, DEST, 0x21, direction=Direction.TX)                                  # no tx timing
+        rx_only = comut(DEST, SRC, 0x20, rx=Timing(0.05))
+        started = self.comm.start_all(MyChannels.CONTROL)
+        self.assertEqual([id(m) for m in started], [id(self.req)])
+        self.assertFalse(self.comm.tx.is_running(once) or self.comm.tx.is_running(rx_only))
+
+    def test_start_all_without_a_channel(self):
+        started = self.comm.start_all()
+        self.assertEqual({id(m) for m in started}, {id(self.motor), id(self.req), id(self.ser)})
+
+    def test_stop_all(self):
+        self.comm.start_all()
+        stopped = self.comm.stop_all(MyChannels.CONTROL)
+        self.assertEqual({id(m) for m in stopped}, {id(self.motor), id(self.req)})
+        self.assertEqual([id(m) for m in self.comm.tx.running()], [id(self.ser)])
+        self.assertEqual([id(m) for m in self.comm.stop_all()], [id(self.ser)])
+        self.assertEqual(self.comm.tx.running(), [])
 
 
 if __name__ == "__main__":

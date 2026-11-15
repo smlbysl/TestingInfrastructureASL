@@ -6,6 +6,8 @@
     comm.open()
     comm.send(req)                                  # once
     comm.start(cmd)                                 # periodic, until comm.stop(cmd)
+    comm.start_all(MyChannels.CONTROL)              # every periodic message on a channel
+    comm.stop_all()                                 # every periodic send
     comm.wait_for(status, lambda s: s.speed == 10)
     comm.control.add_filter(status)                 # UTS config and filters
     comm.close()
@@ -45,6 +47,7 @@ class Comm:
     def __init__(self, uts: UtsClient, projects: Sequence[type[BaseMessageStructure]],
                  poll_interval: float = 0.01, channels: Iterable[Channel] = (), logger=None):
         self.log = logger or logging.getLogger(__name__)
+        self.projects = projects
         self.bus = EventBus(log=logger)
         self.transport = Transport(uts)
         self.dispatcher = Dispatcher(self.bus, projects, log=logger)
@@ -87,6 +90,30 @@ class Comm:
     def stop(self, msg: BaseMessageStructure) -> None:
         """Stops the periodic sending of a message."""
         self.tx.stop(msg)
+
+    def start_all(self, channel: Optional[Channel] = None) -> list[BaseMessageStructure]:
+        """Starts every registered message with a periodic tx timing (on a channel, or on all).
+
+        The messages registered at the time of the call are started; messages already running are
+        left as they are. Returns the messages started now.
+        """
+        started = []
+        for project in self.projects:
+            for reg in project.families():
+                for msg in list(reg.all):
+                    if (msg._tx is not None and msg._tx.timing.is_periodic
+                            and (channel is None or msg._channel is channel)
+                            and not self.tx.is_running(msg)):
+                        self.tx.start(msg)
+                        started.append(msg)
+        return started
+
+    def stop_all(self, channel: Optional[Channel] = None) -> list[BaseMessageStructure]:
+        """Stops every periodic send (on a channel, or on all). Returns the messages stopped."""
+        stopped = self.tx.running(channel)
+        for msg in stopped:
+            self.tx.stop(msg)
+        return stopped
 
     # ---------------------------------------------------------------- RX
 

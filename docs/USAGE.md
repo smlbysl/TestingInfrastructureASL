@@ -58,6 +58,19 @@ comm.start(motor)               # 50 ms'de bir
 comm.stop(motor)
 ```
 
+Bir kanaldaki (ya da hepsindeki) bütün periyodik mesajları birlikte başlatmak ve durdurmak:
+
+```python
+comm.start_all(MyChannels.CONTROL)      # CONTROL'de tx=Timing(periyot) tanımlı bütün TX mesajları
+comm.start_all()                        # bütün kanallar
+comm.stop_all(MyChannels.CONTROL)
+comm.stop_all()
+```
+
+- `start_all` çağrıldığı anda kayıtlı olan mesajları başlatır; sonradan tanımlanan mesaj kendiliğinden başlamaz.
+- Zaten çalışan mesaj yeniden başlatılmaz, zamanı kaymaz. Periyodik `tx` zamanlaması olmayan mesaj başlatılmaz.
+- İkisi de başlattığı / durdurduğu mesajların listesini döndürür.
+
 Alanları gönderimden önce değiştirmek:
 
 ```python

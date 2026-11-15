@@ -188,6 +188,13 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <div class="sig">comm.stop(msg) <span class="ret">-&gt; None</span></div>
 <p>Periyodik göndermeyi durdurur.</p>
 
+<div class="sig">comm.start_all(channel=None) <span class="ret">-&gt; list</span></div>
+<p>Kanalda (verilmezse bütün kanallarda) kayıtlı, periyodik <code>tx</code> zamanlaması olan bütün TX mesajlarını başlatır.
+Çağrıldığı andaki mesajlar başlar; zaten çalışan mesaj etkilenmez. Başlatılan mesajları döndürür.</p>
+
+<div class="sig">comm.stop_all(channel=None) <span class="ret">-&gt; list</span></div>
+<p>Kanaldaki (verilmezse bütün) periyodik gönderimleri durdurur. Durdurulan mesajları döndürür.</p>
+
 <h3>Alım ve bekleme</h3>
 <div class="sig">comm.on_receive(msg, handler) <span class="ret">-&gt; Subscriber</span></div>
 <p><code>msg</code>'nin her geçerli paketinde <code>handler(event)</code> çağrılır. Handler kendi thread'inde çalışır.
