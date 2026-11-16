@@ -517,6 +517,7 @@ assert len(comm.unknown) == 0
 ## Henüz olmayanlar
 
 - **Hata enjeksiyonu** (CRC, uzunluk, bit bozma): tasarlandı, henüz eklenmedi. Önerilen yapı: mesaja bağlı `msg.fault` ve `Fault.corrupt / resize / flip / raw`. Gönderim sırası `pack()` → fault → envelope → UTS.
+- **1553 RX etkinleştirme**: periyodik olmayan 1553 RX mesajı için UTS'e önce bir kez `[rt, subnet, wordCount]` gönderilmesi. Tasarlandı (DESIGN.md, Tasarım 4), henüz eklenmedi.
 - **`comm.unsubscribe`** kısayolu: şimdilik `comm.bus.unsubscribe(sub)`.
 - **Gerçek UTS adaptörü:** `UtsAdapter`'ın alt sınıfı olarak yazılacak (`post` / `get` eldeki `ApiWrapper` ile).
 - **CAN:** kanal sınıfı ve protokol tanımı yok.

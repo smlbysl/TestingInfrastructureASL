@@ -572,3 +572,39 @@ kanal içi sıra korunur.
 5. Tasarım 1'in sade hali: `with msg.locked_update():` (mesaj kilidini döndürür). **Uygulandı.** `update(...)`,
    yol önbelleği ve erteleme eklenmedi.
 
+
+## Tasarım 4: 1553 RX etkinleştirme (tasarım aşamasında, uygulanmadı)
+
+**İhtiyaç:** 1553'te periyodik olmayan bir RX mesajının gelmesi için UTS'e önce bir TX (node / rt, subnet, word count)
+gönderilmesi gerekiyor. Bu TX bir kez yapılınca o mesaj etkinleşiyor; sonra GET ile alınıyor.
+
+**Kanal parametresi değil:** bir node'un birden fazla subnet'i olabilir; kanalda tanımlanırsa her subnet ayrı kanal olur.
+Gerekli bilgi RX mesajının tanımında zaten var:
+
+```python
+class rt30_status(Bus1553):
+    _defaults = {"rt": 30, "subnet": 1, "wordCount": 3}      # etkinleştirme: [30, 1, 3]
+```
+
+**Önerilen yapı** (1553'e özgü, protokol + adaptör katmanında; runtime sadece tetikler):
+
+1. `Mil1553Protocol.enable(channel, msg) -> body | None`: mesajdan `rt`, `subnet`, `wordCount` okur,
+   `{"message": [rt, subnet, wordCount]}` döner. Ethernet / RS422 `None` döner.
+2. `Adapter.enable(channel, msg)`: base'de boş. `UtsAdapter`'da gövdeyi protokolden alır; (interface, rt, subnet)
+   daha önce etkinleştirildiyse bir şey yapmaz, değilse interface kilidi altında POST eder ve anahtarı kilitli bir
+   sette tutar. `FakeUtsAdapter` etkinleştirmeleri kaydeder (testler görsün).
+3. Tetikleme: RX thread'i, `poll_channel` içinde GET'ten önce kanalın kayıtlı RX mesajlarını `adapter.enable`'a verir.
+   Etkinleşmiş olanlar için sadece set kontrolü yapılır. Yeni tanımlanan RX mesajı bir sonraki turda etkinleşir.
+   Hata: bugünkü yol (`LinkError` + log); anahtar kaydedilmediği için sonraki turda tekrar denenir.
+4. Elle kullanım: `comm.adapter.enable(msg)`; UTS yeniden başladıysa `adapter.reset_enabled()`.
+
+Tahmini değişiklik: `protocols.py` ~8, `adapter/base.py` ~3, `uts/adapter.py` ~15, `fake.py` ~3, `rx.py` ~5 satır,
+artı testler ve dokümanlar.
+
+**Netleşmesi gerekenler (UTS'ten öğrenilecek):**
+1. Etkinleştirme POST'unun gövdesi: sadece `[rt, subnet, wordCount]` mı, normal TX'ten (BC→RT veri) nasıl ayrılıyor
+   (ayrı alan / path)?
+2. Ne kadar geçerli: UTS yeniden başlayınca ya da config / filtre değişince tekrar gerekiyor mu? Gerekiyorsa adaptör
+   o anda setini temizler.
+3. Periyodik 1553 RX mesajlarında gerekiyor mu, yoksa sadece periyodik olmayanlarda mı?
+4. Anahtar (rt, subnet) mi, word count da dahil mi?
