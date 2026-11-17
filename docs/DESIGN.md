@@ -608,3 +608,45 @@ artı testler ve dokümanlar.
    o anda setini temizler.
 3. Periyodik 1553 RX mesajlarında gerekiyor mu, yoksa sadece periyodik olmayanlarda mı?
 4. Anahtar (rt, subnet) mi, word count da dahil mi?
+
+## Tasarım 5: `wait_new` / `wait_sent` için Condition (tasarım aşamasında, uygulanmadı)
+
+**Bugün:** `comm.wait_new(msg)` ve `comm.wait_sent(msg)` sayaca yoklamayla bakıyor (`comm.py`, `_wait`):
+
+```python
+while True:
+    new = check()                      # msg.has_new() / msg.has_sent()
+    if new or time.monotonic() >= deadline:
+        return new
+    time.sleep(interval)               # 5 ms
+```
+
+RX / TX thread'i sayacı (`RxState.count`, `TxState.count`, `message/state.py`) kimseye haber vermeden artırıyor.
+Sonuç: paket geldikten sonra en fazla 5 ms geç fark ediliyor; paket gelmezse 1 s beklemede ~200 boş uyanma oluyor.
+
+**Öneri:** `RxState` ve `TxState` birer `threading.Condition` taşır; sayaç artınca bekleyenler uyandırılır.
+
+```python
+_cond: threading.Condition = field(default_factory=threading.Condition)
+
+def on_receive(self, timestamp=None):
+    with self._cond:
+        ...
+        self.count += 1
+        self._cond.notify_all()
+
+def wait_new(self, timeout: float) -> int:
+    with self._cond:
+        self._cond.wait_for(lambda: self.count > self._seen, timeout)
+        return self.check_new()
+```
+
+`TxState` aynı şekilde (`on_send` içinde `notify_all`, `wait_sent(timeout)`).
+
+- Bekleyen paket gelir gelmez uyanır; gecikme ve boş döngü yok. `_wait` ve `interval` kalkar.
+- `Event` değil `Condition`: sayı önemli ve birden fazla thread aynı mesajı bekleyebilir.
+- Bedeli: her pakette / gönderimde kısa bir kilit (bugün sayaç kilitsiz, tek yazan RX / TX thread'i).
+- Değişiklik: `state.py` ~15 satır, `comm.py`'den `_wait` / `interval` kalkar, testlerde `interval` kullanan yerler.
+- Birlikte düşünülecek: bekleme fonksiyonlarını mesaja taşımak (`msg.wait_new()`, `msg.wait_sent()`,
+  `msg.wait_for()`), geçmişte arama (`rx_history.find` / `select`, zaman aralığı).
+- Benzer yapı bugün TX thread'inde var: `ChannelTx.wake` (`Event`) tablo değişince thread'i uyandırıyor.
