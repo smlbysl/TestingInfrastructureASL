@@ -347,6 +347,18 @@ Kayıtlı bir CSV'yi testsiz açmak:
 python -m asl_testing.services.monitor projects.example_project.header:ProjectBase projects.example_project.messages
 ```
 
+Oturum logu (`SessionLog`): CommLogger'ın paketlerine ek olarak UTS hatalarını, RX olaylarını ve test adımı
+işaretlerini yazar; ayrı izleme aracı (`asl_monitor`) bu klasörü okur. Ayrıntılar: [SESSION_LOG.md](SESSION_LOG.md).
+
+```python
+from asl_testing import SessionLog
+session = SessionLog(comm, "runs", name="lab1")      # runs/2026-11-19_001500_lab1/
+session.mark("adım 2: motor başlat")
+...
+comm.close()
+session.close()
+```
+
 Logging standart `logging` modülüyle yapılır: `asl_testing.*` logger'ları. `Comm(..., logger=x)` ile hepsini tek bir logger'a yönlendirebilirsin.
 
 ---

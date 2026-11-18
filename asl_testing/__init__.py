@@ -47,6 +47,7 @@ from asl_testing.adapter.uts.fake import FakeUtsAdapter
 # services
 from asl_testing.services.errors import ErrorLog
 from asl_testing.services.comm_logger import CommLogger
+from asl_testing.services.session_log import SessionLog
 from asl_testing.services.monitor import MonitorService
 
 __all__ = [
@@ -57,5 +58,5 @@ __all__ = [
     "EventBus", "Subscriber", "MessageEvent", "MessageReceived", "MessageSent", "InvalidReceived",
     "UnknownReceived", "RxTimeout", "RxRestored", "RxOverflow", "LinkError", "WireReceived", "WireSent",
     "Adapter", "AdapterError", "Polled", "UtsAdapter", "FakeUtsAdapter",
-    "ErrorLog", "CommLogger", "MonitorService",
+    "ErrorLog", "CommLogger", "SessionLog", "MonitorService",
 ]

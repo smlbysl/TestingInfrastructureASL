@@ -43,6 +43,7 @@ asl_testing/                 ÇERÇEVE (projeden bağımsız)
     bus.py                   EventBus: abone başına kuyruk + thread
   services/                  6. Olay aboneleri
     comm_logger.py           CommLogger: gönderilen ve alınan paketlerin CSV kaydı
+    session_log.py           SessionLog: oturum klasörü (CSV + hata / olay / işaret), bkz. SESSION_LOG.md
     errors.py                ErrorLog: UTS hataları, RX zaman aşımı, abone hataları (ayrı dosya)
     monitor/                 MonitorService: mesaj değerlerini zamanla izleme sayfası (canlı / CSV)
 projects/
