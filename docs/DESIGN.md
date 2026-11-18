@@ -650,3 +650,37 @@ def wait_new(self, timeout: float) -> int:
 - Birlikte düşünülecek: bekleme fonksiyonlarını mesaja taşımak (`msg.wait_new()`, `msg.wait_sent()`,
   `msg.wait_for()`), geçmişte arama (`rx_history.find` / `select`, zaman aralığı).
 - Benzer yapı bugün TX thread'inde var: `ChannelTx.wake` (`Event`) tablo değişince thread'i uyandırıyor.
+
+## Tasarım 6: Ağ / ICD tanımından test sınıflarını üretmek (mimari not, uygulanmadı)
+
+**Amaç:** projenin bütün ağını (düğümler, iç / dış arayüzler, bus'lar, mesajlar, alanlar) tek kaynakta tanımlamak;
+test altyapısının sınıflarını bu kaynaktan üretmek ve tanımı baştan doğrulamak.
+
+**Katmanlar** (1–9 sistemi, 10 test tezgâhını tanımlar; ayrı tutulur):
+
+| # | Katman | İçerik |
+|---|---|---|
+| 1 | Meta | ICD adı, sürüm, tarih, referanslar |
+| 2 | Tipler | uint/int/float/ascii, enum, bit alanı, dizi, birim, ölçek, aralık |
+| 3 | Özel alanlar | Length (kapsam), Counter (bit), Checksum (algoritma, polinom, init, kapsam) |
+| 4 | Topoloji | Düğümler, bus'lar, bağlantılar, iç / dış |
+| 5 | Bus parametreleri | Ethernet IP/port/UDP-TCP, RS422 baud/parity, CAN bitrate/ID, 1553 BC/RT |
+| 6 | Çerçeve | Header / footer / envelope, endian, hizalama |
+| 7 | Mesajlar | Kimlik (signature), üreten / tüketen, bus, boy, alanlar ve bit konumları, varsayılanlar |
+| 8 | Zamanlama | Periyodik, olay, istek-cevap |
+| 9 | İşlemler | İstek → ack eşleşmesi, timeout, tekrar, NAK, parçalı aktarım |
+| 10 | Tezgâh | DUT, simüle edilen düğümler, UTS protokol / interface / config |
+
+- Mesajın yönü (`Direction`) tanımda yok; tezgâhta "simüle edilen düğüm üretiyorsa TX" kuralıyla türetilir.
+- Kaynak dosyalar YAML (yorumlu, gözden geçirilebilir) + JSON Schema doğrulaması; CAN için DBC içe aktarma
+  (`cantools`). Excel ICD varsa Excel → YAML dönüştürücü.
+- Dosya düzeni: `icd/<proje>/{network,types,framing,transactions}.yaml`, `messages/*.yaml`, `can/*.dbc`;
+  `bench/<lab>.yaml`. Atıflar adla.
+- Bağlantı: kod üretimi (önerilen; IDE desteği, diff) → `settings.py` (ENDIAN), `types.py`, `header.py`
+  (ProjectBase, aileler), `messages.py`, `channels.py` + UTS config (tezgâhtan), `operations.py` (işlemlerden).
+  Projeye özel davranış (özel CRC, hook) elle yazılan ayrı dosyada; üretilen dosyalar elle değişmez.
+- Doğrulama: şema, atıflar, alan çakışması, bus boy sınırı (CAN 8/64 B, 1553 32 kelime), 1553 16 bit hizası,
+  karışık tipli bit grubu, aynı bus'ta tekrar eden kimlik, bus doluluğu, tezgâhta eksik bağlantı.
+- Açık: ICD'lerin bugünkü biçimi (Excel / Word), CAN ve DBC var mı, bus türleri (ARINC 429?), sinyal başına
+  endian gerekiyor mu, kod üretimi mi çalışırken yükleme mi, kaynağın sahibi kim.
+- Kaynak, ortak tek dosya veri tabanı olursa (araçtan bağımsız) bu üretim onun üzerinden yapılır.
