@@ -276,6 +276,32 @@ Sonuç `InvalidReceived` olarak görülür.
 
 Periyodik cihaz davranışı için bir thread yazıp `inject` çağırmak yeterlidir. `examples/monitor_demo.py` bunun örneğidir.
 
+### Bir düğümü taklit etmek: abonelerle simülasyon
+
+Test sistemi bir düğümün yerine geçebilir (CAPL düğümü gibi): gelen mesaja tepki verir, kendi durumunu periyodik gönderir.
+`examples/simulation.py` tam bir örnek; özü:
+
+```python
+class NodeSimulator:
+    def __init__(self, comm):
+        self.command = request(DUT, SIM, 0x10, rx=Timing(0.02, tolerance=5))           # DUT'tan gelen
+        self.status = comut(SIM, DUT, 0x20, direction=Direction.TX, tx=Timing(0.05))  # bizim durumumuz
+        self.status.on_send(self._fill_status)                     # her gönderimden hemen önce
+        comm.on_receive(self.command, self._on_command)            # her geçerli istekte
+        comm.subscribe(RxTimeout, self._on_timeout, where=self.command)   # istekler kesilince
+
+    def _on_command(self, event):
+        self.mode = event.snapshot().request[0]                    # o paketin değeri
+        self.comm.send(self.status)                                # hemen cevap
+
+    def _fill_status(self, msg):
+        msg.comut[0] = self.mode
+```
+
+- Her handler kendi abone thread'inde çalışır; `on_send` hook'u gönderen thread'de, mesaj kilidi altında çalışır.
+- Değerler `event.snapshot()` ile okunur (o paketin değerleri, sonradan gelen paketin değil).
+- Gerçek düzenekte örnekteki "fake DUT" kısmı çıkarılır, adaptör olarak `UtsAdapter` alt sınıfı kullanılır.
+
 ---
 
 ## 6. UTS yapılandırması ve filtreler
