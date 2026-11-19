@@ -70,6 +70,9 @@ comm.stop_all()
 - `start_all` çağrıldığı anda kayıtlı olan mesajları başlatır; sonradan tanımlanan mesaj kendiliğinden başlamaz.
 - Zaten çalışan mesaj yeniden başlatılmaz, zamanı kaymaz. Periyodik `tx` zamanlaması olmayan mesaj başlatılmaz.
 - İkisi de başlattığı / durdurduğu mesajların listesini döndürür.
+- Bir sonraki gönderim, bir öncekinin başladığı andan bir periyot sonra. Bir gönderim geç kalırsa kaçan periyotlar
+  peş peşe gönderilmez; her gönderim sıradaki sayaçla gider. Saniyedeki gönderim sayısı periyodun verdiğinden
+  biraz az olabilir (ör. 200 Hz'de ~190–195).
 
 Alanları gönderimden önce değiştirmek:
 

@@ -249,7 +249,9 @@ RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.
 - `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
   nesneye sadece hook'un değiştirdiği özel alanlar geri yazılır (B9–B11).
 - Bu koruma GIL'e dayanır (B13); free-threaded Python'da geçerli değildir.
-- Periyodik gönderimde bir sonraki zaman `due + period` (kayma birikmez).
+- Periyodik gönderimde bir sonraki zaman `gönderimin başladığı an + period`. Geç kalınan periyotlar peş peşe
+  gönderilmez (eskiden `due + period` ile telafi ediliyordu; peş peşe POST'lar UTS'te paket ezebiliyordu).
+  Her gönderim sıradaki sayaçla gider, paket kaybı yok; periyot uyanma gecikmesi kadar uzayabilir.
 - ctypes nesneleri hash'lenemez: scheduler tablosu ve zaman aşımı kümesi `id(msg)` ile tutulur.
 
 ## Mesaj katmanı (özet)
@@ -442,8 +444,8 @@ sorun bildirimleri; davranış değişmez, UTS ölçülebilir hale gelir. (2) Ö
 cevap biçimi.
 
 **TX zamanlaması için ayrıca.** (a) Gecikme algılama: gönderim periyodun belli oranından fazla geç kalırsa uyarı ve
-`TxLate` (~10 satır). (b) Geride kalınca kaçan periyotları peş peşe göndermek yerine atlamak ve takvimi şimdiye kaydırmak;
-kaçanlar sayılır (~5 satır).
+`TxLate` (~10 satır). (b) ~~Geride kalınca kaçan periyotları peş peşe göndermek yerine takvimi şimdiye kaydırmak~~ (uygulandı:
+bir sonraki zaman = gönderimin başladığı an + period).
 
 **Açık sorular (UTS).** Eşzamanlı istekleri kabul ediyor mu / sıraya mı koyuyor / hata mı veriyor? Bir GET ile birden
 fazla interface okunabiliyor mu? POST cevabında durum, UTS zamanı, istek numarası var mı?

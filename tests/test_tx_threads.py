@@ -35,6 +35,40 @@ class HangingUtsAdapter(FakeUtsAdapter):
         return sum(1 for path, interface, _ in list(self.posted) if (path, interface) == key)
 
 
+class SlowPostUtsAdapter(FakeUtsAdapter):
+    """Some POSTs take longer than the period; records when every POST started."""
+
+    def __init__(self, slow_every: int, delay: float):
+        super().__init__()
+        self.slow_every, self.delay = slow_every, delay
+        self.started: list[float] = []
+
+    def post(self, path, interface, body, timeout=0.0):
+        self.started.append(time.monotonic())
+        if len(self.started) % self.slow_every == 0:
+            time.sleep(self.delay)
+        return super().post(path, interface, body, timeout)
+
+
+class TxTimingTests(CommTestCase):
+    def test_late_send_is_not_followed_by_a_burst(self):
+        self.adapter = SlowPostUtsAdapter(slow_every=5, delay=0.03)        # every 5th POST takes 3 periods
+        self.comm.close()
+        self.comm = open_comm(self.adapter)
+        self.addCleanup(self.comm.close)
+        motor = motor_cmd(SRC, DEST, 0x30, direction=Direction.TX, tx=Timing(0.01))
+        self.comm.start(motor)
+        time.sleep(0.35)
+        self.comm.stop(motor)
+        starts = list(self.adapter.started)
+        gaps = [b - a for a, b in zip(starts, starts[1:])]
+        self.assertGreaterEqual(len(starts), 15)
+        self.assertGreater(min(gaps), 0.005)                               # never back to back
+        counters = [motor_cmd.from_buffer_copy(bytes(body["message"])).messageCounter.val
+                    for _, _, body in list(self.adapter.posted)]
+        self.assertEqual(counters, list(range(counters[0], counters[0] + len(counters))))   # no packet skipped
+
+
 class TxThreadTests(CommTestCase):
     def setUp(self):
         self.adapter = HangingUtsAdapter()
