@@ -73,6 +73,9 @@ comm.stop_all()
 - Bir sonraki gönderim, bir öncekinin başladığı andan bir periyot sonra. Bir gönderim geç kalırsa kaçan periyotlar
   peş peşe gönderilmez; her gönderim sıradaki sayaçla gider. Saniyedeki gönderim sayısı periyodun verdiğinden
   biraz az olabilir (ör. 200 Hz'de ~190–195).
+- Windows: `Comm` açıkken zamanlayıcı çözünürlüğü 1 ms'ye alınır (`timeBeginPeriod(1)`, kapanınca geri verilir) ve
+  TX zamanı `time.perf_counter()` ile ölçülür. Aksi halde Windows'ta uyuma ve `time.monotonic()` (Python 3.12 ve öncesi)
+  15,6 ms adımlarla ilerler; 5 ms periyot ~64 Hz'de kalır.
 
 Alanları gönderimden önce değiştirmek:
 

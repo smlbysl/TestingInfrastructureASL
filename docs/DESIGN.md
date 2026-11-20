@@ -252,6 +252,10 @@ RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.
 - Periyodik gönderimde bir sonraki zaman `gönderimin başladığı an + period`. Geç kalınan periyotlar peş peşe
   gönderilmez (eskiden `due + period` ile telafi ediliyordu; peş peşe POST'lar UTS'te paket ezebiliyordu).
   Her gönderim sıradaki sayaçla gider, paket kaybı yok; periyot uyanma gecikmesi kadar uzayabilir.
+- Windows'ta zaman: `time.monotonic()` 3.12 ve öncesinde 15,6 ms adımlı (GetTickCount64), uyuma da varsayılan olarak
+  15,6 ms'ye yuvarlanır. TX `time.perf_counter()` kullanır; `Comm.open` `runtime/timer.py` ile `timeBeginPeriod(1)`
+  çağırır, `close` geri verir (birden fazla Comm sayılır). Eski `due + period` telafisi bu 15,6 ms adımları 3'lü
+  peş peşe gönderimlerle kapatıyordu; UTS'te paket ezilmesinin sebebi buydu.
 - ctypes nesneleri hash'lenemez: scheduler tablosu ve zaman aşımı kümesi `id(msg)` ile tutulur.
 
 ## Mesaj katmanı (özet)

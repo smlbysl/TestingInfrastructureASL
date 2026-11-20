@@ -20,6 +20,7 @@ import logging
 import time
 from typing import Callable, Iterable, Optional, Sequence
 
+from asl_testing.runtime import timer
 from asl_testing.runtime.dispatcher import Dispatcher
 from asl_testing.runtime.rx import RxPoller
 from asl_testing.runtime.transport import RxFrame, Transport
@@ -53,11 +54,15 @@ class Comm:
         self.dispatcher = Dispatcher(self.bus, projects, log=logger)
         self.rx = RxPoller(self.transport, self.dispatcher, self.bus, projects, poll_interval, channels, log=logger)
         self.tx = TxScheduler(self.transport, self.bus, log=logger)
+        self._opened = False
 
     # ---------------------------------------------------------------- life cycle
 
     def open(self) -> None:
-        """Starts the RX and TX threads."""
+        """Starts the RX and TX threads (on Windows with 1 ms timer resolution until close)."""
+        if not self._opened:
+            timer.begin()
+            self._opened = True
         self.rx.start()
         self.tx.start_thread()
         self.log.info("comm opened")
@@ -67,6 +72,9 @@ class Comm:
         self.tx.stop_thread()
         self.rx.stop()
         self.bus.close()
+        if self._opened:
+            timer.end()
+            self._opened = False
         self.log.info("comm closed")
 
     def __enter__(self) -> "Comm":

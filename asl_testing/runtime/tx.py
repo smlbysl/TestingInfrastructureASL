@@ -9,6 +9,7 @@ start / stop   add / remove a periodic message; the next send is period after th
                Every channel has its own table and thread (Tx-<channel>), started with its first
                periodic message; a channel whose POST hangs does not hold up the others.
 A message that is no longer registered (replaced by a new object) is dropped from the table.
+Times use time.perf_counter(): time.monotonic() moves in 15.6 ms steps on Windows before Python 3.13.
 """
 
 __author__ = "İsmail Baysal"
@@ -77,7 +78,7 @@ class TxScheduler:
         if msg._tx is None or not msg._tx.timing.is_periodic:
             raise ValueError(f"{type(msg).__name__} has no periodic TX timing (tx=Timing(period))")
         line = self._line(msg._channel)
-        line.table[id(msg)] = [msg, time.monotonic()]
+        line.table[id(msg)] = [msg, time.perf_counter()]
         self.log.info("periodic TX started: %s every %s s", type(msg).__name__, msg._tx.timing.period)
         self._start_line(line)
         line.wake.set()
@@ -100,19 +101,19 @@ class TxScheduler:
 
     def tick(self, line: ChannelTx) -> Optional[float]:
         """Sends what is due on a channel; returns seconds to its next due message, None if there is none."""
-        now = time.monotonic()
+        now = time.perf_counter()
         for key, entry in list(line.table.items()):
             msg, due = entry
             if not msg._registered:
                 line.table.pop(key, None)
                 continue
             if due <= now:
-                start = time.monotonic()
+                start = time.perf_counter()
                 self.send(msg)
                 entry[1] = start + msg._tx.timing.period    # no catch-up burst after a late send
         if not line.table:
             return None
-        return max(0.0, min(due for _, due in list(line.table.values())) - time.monotonic())
+        return max(0.0, min(due for _, due in list(line.table.values())) - time.perf_counter())
 
     # ---------------------------------------------------------------- threads
 
