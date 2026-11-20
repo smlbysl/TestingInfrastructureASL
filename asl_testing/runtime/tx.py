@@ -4,8 +4,8 @@ send(msg)      pack, envelope, UTS request and after_send under the lock of the 
                and the test cannot mix up its counter; then WireSent and MessageSent.
                Different messages do not wait for each other; the UTS client sends one POST at a time
                per interface. Lock order: message -> interface.
-start / stop   add / remove a periodic message; the next send is period after this send started, so a
-               late send is not followed by back-to-back sends of the missed periods.
+start / stop   add / remove a periodic message; the next time is due + period, so the rate stays exact and
+               a late send is caught up.
                Every channel has its own table and thread (Tx-<channel>), started with its first
                periodic message; a channel whose POST hangs does not hold up the others.
 A message that is no longer registered (replaced by a new object) is dropped from the table.
@@ -108,9 +108,8 @@ class TxScheduler:
                 line.table.pop(key, None)
                 continue
             if due <= now:
-                start = time.perf_counter()
                 self.send(msg)
-                entry[1] = start + msg._tx.timing.period    # no catch-up burst after a late send
+                entry[1] = due + msg._tx.timing.period
         if not line.table:
             return None
         return max(0.0, min(due for _, due in list(line.table.values())) - time.perf_counter())

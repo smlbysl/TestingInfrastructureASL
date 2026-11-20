@@ -249,13 +249,14 @@ RX:  adapter.receive(kanal) [get(path, interface, timeout) -> items -> protocol.
 - `pack` özel alanları (length, counter, CRC) nesnenin bir kopyasında hesaplar ve baytları o kopyadan üretir;
   nesneye sadece hook'un değiştirdiği özel alanlar geri yazılır (B9–B11).
 - Bu koruma GIL'e dayanır (B13); free-threaded Python'da geçerli değildir.
-- Periyodik gönderimde bir sonraki zaman `gönderimin başladığı an + period`. Geç kalınan periyotlar peş peşe
-  gönderilmez (eskiden `due + period` ile telafi ediliyordu; peş peşe POST'lar UTS'te paket ezebiliyordu).
-  Her gönderim sıradaki sayaçla gider, paket kaybı yok; periyot uyanma gecikmesi kadar uzayabilir.
+- Periyodik gönderimde bir sonraki zaman `due + period`: periyot birebir tutar, geç kalınan gönderim telafi edilir.
+  (Bir süre `gönderimin başladığı an + period` denendi; asıl sorun Windows saati ve UTS alım tamponuydu, geri alındı.)
 - Windows'ta zaman: `time.monotonic()` 3.12 ve öncesinde 15,6 ms adımlı (GetTickCount64), uyuma da varsayılan olarak
   15,6 ms'ye yuvarlanır. TX `time.perf_counter()` kullanır; `Comm.open` `runtime/timer.py` ile `timeBeginPeriod(1)`
-  çağırır, `close` geri verir (birden fazla Comm sayılır). Eski `due + period` telafisi bu 15,6 ms adımları 3'lü
-  peş peşe gönderimlerle kapatıyordu; UTS'te paket ezilmesinin sebebi buydu.
+  çağırır, `close` geri verir (birden fazla Comm sayılır). 15,6 ms adımlı saatle `due + period` her uyanışta 3
+  gönderimi peş peşe yapıyordu; yüksek çözünürlüklü saatle bu kalktı.
+- UTS alım tamponu: iki GET arasında gelen paketler tampona sığmazsa UTS `isBufferOverflow` verir (`RxOverflow`).
+  Yüksek hızlı RX'te `Comm(poll_interval=...)` küçültülür ya da UTS tampon boyutu büyütülür.
 - ctypes nesneleri hash'lenemez: scheduler tablosu ve zaman aşımı kümesi `id(msg)` ile tutulur.
 
 ## Mesaj katmanı (özet)
@@ -448,8 +449,8 @@ sorun bildirimleri; davranış değişmez, UTS ölçülebilir hale gelir. (2) Ö
 cevap biçimi.
 
 **TX zamanlaması için ayrıca.** (a) Gecikme algılama: gönderim periyodun belli oranından fazla geç kalırsa uyarı ve
-`TxLate` (~10 satır). (b) ~~Geride kalınca kaçan periyotları peş peşe göndermek yerine takvimi şimdiye kaydırmak~~ (uygulandı:
-bir sonraki zaman = gönderimin başladığı an + period).
+`TxLate` (~10 satır). (b) Geride kalınca kaçan periyotları peş peşe göndermek yerine takvimi şimdiye kaydırmak: denendi, geri alındı
+(periyot tam tutmuyordu; asıl sorun saat ve RX tamponuydu).
 
 **Açık sorular (UTS).** Eşzamanlı istekleri kabul ediyor mu / sıraya mı koyuyor / hata mı veriyor? Bir GET ile birden
 fazla interface okunabiliyor mu? POST cevabında durum, UTS zamanı, istek numarası var mı?

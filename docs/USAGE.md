@@ -70,9 +70,11 @@ comm.stop_all()
 - `start_all` çağrıldığı anda kayıtlı olan mesajları başlatır; sonradan tanımlanan mesaj kendiliğinden başlamaz.
 - Zaten çalışan mesaj yeniden başlatılmaz, zamanı kaymaz. Periyodik `tx` zamanlaması olmayan mesaj başlatılmaz.
 - İkisi de başlattığı / durdurduğu mesajların listesini döndürür.
-- Bir sonraki gönderim, bir öncekinin başladığı andan bir periyot sonra. Bir gönderim geç kalırsa kaçan periyotlar
-  peş peşe gönderilmez; her gönderim sıradaki sayaçla gider. Saniyedeki gönderim sayısı periyodun verdiğinden
-  biraz az olabilir (ör. 200 Hz'de ~190–195).
+- Bir sonraki gönderim zamanı `önceki planlanan zaman + periyot`: saniyedeki gönderim sayısı periyotla birebir tutar;
+  bir gönderim geç kalırsa sonraki tur telafi eder.
+- Yüksek hızlı RX'te (ör. 200 Hz) UTS alım tamponu iki GET arasında taşabilir: logda
+  `receive buffer of ... overflowed`. Yoklama aralığını küçült (`Comm(..., poll_interval=0.001)`) ya da UTS tampon
+  boyutunu büyüt.
 - Windows: `Comm` açıkken zamanlayıcı çözünürlüğü 1 ms'ye alınır (`timeBeginPeriod(1)`, kapanınca geri verilir) ve
   TX zamanı `time.perf_counter()` ile ölçülür. Aksi halde Windows'ta uyuma ve `time.monotonic()` (Python 3.12 ve öncesi)
   15,6 ms adımlarla ilerler; 5 ms periyot ~64 Hz'de kalır.
