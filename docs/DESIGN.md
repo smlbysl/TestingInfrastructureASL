@@ -691,3 +691,37 @@ test altyapısının sınıflarını bu kaynaktan üretmek ve tanımı baştan d
 - Açık: ICD'lerin bugünkü biçimi (Excel / Word), CAN ve DBC var mı, bus türleri (ARINC 429?), sinyal başına
   endian gerekiyor mu, kod üretimi mi çalışırken yükleme mi, kaynağın sahibi kim.
 - Kaynak, ortak tek dosya veri tabanı olursa (araçtan bağımsız) bu üretim onun üzerinden yapılır.
+
+## Tasarım 7: Yoklamanın adaptöre taşınması ve RX modları (planlanacak, uygulanmadı)
+
+**Fikir:** "sorarak mı alıyorum, bekleyerek mi alıyorum" hattın özelliği; adaptöre ait olmalı. Runtime için her adaptör
+beklemeli görünür: RX thread'i `adapter.receive(kanal, timeout)` ile bekler, araya `poll_interval` koymaz.
+
+```
+runtime RX thread'i:  döngü { adapter.receive(kanal, timeout) → işle }
+   UtsAdapter    : interface başına kendi yoklama thread'i (GET + poll_interval) → kanal kuyruğu; receive kuyruktan bekler
+   UdpAdapter    : receive = sock.recvfrom (bekler)
+   SerialAdapter : receive = port.read (bekler) + boya göre ayıran ayırıcı
+```
+
+**Getirileri:**
+- `poll_interval` runtime'dan kalkar (`UtsAdapter(poll_interval=...)`); UTS'e özgü her şey (aralık, GET süresi,
+  taşma, yavaş GET uyarısı) adaptörde.
+- Doğrudan sürücüler (Ethernet socket, Moxa seri port, CAN, 1553 kartları) sadece beklemeli bir `receive` yazar.
+- RX modu kanal başına: `auto` (thread alır) / `manual` (test `comm.receive(kanal)` ile alır; `pause_rx` / `resume_rx`).
+  Manual modda UTS adaptörü yoklamaya devam edip kuyrukta biriktirdiği için UTS'in 10 paketlik tamponu taşmaz.
+- `FakeUtsAdapter.inject` doğrudan kuyruğa koyar; testler yoklama zamanlamasına bağlı kalmaz.
+
+**Dikkat:**
+- Adaptörün yaşam döngüsü: `open()` / `close()` (`Comm.open` / `close` çağırır).
+- GET hatası ve taşma kuyruktan iletilir: `receive` `AdapterError` fırlatır → `LinkError`; taşma → `Polled.overflow`.
+- Kuyruğa üst sınır ve aşılınca taşma bilgisi (manual modda uzun süre okunmazsa).
+- Manual kanallar zaman aşımı denetiminden çıkarılır (ya da sadece `receive` anında denetlenir).
+- Periyodik RX mesajının zaman aşımı denetimi (`rx=Timing(...)`) yoklamadan bağımsız; watchdog'da kalır.
+
+**İlgili:** kanal başına adaptör (yönlendirici adaptör); doğrudan sürücü adaptörleri (UDP, seri, CAN, 1553);
+donanımda periyodik gönderim (1553 BC, bazı CAN kartları); performans ölçümü (`comm.stats()`); RX önceliği
+(Windows thread / süreç önceliği, `sys.setswitchinterval`).
+
+**Tahmini değişiklik:** `adapter/base.py`, `adapter/uts/adapter.py`, `adapter/uts/fake.py`, `runtime/rx.py`, `comm.py`
+ve yoklamaya bağlı testler; ~100–150 satır. Uygulamadan önce dosya dosya ayrıntılı plan çıkarılacak.
