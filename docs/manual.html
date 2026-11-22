@@ -174,8 +174,8 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 <div class="sig">Comm(adapter, projects, poll_interval=0.01, channels=(), logger=None)</div>
 <table>
   <tr><th>Metod</th><th>Ne yapar</th></tr>
-  <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi; periyodik mesajı olan kanal başına bir TX thread'i (kanalın ilk <code>start</code>'ında açılır). Cevap vermeyen bir kanal diğerlerinin alımını ve gönderimini bekletmez.</td></tr>
-  <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır.</td></tr>
+  <tr><td><code>open()</code></td><td>Thread'leri başlatır: kanal başına bir RX thread'i, zaman aşımı denetçisi; periyodik mesajı olan kanal başına bir TX thread'i (kanalın ilk <code>start</code>'ında açılır). Cevap vermeyen bir kanal diğerlerinin alımını ve gönderimini bekletmez. Windows'ta <code>Comm</code> açıkken zamanlayıcı çözünürlüğü 1 ms'ye alınır (<code>timeBeginPeriod(1)</code>).</td></tr>
+  <tr><td><code>close()</code></td><td>Periyodik göndermeyi ve yoklamayı durdurur, sonra aboneleri kapatır (kuyruktaki olaylar işlendikten sonra). Windows zamanlayıcısını geri verir.</td></tr>
   <tr><td><code>with comm:</code></td><td><code>open()</code> ve <code>close()</code> yerine geçer.</td></tr>
 </table>
 
@@ -185,6 +185,10 @@ kanallar projelerden otomatik toplanır. Bu nedenle mesaj tanımı yapılmış o
 
 <div class="sig">comm.start(msg) <span class="ret">-&gt; None</span></div>
 <p>Periyodik göndermeyi başlatır. Mesajın <code>tx</code> zamanlaması periyodik olmalıdır; aksi halde <code>ValueError</code>.</p>
+<p>Gönderim zamanları sabit bir takvimdir: bir sonraki zaman <code>önceki planlanan zaman + periyot</code>. Saniyedeki gönderim sayısı periyotla
+birebir tutar; bir gönderim geç kalırsa sonraki tur telafi eder. Zaman <code>time.perf_counter()</code> ile ölçülür (Windows'ta
+<code>time.monotonic()</code> Python 3.12 ve öncesinde 15,6 ms adımlıdır). Bir kanalın gönderim hızının tavanı, bir POST'un gidiş-dönüş süresidir
+(UTS ile ~4,5 ms, yani ~220/s).</p>
 
 <div class="sig">comm.stop(msg) <span class="ret">-&gt; None</span></div>
 <p>Periyodik göndermeyi durdurur.</p>
@@ -617,10 +621,20 @@ comm.bus.unsubscribe(sub)</code></pre>
 
 <h3>UtsAdapter: gerçek hat</h3>
 <p>Gerçek cihaz için <code>UtsAdapter</code>'ın alt sınıfı yazılır (<code>super().__init__()</code> çağrılır). Zorunlu iki metot:</p>
-<div class="sig">post(path, interface, body, timeout) <span class="ret">-&gt; None</span></div>
-<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>). Hata olursa ya da <code>timeout</code> saniye içinde cevap gelmezse <code>AdapterError</code> fırlatır.</p>
-<div class="sig">get(path, interface, timeout) <span class="ret">-&gt; list[dict]</span></div>
-<p>Son çağrıdan beri gelen öğeleri döner; her öğeyi protokol tanımı çözer.</p>
+<div class="sig">post(path, interface, body, timeout) <span class="ret">-&gt; dict</span></div>
+<p>Protokolün hazırladığı gövdeyi gönderir (<code>POST /{path}/{interface}/messages</code>) ve UTS'in cevap gövdesini döndürür. Hata olursa ya da <code>timeout</code> saniye içinde cevap gelmezse <code>AdapterError</code> fırlatır.</p>
+<div class="sig">get(path, interface, timeout) <span class="ret">-&gt; dict</span></div>
+<p>UTS'in cevap gövdesini döndürür (<code>messages</code>, <code>isBufferOverflow</code>); öğeleri protokol tanımı çözer.</p>
+<pre><code>class HttpUtsAdapter(UtsAdapter):
+    def post(self, path, interface, body, timeout):
+        status, answer = ...                      # eldeki modül / HTTP çağrısı
+        return self.answer(status, answer)        # 200 değilse AdapterError
+
+    def get(self, path, interface, timeout):
+        status, answer = ...
+        return self.answer(status, answer)</code></pre>
+<p><code>post</code> ve <code>get</code> farklı thread'lerden aynı anda çağrılır (TX ve RX). Kullanılan bağlantı ya da modül cevabı nesnenin bir
+özniteliğinde tutuyorsa thread'ler birbirinin cevabını okuyabilir; thread başına bağlantı ya da her istekte yeni çağrı kullanın.</p>
 <p>Transport bu ikisini doğrudan değil <code>adapter.send(kanal, bayt)</code> ve <code>adapter.receive(kanal)</code> ile kullanır: adaptör kanalın protokol adına göre tanımı seçer, gövdeyi hazırlar ya da çözer. Gerçek UTS için yalnızca <code>post</code> ve <code>get</code> yazılır.</p>
 <p>Bekleme süresi protokol tanımından gelir: Ethernet ve 1553'te 2 sn, RS422'de 3 sn. <code>FakeUtsAdapter(timeout=5.0)</code> (gerçek adaptörde de aynı) hepsi için tek değer verir. İstek tekrar denenmez.</p>
 <h4>Protokol tanımları</h4>
@@ -636,8 +650,11 @@ POST zamanı <code>MessageSent.timestamp</code> olur. Taşmada RX thread'i uyar�
 Simülasyonda <code>FakeUtsAdapter.overflow(channel)</code> bir sonraki GET'te taşma bildirir.</p>
 <p>Config ve filtre istekleri (<code>read_config</code>, <code>write_config</code>, <code>read_filter</code>, <code>write_filter</code>) gerektiğinde yazılır;
 yazılmamışsa <code>NotImplementedError</code> fırlatır, mesaj akışı yine de çalışır.</p>
-<div class="note"><strong>Durum</strong>
-Gerçek UTS adaptörü henüz yazılmadı; <code>post</code> / <code>get</code> eldeki <code>ApiWrapper</code> ile yazılacak.</div>
+<div class="note"><strong>Alım tamponu ve yoklama aralığı</strong>
+UTS'in alım tamponu (varsayılan 10 paket) iki GET arasında dolarsa en eski paketler silinir; RX thread'i
+<code>receive buffer of ... overflowed</code> uyarısı loglar ve <code>RxOverflow</code> yayınlar. Yüksek hızlı RX'te (ör. 200 Hz'de tampon
+sadece ~50 ms pay verir) <code>Comm(..., poll_interval=...)</code> ile yoklama aralığını küçültün ya da UTS tampon boyutunu büyütün.
+Windows'ta 1 ms zamanlayıcı açık olduğu için <code>poll_interval=0.001</code> gerçekten 1 ms'dir; UTS'e saniyede yüzlerce GET gider.</div>
 
 <h3>FakeUtsAdapter: simülasyon</h3>
 <p>Gerçek cihazın yerine geçer. Test ettiğiniz kodu bir hata olmadan çalıştırmak için kullanılır.</p>
@@ -652,6 +669,32 @@ bad = bytearray(wire); bad[-1] ^= 0xFF                # CRC'yi boz
 adapter.inject(ch, bytes(bad))                            # -&gt; InvalidReceived
 
 adapter.posted[-1]        # ("serials", 0, {"message": [...]}): son gönderilen istek</code></pre>
+
+<h3>Simülasyon: abonelerle bir düğümü taklit etmek</h3>
+<p>Test sistemi bir düğümün yerine geçebilir (CAPL düğümü gibi): hattan gelen mesaja göre cevap verir, kendi durumunu periyodik gönderir.
+Tam örnek: <code>examples/simulation.py</code> (<code>python -m examples.simulation</code>).</p>
+<pre><code>class NodeSimulator:
+    def __init__(self, comm):
+        self.comm = comm
+        self.command = request(DUT, SIM, 0x10, rx=Timing(0.02, tolerance=5))           # DUT'tan gelen
+        self.status = comut(SIM, DUT, 0x20, direction=Direction.TX, tx=Timing(0.05))  # bizim durumumuz
+        self.status.on_send(self._fill_status)                         # her gönderimden hemen önce
+        comm.on_receive(self.command, self._on_command)                # her geçerli istekte
+        comm.subscribe(RxTimeout, self._on_timeout, where=self.command)   # istekler kesilince
+
+    def _on_command(self, event):
+        self.mode = event.snapshot().request[0]                        # o paketin değeri
+        self.comm.send(self.status)                                    # hemen cevap
+
+    def _fill_status(self, msg):
+        msg.comut[0] = self.mode</code></pre>
+<ul>
+  <li>Her handler kendi abone thread'inde çalışır; <code>on_send</code> kancası gönderen thread'de, mesaj kilidi altında çalışır.</li>
+  <li>Testte simülatör <code>setUp</code>'ta (Comm açıldıktan sonra) oluşturulur ve başlatılır, <code>addCleanup(sim.stop)</code> ile durdurulur.
+      Simülatör arka planda cevap verir; test sadece DUT'un tepkisini <code>wait_for</code> / <code>expect_new</code> ile bekler.</li>
+  <li>Simülatörün dinlediği RX mesajını testte aynı yönle yeniden oluşturmayın: yeni nesne simülatörünkünün yerini alır.
+      O mesaja bakmak için <code>sim.command.rx_history</code> kullanın.</li>
+</ul>
 
 <h3>comm.adapter: UTS yönetimi</h3>
 <p>Hedef olarak bir kanal veya bir mesaj verilebilir. Config ve filtresi olmayan bir adaptörde bu metotlar <code>AdapterError</code> verir.</p>
@@ -745,6 +788,14 @@ Tek yoklamada aynı mesajdan birkaç paket gelirse <code>msg.alan</code> sadece 
 
 <div class="warn"><strong>Başlıksız kanal sona</strong>
 Bir interface'in tek kanalı vardır. Envelope yalnızca kendi paketini kabul etmeli; kabul etmediği paket o kanalda bilinmeyen olur.</div>
+
+<div class="warn"><strong>Olaydaki değeri event.snapshot() ile okuyun</strong>
+<code>event.message</code> canlı mesaj nesnesidir; handler çalıştığında sonraki bir paket ya da gönderim onu değiştirmiş olabilir.
+O paketin değerleri için <code>event.snapshot()</code> kullanın.</div>
+
+<div class="warn"><strong>Handler'larda ağır iş yapmayın</strong>
+Her abonenin kendi kuyruğu vardır; yavaş bir handler (her mesajda konsola <code>print</code> gibi) geride kalır ve Python'un diğer thread'lerini
+yavaşlatabilir. Handler'ın çalıştığı an paketin alındığı an değildir: zaman için <code>event.host_time</code> / <code>event.timestamp</code>.</div>
 
 <div class="warn"><strong>Değişken boyda iki alan</strong>
 Değişken boyda mesajın <code>LengthType</code> alanı olmalıdır; RX boyu oradan okur. TX boyu <code>body_size()</code> ile belirlenir.</div>

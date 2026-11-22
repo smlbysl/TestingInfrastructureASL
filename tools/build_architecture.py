@@ -404,11 +404,12 @@ def page() -> str:
          "Testler, örnekler"],
         ["<code>Transport</code>", "Kanal ↔ UTS: envelope, kanalın protokolü, splitter.", "Mesaj, signature, zamanlama",
          "TxScheduler, RxPoller"],
-        ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; gönderim kilidi; TX olayları.", "UTS JSON'u", "Comm"],
-        ["<code>RxPoller</code>", "Yoklama döngüsü, WireReceived, RX zaman aşımı.", "Mesaj tanıma kuralı", "Comm"],
+        ["<code>TxScheduler</code>", "Tek seferlik ve periyodik gönderim; kanal başına TX thread'i; mesaj kilidi altında paketleme ve gönderim; sabit takvim (perf_counter); TX olayları.", "UTS JSON'u", "Comm"],
+        ["<code>RxPoller</code>", "Kanal başına RX thread'i (yoklama), watchdog (RX zaman aşımı), WireReceived, RxOverflow.", "Mesaj tanıma kuralı", "Comm"],
         ["<code>Dispatcher</code>", "Paketin mesajını bulur, decode eder, sonuç olayını yayınlar; bilinmeyenleri tutar.",
          "UTS, kanal biçimi", "RxPoller"],
         ["<code>UtsClock</code>", "Paketlerdeki UTS zamanından şu anki UTS zamanını tahmin eder.", "Mesajlar", "RxPoller"],
+        ["<code>timer</code>", "Windows'ta Comm açıkken 1 ms zamanlayıcı çözünürlüğü (timeBeginPeriod / timeEndPeriod, sayılı).", "Zamanlama kuralı", "Comm"],
         ["<code>EventBus</code>", "Olayları abonelere dağıtır; abone başına kuyruk ve thread.", "Olayın içeriği", "Bütün katmanlar"],
         ["<code>CommLogger</code> / <code>ErrorLog</code> / <code>MonitorService</code>",
          "CSV kaydı / hata dosyası / tarayıcıda izleme; olaylardan beslenir.", "Runtime'ın içi", "Test kodu"],
@@ -435,11 +436,11 @@ def page() -> str:
     tree = """asl_testing/
   __init__.py        tek import yüzeyi
   comm.py            Comm
-  message/           base, fields, signature, registry, state, history, timing
+  message/           base, fields, endian (EndianMeta), signature, registry, state, history, timing
   channel/           channel (Channel, ChannelSet, kanal tipleri), framing (Envelope, Splitter)
   adapter/           base (Adapter, AdapterError, Received)
   adapter/uts/       adapter (UtsAdapter), protocols (Protocol tanımları), filters, fake (FakeUtsAdapter)
-  runtime/           transport, rx (RxPoller), tx (TxScheduler), dispatcher, clock
+  runtime/           transport, rx (RxPoller), tx (TxScheduler), dispatcher, clock, timer (Windows 1 ms)
   events/            bus (EventBus), types
   services/          comm_logger (CommLogger), errors (ErrorLog), monitor/
 projects/example_project/   channels, header (proje, aileler), messages, types, framing
@@ -468,7 +469,7 @@ periyodik gönderim, alım, tanıma ve zaman aşımı işlerini test kodundan al
 <ul>
 <li><b>Test kodu</b> mesaj nesneleriyle ve <code>Comm</code> ile konuşur; her şeyi <code>from asl_testing import ...</code> ile alır.</li>
 <li><b>Proje</b> (<code>projects/</code>) kanalları, mesaj ailelerini, mesajları ve özel alan tiplerini tanımlar.</li>
-<li><b>Altyapı</b> iki thread çalıştırır: biri gönderir (TxScheduler), biri UTS'i yoklar (RxPoller). Sonuçlar olay olarak yayınlanır.</li>
+<li><b>Altyapı</b> kanal başına thread'ler çalıştırır: periyodik gönderim (TxScheduler, <code>Tx-&lt;kanal&gt;</code>), UTS yoklama (RxPoller, <code>Rx-&lt;kanal&gt;</code>) ve zaman aşımı denetçisi (<code>RxWatchdog</code>). Sonuçlar olay olarak yayınlanır.</li>
 </ul>
 {LEGEND}
 
@@ -502,8 +503,10 @@ yazan aile kanalıyla tanınır (kanal başına bir RX mesajı).</li>
 
 <h2 id="tx">Gönderim akışı</h2>
 {tx_sequence()}
-<p>Periyodik mesajda TxScheduler thread'i zamanı gelen her mesaj için aynı <code>send</code>'i çağırır; bir sonraki zaman
-<code>önceki zaman + periyot</code> olarak ilerler, gecikme birikmez.</p>
+<p>Periyodik mesajda kanalın TX thread'i zamanı gelen her mesaj için aynı <code>send</code>'i çağırır; bir sonraki zaman
+<code>önceki planlanan zaman + periyot</code> olarak ilerler (sabit takvim): gecikme birikmez, geç kalan gönderim telafi edilir.
+Zaman <code>time.perf_counter()</code> ile ölçülür; Windows'ta <code>Comm</code> açıkken zamanlayıcı 1 ms'dir (<code>runtime/timer.py</code>).
+Test <code>with msg.locked_update():</code> ile birden fazla alanı yazarken gönderim bloğun bitmesini bekler; alanlar birlikte gider.</p>
 
 <h2 id="rx">Alım akışı</h2>
 {rx_sequence()}

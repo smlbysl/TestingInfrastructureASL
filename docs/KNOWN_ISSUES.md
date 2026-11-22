@@ -138,6 +138,7 @@ Durum: **Açık**, **Karar bekliyor**, **Doğrulandı** (ölçümle ya da testle
 | `comm.unsubscribe` kısayolu yok | Düşük | Açık | Şimdilik `comm.bus.unsubscribe(sub)`. |
 | Monitor kayıtları bellekte sınırsız | Orta | Açık | Uzun koşularda üst sınır gerekir. |
 | Monitor zaman ekseni host saati | Düşük | Açık | UTS zamanı değil. |
-| Aynı adreste birden fazla envelope'lu kanalın sırası | Orta | Açık | `RxPoller.channels()` bir `set`; envelope'lu kanalların denenme sırası garanti değil ve header çakışması kontrol edilmiyor. |
+| ~~Aynı adreste birden fazla envelope'lu kanalın sırası~~ | Orta | Geçersiz | Her kanal tek bir UTS interface'i (karar); her kanalın kendi RX thread'i var. Aynı interface'e iki kanal tanımlanmıyor. |
+| UTS alım tamponu taşması (yüksek hızlı RX) | Orta | Açık | Varsayılan 10 paket; 200 Hz'de ~50 ms pay. `poll_interval` küçültülür ya da tampon büyütülür; kalıcı çözüm Tasarım 7 (yoklama adaptörde). |
 | Pure-Python CRC yavaş | Düşük | Açık | 46 bayt ~33 µs; `binascii.crc_hqx` ~0,18 µs. |
 | `tests/conftest.py` pytest ile koşulmadı | Düşük | Açık | Ortamda pytest kurulamıyor; ilk pytest koşusunda doğrulanmalı. |

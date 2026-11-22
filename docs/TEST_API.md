@@ -19,9 +19,9 @@ Test kodunun başlıca konuştuğu nesne. Tek başına katmanları kurar ve bağ
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
 | `Comm(adapter, projects, poll_interval, channels, logger)` | Kurulum | Evet | Evet |
-| `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur (kanal başına RX thread'i ve denetçi; periyodik mesajı olan kanal başına TX thread'i) | Evet | Evet |
+| `open()` / `close()` / `with Comm(...)` | Thread'leri başlatır / durdurur (kanal başına RX thread'i ve denetçi; periyodik mesajı olan kanal başına TX thread'i); Windows'ta açıkken 1 ms zamanlayıcı | Evet | Evet |
 | `send(msg) -> bool` | Tek gönderim, başarısızsa `False` | Evet | Evet |
-| `start(msg)` / `stop(msg)` | Periyodik gönderim | Evet | Evet |
+| `start(msg)` / `stop(msg)` | Periyodik gönderim; zamanlar sabit takvim (`önceki planlanan + periyot`), geç kalan telafi edilir | Evet | Evet |
 | `start_all(channel=None)` / `stop_all(channel=None)` | Kanaldaki (ya da hepsindeki) periyodik TX mesajlarını başlatır / durdurur; listelerini döndürür | Evet | Evet |
 | `on_receive(msg, handler)` | Mesaj alındığında handler (kendi thread'inde) | Evet | Evet |
 | `wait_new(msg, timeout)` | Yeni geçerli paket gelene kadar bekler | Evet | Evet |
@@ -158,6 +158,7 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 
 | Erişim | Ne yapar | Anlamlı mı | Tasarım |
 |---|---|---|---|
+| `UtsAdapter.post` / `get` (gerçek adaptör) | Cevap gövdesini döndürür; `return self.answer(status, body)`; TX ve RX thread'lerinden aynı anda çağrılır | Evet (gerçek adaptör) | Evet |
 | `FakeUtsAdapter.inject(channel, bytes, timestamp=None)` | Simülasyonda RX paketi üretir (kanalın protokol tanımıyla) | Evet (sahte cihaz) | Evet |
 | `FakeUtsAdapter.overflow(channel)` | Kanalın bir sonraki GET'i taşma bildirir | Evet (simülasyon) | Evet |
 | `FakeUtsAdapter.posted` | Gönderilen istekler: `(path, interface, gövde)`; gövdede `"message"` hattaki baytlar | Evet (simülasyonda kontrol) | Evet |
@@ -175,6 +176,7 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 | `CommLogger(comm, path)` | Paketleri CSV'ye yazar | Evet | Evet |
 | `ErrorLog` | Hataları olay olarak toplar | Evet | Evet |
 | `MonitorService(comm, projects, port)` | Tarayıcıda canlı / CSV izleme | Evet | Evet |
+| Simülasyon kalıbı (`examples/simulation.py`) | `comm.on_receive` + `RxTimeout` aboneliği + `msg.on_send` kancası + `comm.start`: hattan gelene göre cevap veren düğüm | Evet | Evet |
 
 ## 9. Zamanlama ve yön
 
@@ -183,6 +185,8 @@ Abonelik: `comm.subscribe(Tip, handler, where=msg)`; `where` belirli bir mesajla
 | `Timing(period, tolerance)` | Periyot ve tolerans | Evet | Evet |
 | `Direction.RX / TX / BOTH` | Yön | Evet | Evet |
 | `Signature(offset, mask, endian)` | Mesaj imzası | Evet | Evet |
+| `Comm(..., poll_interval=)` | RX yoklama aralığı (varsayılan 0,01 s); UTS tamponu taşıyorsa küçült | Evet | Evet |
+| Windows zamanlayıcısı (`runtime/timer.py`) | `Comm` açıkken 1 ms; TX zamanı `perf_counter` | Hayır (otomatik) | İç |
 
 ---
 
